@@ -1,0 +1,7 @@
+.vscode/**
+.git/**
+.gitignore
+node_modules/**
+*.vsix
+npm-debug.log
+yarn-error.log

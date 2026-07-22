@@ -1,0 +1,54 @@
+# ShipMBLang Core contract example.
+# Comments use # only. Blank lines are cosmetic.
+
+use shipmb
+use vision from embedded
+use gpio from embedded
+use tv_pack from shipmblang
+
+target language "python"
+import "math"
+from "collections" import ["Counter"]
+
+camera_id = "front-door"
+retry_count = 3
+enabled = true
+providers = [native_camera, opencv_bridge, browser_camera]
+
+routes = []
+routes append "local"
+routes append "fallback"
+
+call boot_device with camera
+
+fn boot_device(device):
+  bridge device <-> shipmb.vision using "grpc"
+  device |> capability "power_on" native
+
+class camera_controller:
+  property active_device
+  method start(device):
+    call boot_device with device
+
+type telemetry_packet:
+  field device_id: string
+  field frame_count: int
+
+interface operator_console:
+  mode "client"
+  notify_user true
+  privacy "local_only"
+
+device robot_arm:
+  use motion from embedded
+  interlock emergency_stop required
+  interlock operator_present when speed > 0
+  policy allow movement when emergency_stop == false and operator_present == true
+  robot_arm |> capability "move_joint" native
+
+capability scan_frame:
+  provider native_camera priority 100 native
+  provider opencv_bridge priority 50
+  provider browser_camera priority 10
+
+architecture |> show

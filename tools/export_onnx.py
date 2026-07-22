@@ -1,5 +1,5 @@
 """
-Export GuppyLM to ONNX format for browser inference via onnxruntime-web.
+Export DripLM to ONNX format for browser inference via onnxruntime-web.
 
 Exports to docs/model.onnx (quantized uint8 by default) + web/tokenizer.json
 so the browser demo (web/index.html) can load them — works on GitHub Pages.
@@ -20,9 +20,9 @@ import sys
 
 import torch
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "guppylm"))
-from config import GuppyConfig
-from model import GuppyLM
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "driplm"))
+from config import DripConfig
+from model import DripLM
 
 
 def load_env():
@@ -49,7 +49,7 @@ def export_onnx(checkpoint_path, tokenizer_path, output_path, quantize=True, pus
     if os.path.exists(config_json):
         with open(config_json) as f:
             cfg = json.load(f)
-        config = GuppyConfig(
+        config = DripConfig(
             vocab_size=cfg.get("vocab_size", 4096),
             max_seq_len=cfg.get("max_position_embeddings", cfg.get("max_seq_len", 128)),
             d_model=cfg.get("hidden_size", cfg.get("d_model", 384)),
@@ -62,19 +62,19 @@ def export_onnx(checkpoint_path, tokenizer_path, output_path, quantize=True, pus
             eos_id=cfg.get("eos_token_id", cfg.get("eos_id", 2)),
         )
     elif isinstance(ckpt, dict) and "config" in ckpt:
-        valid_fields = {f.name for f in GuppyConfig.__dataclass_fields__.values()}
-        config = GuppyConfig(**{k: v for k, v in ckpt["config"].items() if k in valid_fields})
+        valid_fields = {f.name for f in DripConfig.__dataclass_fields__.values()}
+        config = DripConfig(**{k: v for k, v in ckpt["config"].items() if k in valid_fields})
     else:
-        config = GuppyConfig()
+        config = DripConfig()
 
     # Load model
     state_dict = ckpt["model_state_dict"] if isinstance(ckpt, dict) and "model_state_dict" in ckpt else ckpt
-    model = GuppyLM(config)
+    model = DripLM(config)
     model.load_state_dict({k: v for k, v in state_dict.items() if k in model.state_dict()})
     model.eval()
 
     total = sum(p.numel() for p in model.parameters())
-    print(f"GuppyLM: {total:,} params ({total/1e6:.1f}M)")
+    print(f"DripLM: {total:,} params ({total/1e6:.1f}M)")
 
     # Export to ONNX — only the forward pass (logits), no loss
     dummy_input = torch.randint(0, config.vocab_size, (1, 32))
@@ -142,7 +142,7 @@ def export_onnx(checkpoint_path, tokenizer_path, output_path, quantize=True, pus
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Export GuppyLM to ONNX")
+    parser = argparse.ArgumentParser(description="Export DripLM to ONNX")
     parser.add_argument("--checkpoint", default="checkpoints/best_model.pt")
     parser.add_argument("--tokenizer", default="data/tokenizer.json")
     parser.add_argument("--output", default="docs/model.onnx")

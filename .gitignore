@@ -1,33 +1,43 @@
-# ── Generated data & models ─────────────────────────────────
+# Generated data and model artifacts
 data/
 dataset/
 checkpoints/
+output/
+tmp/
 *.pt
 *.bin
 *.onnx
 
-# ── Allow web/ assets for GitHub Pages ──────────────────────
+# Allow checked-in browser demo assets
 !docs/*.onnx
 !docs/*.json
+!docs/tokenizer.json
 
-# ── Python ──────────────────────────────────────────────────
+# Python
 venv/
 env/
 .venv/
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
 *.egg
 *.egg-info/
 dist/
 build/
 .eggs/
+.pytest_cache/
+.coverage
+htmlcov/
 
-# ── Notebook checkpoints ───────────────────────────────────
+# Notebook checkpoints
 .ipynb_checkpoints/
 
-# ── OS ──────────────────────────────────────────────────────
+# VS Code extension build artifacts
+extensions/vscode-shipmblang/*.vsix
+extensions/vscode-shipmblang/node_modules/
+extensions/vscode-shipmblang/out/
+
+# OS
 .DS_Store
 .DS_Store?
 ._*
@@ -35,7 +45,7 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 
-# ── IDE / Editor ────────────────────────────────────────────
+# IDE / editor
 .vscode/
 .idea/
 *.swp
@@ -46,10 +56,10 @@ Desktop.ini
 *.sublime-project
 *.sublime-workspace
 
-# ── Secrets ──────────────────────────────────────────────────
+# Secrets
 .env
 
-# ── Logs & temp ─────────────────────────────────────────────
+# Logs and temp files
 *.log
 *.tmp
 *.bak

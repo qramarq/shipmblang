@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "C:\Users\admin\Documents\printu\drip\examples\printurf_sandbox\app.py", line 12, in <module>
+    main()
+    ~~~~^^
+  File "C:\Users\admin\Documents\printu\drip\examples\printurf_sandbox\app.py", line 8, in main
+    print(f"total: {total}")
+                    ^^^^^
+NameError: name 'total' is not defined
