@@ -18,6 +18,9 @@ from shipmblang import pipelines
 
 class PipelineTests(unittest.TestCase):
     def setUp(self):
+        version = patch.object(sys, "version_info", (3, 11))
+        version.start()
+        self.addCleanup(version.stop)
         environment = patch.dict(os.environ, {"SHIPMB_MEMORY": "off"})
         environment.start()
         self.addCleanup(environment.stop)
