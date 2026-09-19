@@ -1,0 +1,8 @@
+Let measurements be the list of integers 3, 12, and 15.
+Let total be a mutable integer with value 0.
+For each measurement in measurements:
+  If measurement is greater than 10 then:
+    Set total to the sum of total and measurement.
+  End the condition.
+End the loop.
+Show total.

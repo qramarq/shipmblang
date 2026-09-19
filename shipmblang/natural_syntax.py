@@ -22,3 +22,6 @@ __all__ = [
     "syntax_analysis",
     "target_code_generation",
 ]
+
+# Route public CLI entry points through the optional pipeline dispatcher.
+from .pipelines import main, run_main

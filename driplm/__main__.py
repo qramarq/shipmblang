@@ -85,12 +85,12 @@ def main():
         error_explainer_main()
 
     elif cmd in ("compile", "ship"):
-        from .natural_syntax import main as natural_syntax_main
+        from shipmblang.pipelines import main as natural_syntax_main
 
         natural_syntax_main()
 
     elif cmd in ("run", "ship-run"):
-        from .natural_syntax import run_main as natural_syntax_run_main
+        from shipmblang.pipelines import run_main as natural_syntax_run_main
 
         natural_syntax_run_main()
 

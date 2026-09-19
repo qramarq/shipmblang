@@ -19,8 +19,6 @@ from .device_families import (
     require_device_family,
     require_device_resource,
 )
-from .error_explainer import build_printurf_report, collect_code_context, render_printurf_report
-from .project_context import build_codebase_index
 
 
 DEFAULT_ROOT = "."
@@ -174,8 +172,28 @@ TOKEN_PATTERN = re.compile(
 )
 
 
-def compile_natural_program(text: str, *, root: str | None = None) -> dict[str, Any]:
-    """Compile natural sentences through the ShipMBLang compiler pipeline."""
+def compile_natural_program(text: str, *, root: str | None = None, include_core: bool = True,
+                            memory: bool = True, memory_path: str | None = None) -> dict[str, Any]:
+    """Compile prose, optionally rendering Core and capturing the submission."""
+    from shipmblang.memory_capture import capture_submission
+
+    try:
+        result = _compile_natural_program(text, root=root, include_core=include_core)
+    except Exception as error:
+        capture_submission(text, {"status": "failed", "error": str(error)}, pipeline="legacy",
+                           project=root, memory=memory, memory_path=memory_path)
+        raise
+    capture_submission(text, result, pipeline="legacy", project=root,
+                       memory=memory, memory_path=memory_path)
+    return result
+
+
+def _compile_natural_program(text: str, *, root: str | None = None, include_core: bool = True) -> dict[str, Any]:
+    """Compile to bytecode; optionally render Core for review.
+
+    With ``include_core=False``, the renderer is never called and ``core`` is
+    None. The existing bytecode and compiler trace are unchanged.
+    """
     source = text.strip()
     tokens = lexical_analysis(source)
     syntax_tree = syntax_analysis(source, tokens)
@@ -192,7 +210,7 @@ def compile_natural_program(text: str, *, root: str | None = None) -> dict[str, 
         "intermediate_code": intermediate_code,
         "optimized_intermediate_code": optimized_intermediate_code,
         "target_code": target_code,
-        "core": render_core_program(ops),
+        "core": render_core_program(ops) if include_core else None,
         "bytecode": ops,
     }
 
@@ -320,9 +338,14 @@ def run_natural_program(
     code_context: str = "",
     line: int | None = None,
     max_files: int = 80,
+    memory: bool = True,
+    memory_path: str | None = None,
 ) -> dict[str, Any]:
     """Compile and execute the currently supported ShipMBLang bytecode ops."""
-    program = compile_natural_program(text, root=root)
+    from .error_explainer import build_printurf_report
+    from .project_context import build_codebase_index
+
+    program = compile_natural_program(text, root=root, memory=memory, memory_path=memory_path)
     state: dict[str, Any] = {
         "root": str(Path(root or DEFAULT_ROOT).resolve()),
         "project": None,
@@ -687,11 +710,16 @@ def render_core_program(ops: list[dict[str, Any]]) -> str:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Compile natural ShipMBLang sentences into executable core syntax.")
+    parser = argparse.ArgumentParser(
+        description="Compile natural ShipLang sentences to bytecode with optional Core output.",
+        epilog="The shipmblang CLI also accepts --pipeline legacy (default), direct, or ir. Direct/ir require shipmblang[direct].",
+    )
     parser.add_argument("text", nargs="*", help="Sentence or paragraph to compile.")
-    parser.add_argument("--file", help="Read natural ShipMBLang from a text file.")
+    parser.add_argument("--file", help="Read natural ShipLang from a text file.")
     parser.add_argument("--root", help="Default project root for open/index instructions.")
-    parser.add_argument("--format", choices=["core", "json"], default="core")
+    parser.add_argument("--format", choices=["core", "json", "bytecode"], default="core")
+    parser.add_argument("--memory", choices=["on", "off"], default="on")
+    parser.add_argument("--memory-path", "--memory-db", dest="memory_path")
     args = parser.parse_args()
 
     if args.file:
@@ -699,7 +727,11 @@ def main() -> None:
     else:
         text = " ".join(args.text)
 
-    program = compile_natural_program(text, root=args.root)
+    program = compile_natural_program(text, root=args.root, include_core=args.format != "bytecode",
+                                      memory=args.memory == "on", memory_path=args.memory_path)
+    if args.format == "bytecode":
+        print(json.dumps(program["target_code"], indent=2))
+        return
     if args.format == "json":
         print(json.dumps(program, indent=2))
         return
@@ -707,9 +739,14 @@ def main() -> None:
 
 
 def run_main() -> None:
-    parser = argparse.ArgumentParser(description="Run natural ShipMBLang sentences through the local ShipMBLang runtime.")
+    from .error_explainer import collect_code_context
+
+    parser = argparse.ArgumentParser(
+        description="Run natural ShipLang sentences through the local ShipLang runtime.",
+        epilog="Use --pipeline direct or ir in the shipmblang CLI for the optional compiler event sandbox.",
+    )
     parser.add_argument("text", nargs="*", help="Sentence or paragraph to run.")
-    parser.add_argument("--file", help="Read natural ShipMBLang from a text file.")
+    parser.add_argument("--file", help="Read natural ShipLang from a text file.")
     parser.add_argument("--root", help="Default project root for open/index instructions.")
     parser.add_argument("--error", help="Raw error or traceback text for printurf.")
     parser.add_argument("--error-file", help="File containing the raw error or traceback.")
@@ -717,6 +754,8 @@ def run_main() -> None:
     parser.add_argument("--line", type=int, help="1-based line number for the failing code.")
     parser.add_argument("--max-files", type=int, default=80)
     parser.add_argument("--format", choices=["text", "json"], default="text")
+    parser.add_argument("--memory", choices=["on", "off"], default="on")
+    parser.add_argument("--memory-path", "--memory-db", dest="memory_path")
     parser.add_argument("--path", action="append", default=[], help="File or directory for printurf to inspect/index.")
     args = parser.parse_args()
 
@@ -737,6 +776,8 @@ def run_main() -> None:
         code_context=code_context,
         line=args.line,
         max_files=args.max_files,
+        memory=args.memory == "on",
+        memory_path=args.memory_path,
     )
     if args.format == "json":
         print(json.dumps(result, indent=2))
@@ -1837,6 +1878,8 @@ def _quote(value: str) -> str:
 
 
 def _render_state_value(state: dict[str, Any], value: str) -> str:
+    from .error_explainer import render_printurf_report
+
     if value == "report" and state.get("report") is not None:
         return render_printurf_report(state["report"], include_context=False)
     if value == "project" and state.get("project") is not None:

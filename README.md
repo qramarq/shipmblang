@@ -320,3 +320,94 @@ Proprietary. ShipMBLang, including ShipMBLang Core, the compiler, runtime
 components, developer tooling, and `printurf()` functionality, is the
 intellectual and proprietary property of ZMachinery LLC by way of SHIPMB. All
 rights reserved.
+
+
+## Standalone and general compilation
+
+Compile directly to the existing bytecode envelope without rendering Core:
+
+```bash
+python -m shipmblang compile "Use ShipMB. Open the current project and scan the codebase." --format bytecode
+```
+
+This outputs `target`, `native_machine_code`, and `bytecode`. Core text and the
+shipmblangcore specification repository are not required. Python callers can use
+`compile_natural_program(text, include_core=False)` to keep the full compiler
+trace with `core` set to `None`, without calling the Core renderer. Existing
+Core/JSON defaults and run behavior are unchanged. This remains the local
+ShipMBLang bytecode format, not native code or the separate shipmbcompiler format.
+Compile-only imports also avoid the error-reporting, project-indexing, provider,
+and runtime-context modules. Public helpers remain available through lazy exports;
+execution loads its runtime helpers when requested.
+
+### Optional direct English compiler
+
+On Python 3.11 or newer, install the separately named compiler distribution with
+`python -m pip install "shipmblang[direct]"`. Both distributions can coexist;
+the basic language package still has no required dependencies.
+
+```bash
+python -m shipmblang compile "Use the tv pack library in shipmblang to control this Roku TV like a remote." --pipeline direct --memory off
+python -m shipmblang compile "Use the tv pack library in shipmblang to control this Roku TV like a remote." --pipeline direct --format json --memory off
+python -m shipmblang compile "Use the tv pack library in shipmblang to control this Roku TV like a remote." --pipeline ir --memory off
+```
+
+`legacy` remains the default and uses the existing language compiler. `direct`
+delegates English interpretation and bytecode generation to shipmbcompiler;
+`ir` explicitly selects that compiler's older IR pipeline. There is no automatic
+fallback. Direct/IR output defaults to compiler bytecode; JSON includes diagnostics
+and clarification questions. Core output is available through `legacy`. A direct
+result needing clarification or reporting unsupported behavior exits unsuccessfully
+and prints its full explanation, even when bytecode output was requested.
+
+Answer a clarification by keeping the original source and supplying explicit
+English with `--interpretation`:
+
+```bash
+python -m shipmblang compile "Control it like a remote." --pipeline direct --interpretation "Use the tv pack library in shipmblang to control this Roku TV like a remote." --format json --memory off
+```
+
+The compiler validates that interpretation before generating bytecode. It does
+not silently substitute a guessed meaning. With memory enabled, confirmed meaning
+can be recorded by the compiler. This flag is supported only by the direct pipeline.
+
+Python callers can use `shipmblang.compile_direct_program(...)`. Its result keeps
+the compiler schema, including `status`, `clarifications`, and `target_code`.
+It accepts explicit bindings, clarification answers and an optional model-provider
+callback; no model is selected automatically. Compiler bytecode is not passed to
+the legacy language runtime. `run --pipeline direct` uses the compiler's validated
+artifact runner. Its Roku profile is an event sandbox, not a live-device controller.
+
+The opt-in `general` profile requires a profile-capable `shipmbcompiler>=0.2.1,<0.3`
+build. It compiles supported pure computation into version 0.3 compiler bytecode.
+For example, [general_sum.shipmb](examples/general_sum.shipmb) adds the values above
+10 in the list 3, 12, 15 and captures `27` followed by a newline:
+
+```bash
+python -m shipmblang run --file examples/general_sum.shipmb --pipeline direct --profile general --memory off
+```
+
+The JSON result contains `runtime.stdout` and `runtime.output`. Python callers use
+`compile_direct_program(source, profile="general", memory=False)` to compile.
+The [function example](examples/general_functions.shipmb) uses a typed recursive
+factorial function and produces `720`:
+
+```bash
+python -m shipmblang run --file examples/general_functions.shipmb --pipeline direct --profile general --memory off
+```
+
+`--profile` is only valid with `--pipeline direct`; the default direct profile
+remains `roku`, and existing legacy/IR defaults are unchanged. General artifacts
+run through the compiler's version-aware loader, not the legacy language runtime.
+This initial profile supports its implemented computation subset; it does not
+provide arbitrary prose interpretation or live storage, API, UI, or device effects.
+
+Source submissions and outcomes are captured locally when compiler memory is
+installed. This includes unsuccessful interpretations and original source text.
+`--memory off` or API `memory=False` always disables capture. Otherwise an explicit
+`memory_path` or `--memory-path` (also `--memory-db`) enables that database even
+when `SHIPMB_MEMORY=off`. Without an explicit path, `SHIPMB_MEMORY=off` disables
+capture; `SHIPMB_MEMORY_DB` selects the default database when capture is enabled.
+Otherwise the compiler's local user-data location is used. Legacy capture failures, including a missing
+optional compiler, warn without discarding the compilation result. Use a disposable
+database or disable memory for tests and sensitive inputs.

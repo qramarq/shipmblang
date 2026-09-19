@@ -25,6 +25,7 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
+direct = ["shipmbcompiler>=0.2.1,<0.3; python_version >= '3.11'"]
 model = [
     "numpy>=1.24.0",
     "tokenizers>=0.19.0",
@@ -43,18 +44,18 @@ shipmblang = "shipmblang.cli:main"
 shipmb = "shipmblang.cli:main"
 shipmb-printurf = "shipmblang.error_explainer:main"
 shipmb-mcp = "shipmblang.mcp_server:main"
-shipmb-compile = "shipmblang.natural_syntax:main"
-shipmb-run = "shipmblang.natural_syntax:run_main"
+shipmb-compile = "shipmblang.pipelines:main"
+shipmb-run = "shipmblang.pipelines:run_main"
 shipmblang-mcp = "shipmblang.mcp_server:main"
-shipmblang-compile = "shipmblang.natural_syntax:main"
-shipmblang-run = "shipmblang.natural_syntax:run_main"
+shipmblang-compile = "shipmblang.pipelines:main"
+shipmblang-run = "shipmblang.pipelines:run_main"
 shipmblang-onboarding = "shipmblang.onboarding:main"
 printurf = "shipmblang.error_explainer:main"
 shiplang-mcp = "shipmblang.mcp_server:main"
-shiplang-compile = "shipmblang.natural_syntax:main"
-shiplang-run = "shipmblang.natural_syntax:run_main"
+shiplang-compile = "shipmblang.pipelines:main"
+shiplang-run = "shipmblang.pipelines:run_main"
 shipmb-onboarding = "shipmblang.onboarding:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["driplm*", "shiplang*", "shipmblang*", "shipmb*", "driplang*"]
+include = ["driplm", "driplm.*", "shiplang", "shiplang.*", "shipmblang", "shipmblang.*", "shipmb", "shipmb.*", "driplang", "driplang.*"]
