@@ -13,23 +13,58 @@ If the user can explain the program end to end in natural language syntax shipmb
 For v0.1, the concrete machine target is ShipMBLang bytecode executed by the
 local runtime. Native CPU code can come later.
 
-## Pipeline
+## What distinguishes ShipMB's approach
+
+ShipMB keeps the user's supported English prose as the maintained program and
+combines direct compilation with source-bound clarification, contextual memory,
+and explicit guarded execution. These are architectural features, not a claim
+that ShipMB is the first or only language to provide them.
+
+- **Direct compilation:** English -> typed syntax and resolved names -> final
+  ShipMB bytecode. No Core source, generated Python/JavaScript, TAC, or separate
+  intermediate instruction list is produced by this path. The syntax tree is
+  still an internal representation; `target_code` contains the final VM artifact,
+  not native CPU code or another source-language compilation step.
+- **Clarification tied to source:** focused API answers identify a question and
+  source revision. Stale answers cannot silently apply to changed prose; the
+  revised program is validated before bytecode is emitted.
+- **Meaning remembered in context:** confirmed interpretations are reused only
+  after compatibility and project/binding checks. Similar wording is a suggestion,
+  not confirmation. Memory does not autonomously rewrite grammar or train models.
+- **Ability checked at execution:** guarded actions check current ability through
+  an injected checker, skip with a reason when unable, and continue independent
+  actions. This is verified with simulated outcomes in the Roku profile; it is
+  not a claim of completed general device control.
+- **Explicit outcomes:** supported meaning compiles; ambiguity requests
+  clarification; unsupported meaning gets an explanation. There is no silent
+  fallback to a different compilation pipeline.
+
+The current frontend recognizes a defined English grammar, not arbitrary prose.
+Broader understanding requires reviewed grammar changes and regression tests.
+Remembering meaning never grants execution permission or proves current device
+availability. General app, messaging, camera and cross-device integrations remain
+planned work. The intended distinction is how these features work together;
+historical uniqueness has not been established.
+
+## Compilation pipelines
+
+The opt-in direct pipeline uses the optional `shipmbcompiler` package:
 
 ```text
-English prose -> lexical analysis -> syntax analysis -> semantic analysis
--> intermediate code generation -> code optimization -> target code generation
--> ShipMBLangCore -> ShipMBLang bytecode -> runtime/machine execution
+English prose -> syntax tree and resolved names -> ShipMB bytecode -> runtime
 ```
 
-- English prose is the program text the user writes in a code editor.
-- Lexical analysis tokenizes words, numbers, strings, punctuation, and compiler keywords.
-- Syntax analysis groups tokens into natural-language statement nodes.
-- Semantic analysis collects declarations, resolves references against the full
-  declaration set, and emits program symbols and operations.
-- Intermediate code generation emits ShipMBLang IR instructions.
-- Code optimization normalizes and lightly rewrites IR before output.
-- Target code generation emits ShipMBLang bytecode, the current machine target.
-- The runtime executes the supported bytecode operations locally.
+```powershell
+python -m shipmblang compile --file program.smb --pipeline direct --profile general --memory off
+```
+
+`shipmblangcore` remains a specification and compatibility project, not an
+installation or translation dependency of this direct path. Direct compilation
+requires Python 3.11+. The default remains `legacy`, using this language package's
+existing compiler and output formats. Explicit `ir` selects shipmbcompiler's
+separate IR pipeline. Neither compatibility path is an automatic fallback after
+an unresolved direct compilation. Later Core examples describe compatibility
+behavior, not an obligatory stage of direct compilation.
 
 ## Quick Start
 
