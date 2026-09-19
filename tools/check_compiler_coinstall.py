@@ -91,6 +91,10 @@ print(json.dumps({'language': shipmblang.__file__, 'compiler': shipmbcompiler.__
                 assert result["target_code"]["bytecode"]
                 if action == "run":
                     assert result["runtime"] is not None
+            spaced_file = root / "program with spaces.smb"
+            spaced_file.write_text('Let greeting be "caf\u00e9". Show greeting.', encoding="utf-8")
+            output = command([str(executable), "-X", "utf8", "-I", "-m", "shipmblang", "run", "--file", str(spaced_file), "--pipeline", "direct", "--profile", "general", "--memory", "off"], cwd=root, env=env)
+            assert json.loads(output)["runtime"]["stdout"] == "caf\u00e9\n"
             general_source = (language / "examples" / "general_sum.shipmb").read_text(encoding="utf-8")
             for action in ("compile", "run"):
                 output = command([str(executable), "-I", "-m", "shipmblang", action, general_source, "--pipeline", "direct", "--profile", "general", "--format", "json", "--memory", "off"], cwd=root, env=env)
@@ -122,6 +126,19 @@ assert executed['runtime']['output'] == ['720'], executed
                 if action == "run":
                     assert result["runtime"]["stdout"] == "720\n", result
                     assert result["runtime"]["output"] == ["720"], result
+            if index == 0 and os.environ.get("SHIPMB_CODE_EXE"):
+                editor_env = {**env, "SHIPMB_TEST_PYTHON": str(executable), "SHIPMB_TEST_CWD": str(root)}
+                code_args = [os.environ["SHIPMB_CODE_EXE"], "--user-data-dir", str(root / "vscode-profile"), "--extensions-dir", str(root / "vscode-extensions"),
+                    "--extensionDevelopmentPath=" + str(language / "extensions/vscode-shipmblang"),
+                    "--extensionTestsPath=" + str(language / "extensions/vscode-shipmblang/test/host"),
+                    "--skip-welcome", "--skip-release-notes", "--disable-workspace-trust", "--disable-gpu", "--no-sandbox"]
+                startup = None
+                if os.name == "nt":
+                    startup = subprocess.STARTUPINFO(); startup.dwFlags |= subprocess.STARTF_USESHOWWINDOW; startup.wShowWindow = 0
+                editor = subprocess.run(code_args, cwd=root, env=editor_env, capture_output=True, text=True, timeout=120, startupinfo=startup)
+                assert editor.returncode == 0, editor.stdout + editor.stderr
+                assert "SHIPMB_EDITOR_HOST_PASS" in editor.stdout + editor.stderr, editor.stdout + editor.stderr
+                print("Real VS Code extension host passed")
             print(f"Installation order {index + 1}: API, aliases, memory, general sum/functions, direct and IR run passed")
 
 

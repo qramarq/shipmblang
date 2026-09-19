@@ -1,8 +1,10 @@
 const vscode = require('vscode');
-const cp = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { buildArgs, runProcess, parseResult, utf16Offset } = require('./runner');
+let programDiagnostics;
+const generations = new Map();
 
 let output;
 let codeLensEmitter;
@@ -12,6 +14,9 @@ const LEGACY_EXTENSION_IDS = ['shiplang', 'drip'];
 
 function activate(context) {
   output = vscode.window.createOutputChannel('ShipMBLang');
+  programDiagnostics = vscode.languages.createDiagnosticCollection('shipmblang');
+  context.subscriptions.push(programDiagnostics, vscode.workspace.onDidChangeTextDocument(event => programDiagnostics.delete(event.document.uri)),
+    vscode.workspace.onDidCloseTextDocument(document => { programDiagnostics.delete(document.uri); generations.delete(document.uri.toString()); }));
   codeLensEmitter = new vscode.EventEmitter();
 
   context.subscriptions.push(output, codeLensEmitter);
@@ -126,46 +131,54 @@ async function explainPastedError() {
   await runAndShowShipLang(rawError, codeContext, document, line);
 }
 
-async function compileNaturalProgram() {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor) {
-    vscode.window.showWarningMessage('ShipMBLang needs an open editor.');
-    return;
-  }
-  const source = selectedOrWholeDocument(editor);
-  await vscode.window.withProgress({
-    location: vscode.ProgressLocation.Window,
-    title: 'ShipMBLang is compiling the natural program...'
-  }, async () => {
-    const compiled = await callNaturalShipLang('compile', source, editor.document);
-    output.appendLine('');
-    output.appendLine('ShipMBLang Core');
-    output.appendLine(compiled);
-    output.show(true);
-  });
-}
+async function compileNaturalProgram() { return executeProgram('compile'); }
+async function runNaturalProgram() { return executeProgram('run'); }
 
-async function runNaturalProgram() {
+async function executeProgram(mode) {
   const editor = vscode.window.activeTextEditor;
-  if (!editor) {
-    vscode.window.showWarningMessage('ShipMBLang needs an open editor.');
-    return;
-  }
+  if (!editor) { vscode.window.showWarningMessage('ShipMBLang needs an open editor.'); return; }
+  if (!vscode.workspace.isTrusted) { vscode.window.showWarningMessage('Trust this workspace before running ShipMBLang.'); return; }
+  const document = editor.document;
   const source = selectedOrWholeDocument(editor);
-  const diagnostic = findDiagnosticAtCursor(editor.document, editor.selection.active);
-  const rawError = diagnostic ? diagnostic.message : '';
-  const codeContext = diagnostic ? collectEditorContext(editor.document, diagnostic.range.start.line) : '';
-  await vscode.window.withProgress({
-    location: vscode.ProgressLocation.Window,
-    title: 'ShipMBLang is running the natural program...'
-  }, async () => {
-    const result = await callNaturalShipLang('run', source, editor.document, rawError, codeContext);
-    output.appendLine('');
-    output.appendLine('ShipMBLang Run');
-    output.appendLine(result);
-    output.show(true);
-    vscode.window.showInformationMessage(shorten(result));
-  });
+  const base = editor.selection.isEmpty ? 0 : document.offsetAt(editor.selection.start);
+  const version = document.version;
+  const key = document.uri.toString();
+  const generation = (generations.get(key) || 0) + 1;
+  generations.set(key, generation);
+  const diagnostic = findDiagnosticAtCursor(document, editor.selection.active);
+  try {
+    return await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
+      title: `ShipMBLang: ${mode}`, cancellable: true }, async (_, token) => {
+      const result = await callNaturalShipLang(mode, source, document,
+        diagnostic ? diagnostic.message : '', diagnostic ? collectEditorContext(document, diagnostic.range.start.line) : '', token);
+      if (document.isClosed || document.version !== version || generations.get(key) !== generation) {
+        output.appendLine('Source changed; discarded stale compiler feedback.');
+        return undefined;
+      }
+      const diagnostics = result.diagnostics || (result.semantic_model && result.semantic_model.diagnostics) || [];
+      const questions = (result.clarifications || []).map(q => ({ ...q, message: q.question, level: 'warning', code: 'clarification' }));
+      programDiagnostics.set(document.uri, [...diagnostics, ...questions].map(item => {
+        const span = item.span || item.source_span || { start: 0, end: 0 };
+        const start = document.positionAt(base + utf16Offset(source, span.start));
+        const end = document.positionAt(base + utf16Offset(source, Math.max(span.start || 0, span.end || 0)));
+        const entry = new vscode.Diagnostic(new vscode.Range(start, end), item.message || String(item),
+          item.level === 'warning' ? vscode.DiagnosticSeverity.Warning : vscode.DiagnosticSeverity.Error);
+        entry.source = 'ShipMBLang'; entry.code = item.code;
+        return entry;
+      }));
+      output.appendLine(`\nShipMBLang ${mode}`);
+      if (mode === 'run' && result.runtime && typeof result.runtime.stdout === 'string') output.append(result.runtime.stdout);
+      else if (mode === 'run' && typeof result.output === 'string') output.appendLine(result.output);
+      else output.appendLine(JSON.stringify(result, null, 2));
+      if (diagnostics.length || questions.length) output.appendLine(JSON.stringify({ diagnostics, clarifications: result.clarifications || [] }, null, 2));
+      output.show(true);
+      return result;
+    });
+  } catch (error) {
+    output.appendLine(error.message); output.show(true);
+    vscode.window.showErrorMessage(error.message);
+    return undefined;
+  }
 }
 
 async function explainDiagnosticCommand(uri, diagnostic) {
@@ -233,8 +246,8 @@ async function callPrinturf(rawError, codeContext) {
   await fs.promises.writeFile(contextFile, codeContext, 'utf8');
 
   try {
-    const pythonPath = getConfigurationValue('pythonPath', 'python');
-    const projectRoot = resolveProjectRoot(getConfigurationValue('projectRoot', getLegacyConfigurationValue('dripRoot', '')));
+    const pythonPath = getConfigurationValue('pythonPath', 'python', undefined);
+    const projectRoot = resolveProjectRoot(getConfigurationValue('projectRoot', getLegacyConfigurationValue('dripRoot', ''), undefined));
     const args = ['-m', 'shipmblang', 'printurf', '--error-file', errorFile, '--context-file', contextFile];
     const checkpoint = getConfigurationValue('checkpoint', '');
     const tokenizer = getConfigurationValue('tokenizer', '');
@@ -255,7 +268,7 @@ async function callPrinturf(rawError, codeContext) {
   }
 }
 
-async function callNaturalShipLang(mode, source, document, rawError = '', codeContext = '') {
+async function callNaturalShipLang(mode, source, document, rawError = '', codeContext = '', token) {
   const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'shipmblang-'));
   const sourceFile = path.join(tmpDir, 'program.shipmb');
   const errorFile = path.join(tmpDir, 'error.txt');
@@ -265,20 +278,24 @@ async function callNaturalShipLang(mode, source, document, rawError = '', codeCo
   await fs.promises.writeFile(contextFile, codeContext, 'utf8');
 
   try {
-    const pythonPath = getConfigurationValue('pythonPath', 'python');
-    const projectRoot = resolveProjectRoot(getConfigurationValue('projectRoot', getLegacyConfigurationValue('dripRoot', '')));
-    const args = ['-m', 'shipmblang', mode, '--file', sourceFile, '--root', workspaceRootForDocument(document)];
-    if (mode === 'run') {
-      args.push('--error-file', errorFile, '--context-file', contextFile);
-    }
-    return await spawnShipLang(pythonPath, args, projectRoot, (stdout) => stdout.trim() || 'ShipLang produced no output.');
+    const pythonPath = getConfigurationValue('pythonPath', 'python', document && document.uri);
+    const projectRoot = resolveProjectRoot(getConfigurationValue('projectRoot', getLegacyConfigurationValue('dripRoot', ''), document && document.uri), document);
+    const args = buildArgs(mode, sourceFile, workspaceRootForDocument(document), {
+      pipeline: getConfigurationValue('pipeline', 'legacy', document.uri),
+      profile: getConfigurationValue('profile', 'general', document.uri),
+      memory: getConfigurationValue('memory', false, document.uri), errorFile, contextFile
+    });
+    const response = await runProcess(pythonPath, args, { cwd: projectRoot, token,
+      timeoutMs: getConfigurationValue('timeoutMs', 30000, document.uri) });
+    if (response.stderr.trim()) output.appendLine(response.stderr.trim());
+    return parseResult(response);
   } finally {
     fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
 }
 
-function getConfigurationValue(key, fallback) {
-  const value = vscode.workspace.getConfiguration(EXTENSION_ID).get(key);
+function getConfigurationValue(key, fallback, uri) {
+  const value = vscode.workspace.getConfiguration(EXTENSION_ID, uri).get(key);
   if (value !== undefined && value !== '') {
     return value;
   }
@@ -295,11 +312,11 @@ function getLegacyConfigurationValue(key, fallback) {
   return fallback;
 }
 
-function resolveProjectRoot(configuredRoot) {
+function resolveProjectRoot(configuredRoot, document) {
   if (configuredRoot && fs.existsSync(configuredRoot)) {
     return configuredRoot;
   }
-  const workspace = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+  const workspace = (document && vscode.workspace.getWorkspaceFolder(document.uri)) || (vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0]);
   if (workspace && fs.existsSync(path.join(workspace.uri.fsPath, 'shipmblang', '__main__.py'))) {
     return workspace.uri.fsPath;
   }
@@ -315,25 +332,14 @@ function workspaceRootForDocument(document) {
   if (folder) {
     return folder.uri.fsPath;
   }
-  return path.dirname(document.uri.fsPath);
+  return document.uri.scheme === 'file' ? path.dirname(document.uri.fsPath) : resolveProjectRoot('');
 }
 
-function spawnShipLang(command, args, cwd, transform) {
-  return new Promise((resolve, reject) => {
-    const child = cp.spawn(command, args, { cwd, windowsHide: true });
-    let stdout = '';
-    let stderr = '';
-    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
-    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
-    child.on('error', reject);
-    child.on('close', (code) => {
-      if (code !== 0) {
-        reject(new Error(stderr || stdout || `ShipMBLang exited with code ${code}`));
-        return;
-      }
-      resolve(transform(stdout));
-    });
-  });
+async function spawnShipLang(command, args, cwd, transform) {
+  if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace before running ShipMBLang.');
+  const result = await runProcess(command, ['-X', 'utf8', ...args], { cwd });
+  if (result.code !== 0) throw new Error(result.stderr || result.stdout || `ShipMBLang exited with code ${result.code}`);
+  return transform(result.stdout);
 }
 
 function extractExplanation(stdout) {

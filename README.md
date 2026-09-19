@@ -411,3 +411,8 @@ capture; `SHIPMB_MEMORY_DB` selects the default database when capture is enabled
 Otherwise the compiler's local user-data location is used. Legacy capture failures, including a missing
 optional compiler, warn without discarding the compilation result. Use a disposable
 database or disable memory for tests and sensitive inputs.
+
+
+## Terminal and IDE integration
+
+See [terminal and IDE setup](docs/terminal-and-ides.md) and the [VS Code extension](extensions/vscode-shipmblang/README.md) for interpreter configuration, general compilation, diagnostics, and local verification.

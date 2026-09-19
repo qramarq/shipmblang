@@ -1,14 +1,14 @@
 {
   "name": "shipmblang",
-  "displayName": "ShipMBLang printurf",
-  "description": "Editor-native printurf() for ShipMBLang, the natural language programming layer for ShipMB.",
-  "version": "0.1.0",
+  "displayName": "ShipMBLang",
+  "description": "Compile and run ShipMBLang prose, inspect diagnostics, and explain errors.",
+  "version": "0.2.0",
   "publisher": "shipmb",
   "license": "UNLICENSED",
   "private": true,
   "repository": {
     "type": "git",
-    "url": "https://github.com/arman-bd/guppylm.git"
+    "url": "https://github.com/qramarq/shipmblang.git"
   },
   "engines": {
     "vscode": "^1.92.0"
@@ -30,9 +30,10 @@
     "errors"
   ],
   "scripts": {
-    "lint": "node --check src/extension.js",
+    "lint": "node --check src/extension.js && node --check src/runner.js",
     "vscode:prepublish": "npm run lint",
-    "package": "vsce package"
+    "package": "vsce package",
+    "test": "node --test test/runner.test.js"
   },
   "activationEvents": [
     "onStartupFinished",
@@ -48,7 +49,8 @@
     "onCommand:shiplang.runNaturalProgram",
     "onCommand:drip.explainCurrentDiagnostic",
     "onCommand:drip.explainPastedError",
-    "onCommand:drip.explainDiagnostic"
+    "onCommand:drip.explainDiagnostic",
+    "onLanguage:shipmblang"
   ],
   "main": "./src/extension.js",
   "contributes": {
@@ -83,8 +85,10 @@
         ],
         "extensions": [
           ".shiplang",
-          ".shipmb"
-        ]
+          ".shipmb",
+          ".smb"
+        ],
+        "configuration": "./language-configuration.json"
       }
     ],
     "configuration": {
@@ -153,6 +157,37 @@
           "type": "string",
           "default": "cpu",
           "description": "Legacy setting. Prefer shipmblang.device."
+        },
+        "shipmblang.pipeline": {
+          "type": "string",
+          "enum": [
+            "legacy",
+            "direct",
+            "ir"
+          ],
+          "default": "legacy",
+          "description": "Compiler pipeline. Select direct for general English programs."
+        },
+        "shipmblang.profile": {
+          "type": "string",
+          "enum": [
+            "general",
+            "roku"
+          ],
+          "default": "general",
+          "description": "Profile used only by the direct pipeline."
+        },
+        "shipmblang.memory": {
+          "type": "boolean",
+          "default": false,
+          "description": "Explicitly enable source submission memory for editor commands."
+        },
+        "shipmblang.timeoutMs": {
+          "type": "integer",
+          "default": 30000,
+          "minimum": 1000,
+          "maximum": 300000,
+          "description": "Maximum compiler/run process duration in milliseconds."
         }
       }
     },
@@ -178,6 +213,22 @@
           "command": "shipmblang.runNaturalProgram"
         }
       ]
+    },
+    "grammars": [
+      {
+        "language": "shipmblang",
+        "scopeName": "source.shipmblang",
+        "path": "./syntaxes/shipmblang.tmLanguage.json"
+      }
+    ]
+  },
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": false,
+      "description": "Commands execute the configured Python interpreter."
+    },
+    "virtualWorkspaces": {
+      "supported": false
     }
   }
 }

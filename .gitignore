@@ -63,3 +63,8 @@ Desktop.ini
 *.log
 *.tmp
 *.bak
+
+# Local editor test runtime and VSIX output
+.vscode-test/
+*.vsix
+node_modules/

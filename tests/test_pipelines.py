@@ -16,6 +16,7 @@ from unittest.mock import Mock, patch
 from shipmblang import pipelines
 
 
+@unittest.skipIf(sys.version_info < (3, 11), "Optional direct compiler requires Python 3.11+")
 class PipelineTests(unittest.TestCase):
     def setUp(self):
         environment = patch.dict(os.environ, {"SHIPMB_MEMORY": "off"})

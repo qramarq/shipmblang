@@ -1,0 +1,24 @@
+{
+  "scopeName": "source.shipmblang",
+  "patterns": [
+    {
+      "name": "string.quoted.double.shipmblang",
+      "begin": "\"",
+      "end": "\"",
+      "patterns": [
+        {
+          "name": "constant.character.escape.shipmblang",
+          "match": "\\\\."
+        }
+      ]
+    },
+    {
+      "name": "constant.numeric.shipmblang",
+      "match": "\\b\\d+(?:\\.\\d+)?\\b"
+    },
+    {
+      "name": "keyword.control.shipmblang",
+      "match": "(?i)\\b(let|set|show|define|function|return|if|then|otherwise|for each|end the|use|with|integer|text|boolean|mutable)\\b"
+    }
+  ]
+}

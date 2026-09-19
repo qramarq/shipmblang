@@ -1,67 +1,41 @@
-# ShipMBLang printurf VS Code extension
+# ShipMBLang for VS Code
 
-Editor-native ShipMBLang `printurf()` error explanations for ShipMB projects.
-Also supports natural ShipMBLang programs in `.shiplang` and `.shipmb` files.
+Compile/run `.shipmb`, `.shiplang`, and `.smb` prose from the active editor, including unsaved text or a selection. Compiler errors and clarification questions appear in Problems. General programs print captured output in the ShipMBLang output channel. Existing printurf explanations and command aliases remain available.
 
-## Features
+## Setup
 
-- CodeLens above diagnostics: `ShipMBLang: explain`
-- Quick Fix: `Explain with ShipMBLang`
-- Hover link on diagnostics
-- Command palette:
-  - `ShipMBLang: Explain Current Diagnostic`
-  - `ShipMBLang: Explain Pasted Error`
-  - `ShipMBLang: Compile Natural Program`
-  - `ShipMBLang: Run Natural Program`
+1. Install ShipMBLang and the optional shipmbcompiler package into the same Python environment. Direct compilation requires Python 3.11+ and shipmbcompiler >=0.2.1,<0.3. For local private checkouts, install the compiler checkout first, then the language checkout with `python -m pip install -e .` in each package root.
+2. Install the local VSIX through **Extensions: Install from VSIX**, or launch this folder with an Extension Development Host.
+3. Set `shipmblang.pythonPath` to that environment's Python executable (not a command with arguments). Use a full path when necessary.
+4. For general programs, set `shipmblang.pipeline` to `direct` and `shipmblang.profile` to `general`. Pipeline defaults remain `legacy`; the profile setting only applies to `direct`.
+5. Open `examples/general_functions.shipmb`, then run **ShipMBLang: Run Natural Program**. The output should be `720`.
 
-Every response is forced into:
-
-```text
-Error: [Simple Explanation]. Cause: [Specific Reason]. Fix: [Solution].
+```json
+{
+  "shipmblang.pythonPath": "C:/path/to/venv/Scripts/python.exe",
+  "shipmblang.pipeline": "direct",
+  "shipmblang.profile": "general",
+  "shipmblang.memory": false
+}
 ```
 
-## Local development
+Use `shipmblang.projectRoot` only to select a source checkout when the package is not installed. Workspace configuration is resolved for the active document, including multi-root workspaces. An installed environment works from unrelated project folders. In SSH/WSL/container sessions, install Python packages on the workspace host and configure its interpreter path.
 
-1. Open this folder in VS Code.
-2. Press `F5` to launch an Extension Development Host.
-3. Open a codebase with diagnostics.
-4. Run `ShipMBLang: Explain Current Diagnostic`.
+## Commands and behavior
 
-The extension calls `python -m shipmblang printurf` locally. Configure
-`shipmblang.projectRoot` if the extension cannot auto-detect the ShipMBLang
-repo.
+- **Compile Natural Program** displays structured compiler output without running it.
+- **Run Natural Program** compiles and runs the selected snapshot; general runtime output appears in the output channel.
+- **Explain Current Diagnostic / Explain Pasted Error** run the existing printurf workflow.
 
-Natural programs are selected text or the full active document. The compile
-command lowers regular sentences to ShipMBLangCore; the run command executes the
-supported ShipMBLang bytecode instructions through the local runtime.
+A clarification or unsupported program is shown as feedback, not treated as runnable code. Source changes clear stale Problems; results from superseded snapshots are discarded. Operations can be cancelled and default to a 30-second timeout (`shipmblang.timeoutMs`). Output is bounded to 4 MiB. Editor source memory is off unless explicitly enabled. These commands require a trusted, filesystem-backed workspace; they do not grant host/device permissions.
 
-Pipeline:
+Basic highlighting and bracket/string pairing are included. This extension does not yet provide completion, rename, debugging, or a language server. Other IDEs can use the same CLI documented in `docs/terminal-and-ides.md`.
+
+## Development and verification
 
 ```text
-natural language syntax -> ShipMBLangCore -> ShipMBLang bytecode -> runtime/machine execution
+npm test
+npm run lint
 ```
 
-For v0.1, ShipMBLang bytecode is the concrete machine target; native CPU code can
-come later. See `docs/shipmblang.md` from the repo root for the full docs.
-
-The compiler is deterministic: it tokenizes natural text, splits it into
-sentence statements, lowers recognized statements into semantic operations,
-collects declarations for the whole compilation unit, resolves references
-against that full declaration set, normalizes the operation stream, emits
-`shipmblang-bytecode`, and renders the same bytecode as ShipMBLangCore for
-preview. Contract-valid source uses known declaration and operation families;
-unknown declarations should surface as hard compiler diagnostics.
-
-Declaration/name resolution is order-insensitive, so a natural program may refer
-to declarations written later. Runtime actions still run in final bytecode
-order.
-
-Recent runtime support includes natural declarations for major-language program
-models, device-family resources, domain libraries, device targets, remote-style
-capabilities, install intent, and voice/chat interfaces. The extension keeps
-legacy `shiplang.*` command IDs available for older integrations, but new
-visible commands and settings use `shipmblang.*`.
-
-Core source is line-oriented, uses indentation for scope, uses `#` for comments,
-and keeps ShipMBLang Core separate from emitted ShipMBLang bytecode. See
-`docs/language-contract.md` from the repo root for accepted and rejected syntax.
+`test/host/index.js` is an actual VS Code extension-host test. The repository's `tools/check_compiler_coinstall.py` can run it using an installed VS Code executable specified by `SHIPMB_CODE_EXE`; it builds both distributions in temporary folders and uses a disposable VS Code profile. It does not modify normal editor settings. Packaging is local only; publishing is a separate action.
