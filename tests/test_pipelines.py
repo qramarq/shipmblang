@@ -8,6 +8,7 @@ import sys
 import types
 import unittest
 import warnings
+from collections import namedtuple
 from pathlib import Path
 import subprocess
 import tempfile
@@ -15,10 +16,12 @@ from unittest.mock import Mock, patch
 
 from shipmblang import pipelines
 
+VersionInfo = namedtuple("VersionInfo", "major minor micro releaselevel serial")
+
 
 class PipelineTests(unittest.TestCase):
     def setUp(self):
-        version = patch.object(sys, "version_info", (3, 11))
+        version = patch.object(sys, "version_info", VersionInfo(3, 11, 0, "final", 0))
         version.start()
         self.addCleanup(version.stop)
         environment = patch.dict(os.environ, {"SHIPMB_MEMORY": "off"})
@@ -185,7 +188,7 @@ class PipelineTests(unittest.TestCase):
                 pipelines.compile_direct_program("Use ShipMB.")
 
     def test_python_310_explains_optional_requirement(self):
-        with patch.object(sys, "version_info", (3, 10)):
+        with patch.object(sys, "version_info", VersionInfo(3, 10, 0, "final", 0)):
             with self.assertRaisesRegex(pipelines.CompilerUnavailableError, "Python 3.11"):
                 pipelines.compile_direct_program("Use ShipMB.")
 
