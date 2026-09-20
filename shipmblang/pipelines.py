@@ -127,7 +127,12 @@ def _main(*, run):
     if args.interpretation is not None and selected.pipeline != "direct":
         parser.error("--interpretation requires --pipeline direct.")
     try:
-        source = Path(args.file).read_text(encoding="utf-8") if args.file else " ".join(args.text)
+        if args.file:
+            # Keep source offsets identical to the editor, including Windows CRLF.
+            with Path(args.file).open(encoding="utf-8", newline="") as source_file:
+                source = source_file.read()
+        else:
+            source = " ".join(args.text)
         if selected.pipeline == "direct":
             result = compile_direct_program(
                 source, memory=selected.memory == "on", memory_path=selected.memory_path,

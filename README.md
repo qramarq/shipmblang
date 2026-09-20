@@ -492,7 +492,7 @@ is not automatically accepted. An edit while entering an answer cancels that
 submission. No cloud model is automatically invoked.
 
 To upgrade an existing setup, pull both repositories, reinstall each package in
-the same Python environment, rebuild/install `shipmblang-0.3.0.vsix`, then reload
+the same Python environment, rebuild/install `shipmblang-0.3.1.vsix`, then reload
 VS Code. Keep `shipmblang.projectRoot` pointed at the current checkout; an old
 source-path override can shadow the upgraded package. See the setup below.
 
@@ -525,12 +525,12 @@ for this direct/general workflow. The extension is currently installed manually.
    These commands assume sibling clones with the names above. Adjust paths for
    existing checkouts. Environment activation is not required.
 
-3. Obtain `shipmblang-0.3.0.vsix` from the project maintainer, or build it from
+3. Obtain `shipmblang-0.3.1.vsix` from the project maintainer, or build it from
    the language checkout with Node.js 22+ and npm installed:
 
    ```powershell
    cd extensions/vscode-shipmblang
-   npx --yes @vscode/vsce package --no-dependencies --out shipmblang-0.3.0.vsix
+   npx --yes @vscode/vsce package --no-dependencies --out shipmblang-0.3.1.vsix
    cd ../..
    ```
 
@@ -584,3 +584,13 @@ Current VS Code support includes compile/run commands, basic syntax highlighting
 and Problems diagnostics. Autocomplete, rename, debugging, and a language server
 are not implemented. General programs must use the implemented grammar; arbitrary
 English is not guaranteed to compile. Other IDEs can invoke the installed CLI.
+
+## Multi-paragraph programs
+
+With compiler 0.2.3+ and language 0.2.1+, paragraphs can share values and functions,
+contain nested conditions/loops, and use separate double-quote wrappers separated
+by blank lines. Paragraphs do not implicitly close blocks. The complete program
+is checked before execution; invalid later paragraphs are not skipped.
+
+See [multi-paragraph rules, examples, and regression checks](docs/multi-paragraph-programs.md) for the
+precise contract, source-location guarantees, and supported complexity.

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "shipmblang"
-version = "0.2.0"
+version = "0.2.1"
 description = "Natural language programming layer for ShipMB with deterministic compilation to ShipMBLang bytecode."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -25,7 +25,7 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-direct = ["shipmbcompiler>=0.2.2,<0.3; python_version >= '3.11'"]
+direct = ["shipmbcompiler>=0.2.3,<0.3; python_version >= '3.11'"]
 model = [
     "numpy>=1.24.0",
     "tokenizers>=0.19.0",

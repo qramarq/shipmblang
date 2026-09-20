@@ -1,6 +1,6 @@
 # Terminals and IDEs
 
-The supported command boundary is the installed Python package. Use the same interpreter in your terminal and editor. Legacy compilation supports Python 3.10+; direct/general requires Python 3.11+ and the separately installed shipmbcompiler >=0.2.2,<0.3 package. Install from the two private checkouts, preserving their package roots and licenses; neither requires the Core repository at compilation time.
+The supported command boundary is the installed Python package. Use the same interpreter in your terminal and editor. Legacy compilation supports Python 3.10+; direct/general requires Python 3.11+ and the separately installed shipmbcompiler >=0.2.3,<0.3 package. Install from the two private checkouts, preserving their package roots and licenses; neither requires the Core repository at compilation time.
 
 ## Terminal
 
@@ -38,3 +38,13 @@ Use `examples/quoted_paragraph.shipmb` for the sum-to-12 example. Keep outer
 quotes in the source file; shell quoting alone is not part of a file. VS Code
 extension 0.3.0 defaults to direct/general and includes New Prose Program and
 Clarify and Run commands. CLI defaults remain unchanged.
+
+## Multi-paragraph programs
+
+With compiler 0.2.3+ and language 0.2.1+, paragraphs can share values and functions,
+contain nested conditions/loops, and use separate double-quote wrappers separated
+by blank lines. Paragraphs do not implicitly close blocks. The complete program
+is checked before execution; invalid later paragraphs are not skipped.
+
+See [multi-paragraph rules, examples, and regression checks](multi-paragraph-programs.md) for the
+precise contract, source-location guarantees, and supported complexity.

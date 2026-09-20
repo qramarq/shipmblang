@@ -1,0 +1,9 @@
+"Define function factorial with integer parameter number returning integer:
+    If number is at most 1 then:
+        Return 1.
+    Otherwise:
+        Return the product of number and the result of factorial with (number minus 1).
+    End the condition.
+End the function."
+
+"Show the result of factorial with 6."

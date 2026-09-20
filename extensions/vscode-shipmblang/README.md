@@ -4,7 +4,7 @@ Compile/run `.shipmb`, `.shiplang`, and `.smb` prose from the active editor, inc
 
 ## Setup
 
-1. Install ShipMBLang and the optional shipmbcompiler package into the same Python environment. Direct compilation requires Python 3.11+ and shipmbcompiler >=0.2.2,<0.3. For local private checkouts, install the compiler checkout first, then the language checkout with `python -m pip install -e .` in each package root.
+1. Install ShipMBLang and the optional shipmbcompiler package into the same Python environment. Direct compilation requires Python 3.11+ and shipmbcompiler >=0.2.3,<0.3. For local private checkouts, install the compiler checkout first, then the language checkout with `python -m pip install -e .` in each package root.
 2. Install the local VSIX through **Extensions: Install from VSIX**, or launch this folder with an Extension Development Host.
 3. Set `shipmblang.pythonPath` to that environment's Python executable (not a command with arguments). Use a full path when necessary.
 4. For general programs, set `shipmblang.pipeline` to `direct` and `shipmblang.profile` to `general`. Extension 0.3.0 defaults to `direct`/`general`; existing explicit settings take precedence. The profile setting only applies to `direct`.
@@ -79,6 +79,16 @@ is not automatically accepted. An edit while entering an answer cancels that
 submission. No cloud model is automatically invoked.
 
 To upgrade an existing setup, pull both repositories, reinstall each package in
-the same Python environment, rebuild/install `shipmblang-0.3.0.vsix`, then reload
+the same Python environment, rebuild/install `shipmblang-0.3.1.vsix`, then reload
 VS Code. Keep `shipmblang.projectRoot` pointed at the current checkout; an old
 source-path override can shadow the upgraded package. See Setup above.
+
+## Multi-paragraph programs
+
+With compiler 0.2.3+ and language 0.2.1+, paragraphs can share values and functions,
+contain nested conditions/loops, and use separate double-quote wrappers separated
+by blank lines. Paragraphs do not implicitly close blocks. The complete program
+is checked before execution; invalid later paragraphs are not skipped.
+
+See [multi-paragraph rules, examples, and regression checks](../../docs/multi-paragraph-programs.md) for the
+precise contract, source-location guarantees, and supported complexity.

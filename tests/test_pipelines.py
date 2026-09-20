@@ -52,7 +52,16 @@ class PipelineTests(unittest.TestCase):
         source = '\u201cStart with 12.\nAdd 15 and show the result.\u201d\n'
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "quoted paragraph.smb"
-            path.write_text(source, encoding="utf-8")
+            path.write_bytes(source.encode("utf-8"))
+            with patch.dict(sys.modules, {"shipmbcompiler": self.compiler}):
+                self.invoke("--pipeline", "direct", "--profile", "general", "--file", str(path))
+        self.assertEqual(self.compiler.compile_direct_program.call_args.args, (source,))
+
+    def test_multiple_paragraphs_preserve_crlf_and_unicode(self):
+        source = '“Show "😀".”\r\n\r\n“Show missing.”\r\n'
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "multiple paragraphs.smb"
+            path.write_bytes(source.encode("utf-8"))
             with patch.dict(sys.modules, {"shipmbcompiler": self.compiler}):
                 self.invoke("--pipeline", "direct", "--profile", "general", "--file", str(path))
         self.assertEqual(self.compiler.compile_direct_program.call_args.args, (source,))

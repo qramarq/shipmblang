@@ -17,12 +17,28 @@ async function run() {
  await vscode.window.showTextDocument(proseDocument);
  const proseResult=await vscode.commands.executeCommand('shipmblang.runNaturalProgram');
  assert.equal(proseResult.source,prose+'\n'); assert.equal(proseResult.runtime.stdout,'12\n');
- const ambiguous='Let first be 1. Let second be 2. Show it.';
+ for (const [name,expected] of [['multiple_paragraphs.shipmb','27\n'],['paragraph_functions.shipmb','720\n']]) {
+  const content=fs.readFileSync(path.join(process.env.SHIPMB_TEST_EXAMPLES,name),'utf8');
+  const multiDocument=await vscode.workspace.openTextDocument({language:'shipmblang',content});
+  await vscode.window.showTextDocument(multiDocument);
+  const multiResult=await vscode.commands.executeCommand('shipmblang.runNaturalProgram');
+  assert.equal(multiResult.source,multiDocument.getText()); assert.equal(multiResult.runtime.stdout,expected);
+ }
+ const crlfSource='“Show "😀".”\r\n\r\n“Show missing.”';
+ const crlfFile=path.join(process.env.SHIPMB_TEST_CWD,'paragraph windows.smb'); fs.writeFileSync(crlfFile,crlfSource);
+ const crlfDocument=await vscode.workspace.openTextDocument(vscode.Uri.file(crlfFile));
+ await vscode.window.showTextDocument(crlfDocument);
+ const crlfResult=await vscode.commands.executeCommand('shipmblang.runNaturalProgram');
+ assert.equal(crlfDocument.getText(),crlfSource); assert.equal(crlfResult.source,crlfSource);
+ assert.equal(crlfResult.runtime,undefined);
+ const laterProblems=vscode.languages.getDiagnostics(crlfDocument.uri);
+ assert.ok(laterProblems.some(problem=>problem.range.start.line===2 && crlfDocument.getText(problem.range)==='missing'));
+ const ambiguous='“Let first be 1.”\n\n“Let second be 2.”\n\n“Show it.”';
  const ambiguousDocument=await vscode.workspace.openTextDocument({language:'shipmblang',content:ambiguous});
  await vscode.window.showTextDocument(ambiguousDocument);
  const question=await vscode.commands.executeCommand('shipmblang.runNaturalProgram');
  assert.notEqual(question.status,'compiled'); assert.equal(question.runtime,undefined);
- const clarified=await vscode.commands.executeCommand('shipmblang.clarifyAndRun','Let first be 1. Let second be 2. Show second.');
+ const clarified=await vscode.commands.executeCommand('shipmblang.clarifyAndRun','“Let first be 1.”\n\n“Let second be 2.”\n\n“Show second.”');
  assert.equal(clarified.source,ambiguous); assert.equal(clarified.runtime.stdout,'2\n');
  const quotedInvalid=await vscode.workspace.openTextDocument({language:'shipmblang',content:'“Show "😀".\nShow missing.”'});
  await vscode.window.showTextDocument(quotedInvalid);
@@ -34,6 +50,6 @@ async function run() {
  const rejected=await vscode.commands.executeCommand('shipmblang.compileNaturalProgram'); assert.notEqual(rejected.status,'compiled'); assert.ok(vscode.languages.getDiagnostics(invalid.uri).length>0); assert.equal(vscode.languages.getDiagnostics(invalid.uri)[0].range.start.line,1);
  const edit=new vscode.WorkspaceEdit();edit.replace(invalid.uri,new vscode.Range(1,0,1,13),'Show 27.'); await vscode.workspace.applyEdit(edit);
  assert.equal(vscode.languages.getDiagnostics(invalid.uri).length,0);
- console.log('SHIPMB_EDITOR_HOST_PASS: quoted prose run12, quoted Unicode diagnostic spans, file association, compile, run27, selected spans, Problems, stale diagnostics cleared');
+ console.log('SHIPMB_EDITOR_HOST_PASS: multiple paragraphs, nested logic, cross-paragraph functions/clarification, CRLF spans, quoted prose run12, quoted Unicode diagnostic spans, file association, compile, run27, selected spans, Problems, stale diagnostics cleared');
 }
 module.exports={run};
