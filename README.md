@@ -46,6 +46,17 @@ availability. General app, messaging, camera and cross-device integrations remai
 planned work. The intended distinction is how these features work together;
 historical uniqueness has not been established.
 
+## Multi-paragraph programs
+
+With compiler 0.2.3+ and language 0.2.1+, paragraphs can share values and functions,
+contain nested conditions/loops, and use separate double-quote wrappers separated
+by blank lines. Paragraphs do not implicitly close blocks. The complete program
+is checked before execution; invalid later paragraphs are not skipped.
+
+See [multi-paragraph rules, examples, and regression checks](docs/multi-paragraph-programs.md) for the
+precise contract, source-location guarantees, and supported complexity.
+
+
 ## Compilation pipelines
 
 The opt-in direct pipeline uses the optional `shipmbcompiler` package:
@@ -584,13 +595,3 @@ Current VS Code support includes compile/run commands, basic syntax highlighting
 and Problems diagnostics. Autocomplete, rename, debugging, and a language server
 are not implemented. General programs must use the implemented grammar; arbitrary
 English is not guaranteed to compile. Other IDEs can invoke the installed CLI.
-
-## Multi-paragraph programs
-
-With compiler 0.2.3+ and language 0.2.1+, paragraphs can share values and functions,
-contain nested conditions/loops, and use separate double-quote wrappers separated
-by blank lines. Paragraphs do not implicitly close blocks. The complete program
-is checked before execution; invalid later paragraphs are not skipped.
-
-See [multi-paragraph rules, examples, and regression checks](docs/multi-paragraph-programs.md) for the
-precise contract, source-location guarantees, and supported complexity.
