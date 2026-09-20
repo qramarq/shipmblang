@@ -17,8 +17,7 @@ local runtime. Native CPU code can come later.
 
 ShipMB keeps the user's supported English prose as the maintained program and
 combines direct compilation with source-bound clarification, contextual memory,
-and explicit guarded execution. These are architectural features, not a claim
-that ShipMB is the first or only language to provide them.
+and explicit guarded execution. 
 
 - **Direct compilation:** English -> typed syntax and resolved names -> final
   ShipMB bytecode. No Core source, generated Python/JavaScript, TAC, or separate
@@ -45,6 +44,16 @@ Remembering meaning never grants execution permission or proves current device
 availability. General app, messaging, camera and cross-device integrations remain
 planned work. The intended distinction is how these features work together;
 historical uniqueness has not been established.
+
+## Multi-paragraph programs
+
+With compiler 0.2.3+ and language 0.2.1+, paragraphs can share values and functions,
+contain nested conditions/loops, and use separate double-quote wrappers separated
+by blank lines. Paragraphs do not implicitly close blocks. The complete program
+is checked before execution; invalid later paragraphs are not skipped.
+
+See [multi-paragraph rules, examples, and regression checks](docs/multi-paragraph-programs.md) for the
+precise contract, source-location guarantees, and supported complexity.
 
 ## Compilation pipelines
 
@@ -585,12 +594,3 @@ and Problems diagnostics. Autocomplete, rename, debugging, and a language server
 are not implemented. General programs must use the implemented grammar; arbitrary
 English is not guaranteed to compile. Other IDEs can invoke the installed CLI.
 
-## Multi-paragraph programs
-
-With compiler 0.2.3+ and language 0.2.1+, paragraphs can share values and functions,
-contain nested conditions/loops, and use separate double-quote wrappers separated
-by blank lines. Paragraphs do not implicitly close blocks. The complete program
-is checked before execution; invalid later paragraphs are not skipped.
-
-See [multi-paragraph rules, examples, and regression checks](docs/multi-paragraph-programs.md) for the
-precise contract, source-location guarantees, and supported complexity.
