@@ -7,7 +7,7 @@ test('direct keeps literal paths, profile and JSON without legacy flags', () => 
  assert.equal(args.includes('--error-file'),false); assert.equal(args[args.indexOf('--memory')+1],'off');
 });
 test('legacy retains error context without profile', () => {
- const args=buildArgs('run','a.shipmb','.',{errorFile:'e',contextFile:'c'});
+ const args=buildArgs('run','a.shipmb','.',{pipeline:'legacy',errorFile:'e',contextFile:'c'});
  assert.ok(args.includes('--error-file')); assert.equal(args.includes('--profile'),false);
 });
 test('nonzero structured diagnostics retained', () => {
@@ -26,3 +26,18 @@ test('cancellation stops child', async () => {
  await assert.rejects(runProcess(process.execPath,['-e','setInterval(()=>{},1000)'],{token}),/cancelled/);
 });
 test('Unicode spans and malformed results',()=>{assert.equal(utf16Offset('\ud83d\ude00ab',2),3); assert.throws(()=>parseResult({code:2,stdout:'',stderr:'missing package'}),/missing package/);});
+
+test('new editor defaults select direct general prose compilation', () => {
+ const args=buildArgs('run','paragraph.shipmb','.');
+ assert.equal(args[args.indexOf('--pipeline')+1],'direct');
+ assert.equal(args[args.indexOf('--profile')+1],'general');
+ const manifest=require('../package.json');
+ assert.equal(manifest.contributes.configuration.properties['shipmblang.pipeline'].default,'direct');
+});
+
+test('explicit clarification remains one literal argument and direct only', () => {
+ const interpretation='Show "hello". Then show 12; $(literal).';
+ const args=buildArgs('run','p.shipmb','.',{interpretation});
+ assert.equal(args[args.indexOf('--interpretation')+1],interpretation);
+ assert.equal(buildArgs('run','p.shipmb','.',{pipeline:'legacy',interpretation}).includes('--interpretation'),false);
+});

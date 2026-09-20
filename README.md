@@ -452,6 +452,50 @@ database or disable memory for tests and sensitive inputs.
 
 See [terminal and IDE setup](docs/terminal-and-ides.md) and the [VS Code extension](extensions/vscode-shipmblang/README.md) for interpreter configuration, general compilation, diagnostics, and local verification.
 
+
+## Write a quoted English paragraph
+
+With shipmblang 0.2.0, shipmbcompiler 0.2.2+, and VS Code extension 0.3.0,
+create a `.shipmb` file and write:
+
+```text
+"Start with total at 4, then add 8 to total and show total."
+```
+
+Run **ShipMBLang: Run Natural Program**, or click the Run button in the editor
+title bar. The ShipMBLang Output channel prints `12`. **ShipMBLang: New Prose
+Program** opens this example in a new editor. Save it anywhere in your workspace.
+Straight double quotes (`"..."`) and smart double quotes (`“...”`) can surround
+the program. The quotes belong in the file; the editor sends them unchanged.
+The paragraph can span lines, and diagnostics refer to your original text.
+
+VS Code now defaults to the `direct` pipeline and `general` profile. Existing
+explicit settings take precedence: change an old `legacy` setting to `direct`
+for prose. Terminal defaults remain compatible, so select the pipeline explicitly:
+
+```powershell
+& .venv/Scripts/python.exe -X utf8 -m shipmblang run --file examples/quoted_paragraph.shipmb --pipeline direct --profile general --memory off
+```
+
+The interpreter supports the documented computation grammar and everyday
+arithmetic instructions, including named mutable values and add/subtract/multiply/
+divide updates. Recognized instructions can be joined with `then` and `and`.
+Existing functions, explicit condition/loop blocks, and text literals remain
+available. Unsupported instructions are reported; they are not silently omitted.
+This does not yet turn arbitrary application descriptions into websites, database
+systems, or other programs requiring unimplemented capabilities.
+
+If the compiler asks for clarification, edit the paragraph and run again, or use
+**ShipMBLang: Clarify and Run** to restate the complete intended program. The
+compiler checks that answer against the original source; an unrelated replacement
+is not automatically accepted. An edit while entering an answer cancels that
+submission. No cloud model is automatically invoked.
+
+To upgrade an existing setup, pull both repositories, reinstall each package in
+the same Python environment, rebuild/install `shipmblang-0.3.0.vsix`, then reload
+VS Code. Keep `shipmblang.projectRoot` pointed at the current checkout; an old
+source-path override can shadow the upgraded package. See the setup below.
+
 ## Test ShipMBLang in VS Code (Windows)
 
 You need Python 3.11 or newer, VS Code 1.92 or newer, access to both private
@@ -481,12 +525,12 @@ for this direct/general workflow. The extension is currently installed manually.
    These commands assume sibling clones with the names above. Adjust paths for
    existing checkouts. Environment activation is not required.
 
-3. Obtain `shipmblang-0.2.0.vsix` from the project maintainer, or build it from
+3. Obtain `shipmblang-0.3.0.vsix` from the project maintainer, or build it from
    the language checkout with Node.js 22+ and npm installed:
 
    ```powershell
    cd extensions/vscode-shipmblang
-   npx --yes @vscode/vsce package --no-dependencies --out shipmblang-0.2.0.vsix
+   npx --yes @vscode/vsce package --no-dependencies --out shipmblang-0.3.0.vsix
    cd ../..
    ```
 

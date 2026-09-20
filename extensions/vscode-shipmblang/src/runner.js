@@ -1,11 +1,14 @@
 const cp = require('node:child_process');
 
 function buildArgs(mode, sourceFile, root, options = {}) {
-  const pipeline = options.pipeline || 'legacy';
+  const pipeline = options.pipeline || 'direct';
   const args = ['-X', 'utf8', '-m', 'shipmblang', mode, '--file', sourceFile,
     '--root', root, '--format', 'json', '--pipeline', pipeline,
     '--memory', options.memory ? 'on' : 'off'];
-  if (pipeline === 'direct') args.push('--profile', options.profile || 'general');
+  if (pipeline === 'direct') {
+    args.push('--profile', options.profile || 'general');
+    if (options.interpretation) args.push('--interpretation', options.interpretation);
+  }
   if (mode === 'run' && pipeline === 'legacy') {
     if (options.errorFile) args.push('--error-file', options.errorFile);
     if (options.contextFile) args.push('--context-file', options.contextFile);

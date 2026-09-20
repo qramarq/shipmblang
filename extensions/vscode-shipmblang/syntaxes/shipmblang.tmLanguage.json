@@ -2,6 +2,11 @@
   "scopeName": "source.shipmblang",
   "patterns": [
     {
+      "name": "string.quoted.double.prose.shipmblang",
+      "begin": "“",
+      "end": "”"
+    },
+    {
       "name": "string.quoted.double.shipmblang",
       "begin": "\"",
       "end": "\"",

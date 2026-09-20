@@ -20,11 +20,18 @@ function activate(context) {
   codeLensEmitter = new vscode.EventEmitter();
 
   context.subscriptions.push(output, codeLensEmitter);
+  context.subscriptions.push(vscode.commands.registerCommand('shipmblang.newProseProgram', async () => {
+    const document = await vscode.workspace.openTextDocument({language: 'shipmblang',
+      content: '"Start with total at 4, then add 8 to total and show total."\n'});
+    await vscode.window.showTextDocument(document);
+    return document;
+  }));
   context.subscriptions.push(vscode.commands.registerCommand('shipmblang.explainCurrentDiagnostic', explainCurrentDiagnostic));
   context.subscriptions.push(vscode.commands.registerCommand('shipmblang.explainPastedError', explainPastedError));
   context.subscriptions.push(vscode.commands.registerCommand('shipmblang.explainDiagnostic', explainDiagnosticCommand));
   context.subscriptions.push(vscode.commands.registerCommand('shipmblang.compileNaturalProgram', compileNaturalProgram));
   context.subscriptions.push(vscode.commands.registerCommand('shipmblang.runNaturalProgram', runNaturalProgram));
+  context.subscriptions.push(vscode.commands.registerCommand('shipmblang.clarifyAndRun', answer => executeProgram('run', true, typeof answer === 'string' ? answer : undefined)));
   context.subscriptions.push(vscode.commands.registerCommand('shiplang.explainCurrentDiagnostic', explainCurrentDiagnostic));
   context.subscriptions.push(vscode.commands.registerCommand('shiplang.explainPastedError', explainPastedError));
   context.subscriptions.push(vscode.commands.registerCommand('shiplang.explainDiagnostic', explainDiagnosticCommand));
@@ -134,7 +141,7 @@ async function explainPastedError() {
 async function compileNaturalProgram() { return executeProgram('compile'); }
 async function runNaturalProgram() { return executeProgram('run'); }
 
-async function executeProgram(mode) {
+async function executeProgram(mode, clarify = false, interpretation) {
   const editor = vscode.window.activeTextEditor;
   if (!editor) { vscode.window.showWarningMessage('ShipMBLang needs an open editor.'); return; }
   if (!vscode.workspace.isTrusted) { vscode.window.showWarningMessage('Trust this workspace before running ShipMBLang.'); return; }
@@ -147,10 +154,24 @@ async function executeProgram(mode) {
   generations.set(key, generation);
   const diagnostic = findDiagnosticAtCursor(document, editor.selection.active);
   try {
+    if (clarify) {
+      if (getConfigurationValue('pipeline', 'direct', document.uri) !== 'direct') {
+        vscode.window.showWarningMessage('Clarify and Run requires the direct pipeline.'); return;
+      }
+      interpretation = interpretation === undefined ? await vscode.window.showInputBox({
+        title: 'ShipMBLang: Clarify and Run',
+        prompt: 'Restate the complete intended program in English. The compiler validates this answer against the original source.',
+        ignoreFocusOut: true
+      }) : interpretation;
+      if (!interpretation || !interpretation.trim()) return;
+      if (document.isClosed || document.version !== version || generations.get(key) !== generation) {
+        vscode.window.showWarningMessage('Source changed while clarifying. Run Clarify and Run again for the current text.'); return;
+      }
+    }
     return await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
       title: `ShipMBLang: ${mode}`, cancellable: true }, async (_, token) => {
       const result = await callNaturalShipLang(mode, source, document,
-        diagnostic ? diagnostic.message : '', diagnostic ? collectEditorContext(document, diagnostic.range.start.line) : '', token);
+        diagnostic ? diagnostic.message : '', diagnostic ? collectEditorContext(document, diagnostic.range.start.line) : '', token, interpretation);
       if (document.isClosed || document.version !== version || generations.get(key) !== generation) {
         output.appendLine('Source changed; discarded stale compiler feedback.');
         return undefined;
@@ -268,7 +289,7 @@ async function callPrinturf(rawError, codeContext) {
   }
 }
 
-async function callNaturalShipLang(mode, source, document, rawError = '', codeContext = '', token) {
+async function callNaturalShipLang(mode, source, document, rawError = '', codeContext = '', token, interpretation) {
   const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'shipmblang-'));
   const sourceFile = path.join(tmpDir, 'program.shipmb');
   const errorFile = path.join(tmpDir, 'error.txt');
@@ -281,9 +302,9 @@ async function callNaturalShipLang(mode, source, document, rawError = '', codeCo
     const pythonPath = getConfigurationValue('pythonPath', 'python', document && document.uri);
     const projectRoot = resolveProjectRoot(getConfigurationValue('projectRoot', getLegacyConfigurationValue('dripRoot', ''), document && document.uri), document);
     const args = buildArgs(mode, sourceFile, workspaceRootForDocument(document), {
-      pipeline: getConfigurationValue('pipeline', 'legacy', document.uri),
+      pipeline: getConfigurationValue('pipeline', 'direct', document.uri),
       profile: getConfigurationValue('profile', 'general', document.uri),
-      memory: getConfigurationValue('memory', false, document.uri), errorFile, contextFile
+      memory: getConfigurationValue('memory', false, document.uri), errorFile, contextFile, interpretation
     });
     const response = await runProcess(pythonPath, args, { cwd: projectRoot, token,
       timeoutMs: getConfigurationValue('timeoutMs', 30000, document.uri) });

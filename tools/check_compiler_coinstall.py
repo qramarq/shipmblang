@@ -52,11 +52,11 @@ def main():
 import importlib.metadata as metadata
 import json
 import shipmblang, shipmbcompiler
-assert metadata.version('shipmblang') == '0.1.0'
+assert metadata.version('shipmblang') == '0.2.0'
 assert metadata.metadata('shipmblang')['License-Expression'] == 'LicenseRef-Proprietary'
 assert callable(shipmblang.build_onboarding_manifest)
 assert callable(shipmblang.run_onboarding_checks)
-assert metadata.version('shipmbcompiler') == '0.2.1'
+assert metadata.version('shipmbcompiler') == '0.2.2'
 assert shipmblang.compile_natural_program('Use ShipMB.', memory=False)['core'] == 'use shipmb'
 result = shipmblang.compile_direct_program('Use the tv pack library in shipmblang to control this Roku TV like a remote.', memory=False)
 assert result['status'] == 'compiled', result
@@ -105,6 +105,12 @@ print(json.dumps({'language': shipmblang.__file__, 'compiler': shipmbcompiler.__
                 if action == "run":
                     assert result["runtime"]["stdout"] == "27\n", result
                     assert result["runtime"]["output"] == ["27"], result
+            prose_source = (language / "examples" / "quoted_paragraph.shipmb").read_text(encoding="utf-8")
+            spaced_file.write_text(prose_source, encoding="utf-8")
+            output = command([str(executable), "-X", "utf8", "-I", "-m", "shipmblang", "run", "--file", str(spaced_file), "--pipeline", "direct", "--profile", "general", "--memory", "off"], cwd=root, env=env)
+            prose_result = json.loads(output)
+            assert prose_result["source"] == prose_source
+            assert prose_result["runtime"]["stdout"] == "12\n", prose_result
             function_source = (language / "examples" / "general_functions.shipmb").read_text(encoding="utf-8")
             api_check = """
 import json, sys

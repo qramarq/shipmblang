@@ -1,6 +1,6 @@
 # Terminals and IDEs
 
-The supported command boundary is the installed Python package. Use the same interpreter in your terminal and editor. Legacy compilation supports Python 3.10+; direct/general requires Python 3.11+ and the separately installed shipmbcompiler >=0.2.1,<0.3 package. Install from the two private checkouts, preserving their package roots and licenses; neither requires the Core repository at compilation time.
+The supported command boundary is the installed Python package. Use the same interpreter in your terminal and editor. Legacy compilation supports Python 3.10+; direct/general requires Python 3.11+ and the separately installed shipmbcompiler >=0.2.2,<0.3 package. Install from the two private checkouts, preserving their package roots and licenses; neither requires the Core repository at compilation time.
 
 ## Terminal
 
@@ -32,3 +32,9 @@ See [extension setup](../extensions/vscode-shipmblang/README.md). The extension 
 ## Validation
 
 Python regression tests: `python -m unittest discover -s tests`. Extension process tests: `node --test extensions/vscode-shipmblang/test/runner.test.js`. `tools/check_compiler_coinstall.py <compiler-package-root>` verifies installed distributions from unrelated directories, aliases, Unicode source, paths with spaces and general/function execution. Set `SHIPMB_CODE_EXE` to an installed VS Code executable to include the real extension-host test in a temporary editor profile. CI covers Windows, Linux and macOS; a configured CI matrix is not evidence that every platform has already run.
+
+Quoted paragraphs are supported by compiler 0.2.2+ in the direct/general pipeline.
+Use `examples/quoted_paragraph.shipmb` for the sum-to-12 example. Keep outer
+quotes in the source file; shell quoting alone is not part of a file. VS Code
+extension 0.3.0 defaults to direct/general and includes New Prose Program and
+Clarify and Run commands. CLI defaults remain unchanged.

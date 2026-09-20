@@ -2,7 +2,7 @@
   "name": "shipmblang",
   "displayName": "ShipMBLang",
   "description": "Compile and run ShipMBLang prose, inspect diagnostics, and explain errors.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "publisher": "shipmb",
   "license": "UNLICENSED",
   "private": true,
@@ -50,7 +50,9 @@
     "onCommand:drip.explainCurrentDiagnostic",
     "onCommand:drip.explainPastedError",
     "onCommand:drip.explainDiagnostic",
-    "onLanguage:shipmblang"
+    "onLanguage:shipmblang",
+    "onCommand:shipmblang.newProseProgram",
+    "onCommand:shipmblang.clarifyAndRun"
   ],
   "main": "./src/extension.js",
   "contributes": {
@@ -73,7 +75,16 @@
       },
       {
         "command": "shipmblang.runNaturalProgram",
-        "title": "ShipMBLang: Run Natural Program"
+        "title": "ShipMBLang: Run Natural Program",
+        "icon": "$(play)"
+      },
+      {
+        "command": "shipmblang.newProseProgram",
+        "title": "ShipMBLang: New Prose Program"
+      },
+      {
+        "command": "shipmblang.clarifyAndRun",
+        "title": "ShipMBLang: Clarify and Run"
       }
     ],
     "languages": [
@@ -165,8 +176,8 @@
             "direct",
             "ir"
           ],
-          "default": "legacy",
-          "description": "Compiler pipeline. Select direct for general English programs."
+          "default": "direct",
+          "description": "Compiler pipeline. Direct supports quoted English paragraphs with the general profile; select legacy explicitly for Core output."
         },
         "shipmblang.profile": {
           "type": "string",
@@ -211,6 +222,19 @@
         },
         {
           "command": "shipmblang.runNaturalProgram"
+        },
+        {
+          "command": "shipmblang.newProseProgram"
+        },
+        {
+          "command": "shipmblang.clarifyAndRun"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "shipmblang.runNaturalProgram",
+          "when": "editorLangId == shipmblang",
+          "group": "navigation"
         }
       ]
     },
