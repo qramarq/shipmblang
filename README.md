@@ -451,3 +451,92 @@ database or disable memory for tests and sensitive inputs.
 ## Terminal and IDE integration
 
 See [terminal and IDE setup](docs/terminal-and-ides.md) and the [VS Code extension](extensions/vscode-shipmblang/README.md) for interpreter configuration, general compilation, diagnostics, and local verification.
+
+## Test ShipMBLang in VS Code (Windows)
+
+You need Python 3.11 or newer, VS Code 1.92 or newer, access to both private
+repositories, and the ShipMBLang VSIX extension. ShipMBLangCore is not required
+for this direct/general workflow. The extension is currently installed manually.
+
+1. Clone both repositories into the same parent directory (or use your existing
+   current checkouts):
+
+   ```powershell
+   git clone https://github.com/qramarq/shipmblang.git
+   git clone https://github.com/qramarq/shipmblang-compiler.git
+   cd shipmblang
+   ```
+
+2. In VS Code, use **File > Open Folder** to open the `shipmblang` checkout and
+   trust your workspace. Open **Terminal > New Terminal** with PowerShell.
+   Confirm `python --version` is 3.11 or newer, then install both packages into
+   the same environment:
+
+   ```powershell
+   python -m venv .venv
+   & .venv/Scripts/python.exe -m pip install -e ../shipmblang-compiler/shipmbcompiler
+   & .venv/Scripts/python.exe -m pip install -e .
+   ```
+
+   These commands assume sibling clones with the names above. Adjust paths for
+   existing checkouts. Environment activation is not required.
+
+3. Obtain `shipmblang-0.2.0.vsix` from the project maintainer, or build it from
+   the language checkout with Node.js 22+ and npm installed:
+
+   ```powershell
+   cd extensions/vscode-shipmblang
+   npx --yes @vscode/vsce package --no-dependencies --out shipmblang-0.2.0.vsix
+   cd ../..
+   ```
+
+   Press **Ctrl+Shift+P**, select **Extensions: Install from VSIX**, select that
+   file, and reload VS Code if prompted. The generated VSIX is not committed to
+   the repository or published to the Marketplace.
+
+4. Press **Ctrl+Shift+P** and choose **Preferences: Open Workspace Settings
+   (JSON)**. Merge these entries into the existing settings object, replacing
+   `C:/path/to/shipmblang` with your actual language checkout path:
+
+   ```json
+   {
+     "shipmblang.pythonPath": "C:/path/to/shipmblang/.venv/Scripts/python.exe",
+     "shipmblang.projectRoot": "C:/path/to/shipmblang",
+     "shipmblang.pipeline": "direct",
+     "shipmblang.profile": "general",
+     "shipmblang.memory": false
+   }
+   ```
+
+   Use a full executable path, not a command with arguments. An old
+   `shipmblang.projectRoot` setting can load an outdated source checkout even
+   when the Python environment is correct. Override it here with the current
+   checkout; remove obsolete user-level settings when no longer needed.
+
+5. Press **Ctrl+Shift+E** to open Explorer on the left. Expand `examples` and
+   open `general_functions.shipmb`. With no text selected, press
+   **Ctrl+Shift+P** and run **ShipMBLang: Run Natural Program**. Open
+   **View > Output** and select **ShipMBLang** in the dropdown. Expect `720`.
+   **ShipMBLang: Compile Natural Program** shows compiler output without running.
+   If text is selected, only the selection is submitted.
+
+6. To test diagnostics, create `test.smb` containing `Show missing.` and run
+   **ShipMBLang: Compile Natural Program**. Press **Ctrl+Shift+M** to see the
+   undefined-name diagnostic in Problems.
+
+For a terminal check from the language checkout:
+
+```powershell
+& .venv/Scripts/python.exe -X utf8 -m shipmblang run --file examples/general_functions.shipmb --pipeline direct --profile general --memory off
+```
+
+The terminal returns JSON whose `runtime.stdout` is `720\n`. If you see
+`No module named shipmblang`, check the selected interpreter and installation.
+If options such as `--pipeline` or `--memory` are unrecognized, check for an old
+`projectRoot` override. If commands are unavailable, check workspace trust and
+that the extension is enabled.
+
+Current VS Code support includes compile/run commands, basic syntax highlighting,
+and Problems diagnostics. Autocomplete, rename, debugging, and a language server
+are not implemented. General programs must use the implemented grammar; arbitrary
+English is not guaranteed to compile. Other IDEs can invoke the installed CLI.
