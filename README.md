@@ -1,5 +1,8 @@
 # ShipMBLang
 
+Version 0.3.0 bundles ShipMBCompiler 0.3.0 and includes the FFmpeg media and
+HyperFrames video commands documented below.
+
 Write English requests in a `.shipmb` file and run them locally. Broader English
 translation is the default: supported grammar compiles directly, and other wording
 uses your configured model to produce English that the existing compiler validates.
