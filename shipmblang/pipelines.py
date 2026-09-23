@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from contextlib import ExitStack
 import importlib
 import inspect
 import json
@@ -111,7 +112,7 @@ def _ready(result):
             and not any(d.get("level") == "error" for d in result.get("diagnostics", [])))
 
 
-def _run_direct_result(result, *, host=None, ffmpeg_executor=None):
+def _run_direct_result(result, *, host=None, ffmpeg_executor=None, vlc_executor=None):
     if not _ready(result):
         return result
     from shipmblang._compiler.runtime import run_artifact
@@ -119,15 +120,17 @@ def _run_direct_result(result, *, host=None, ffmpeg_executor=None):
     options = {"host": host} if host is not None else {}
     if ffmpeg_executor is not None:
         options["ffmpeg_executor"] = ffmpeg_executor
+    if vlc_executor is not None:
+        options["vlc_executor"] = vlc_executor
     state, diagnostics = run_artifact(result["target_code"], **options)
     return {**result, "runtime": state,
             "diagnostics": [*result.get("diagnostics", []), *[d.to_dict() for d in diagnostics]]}
 
 
-def run_direct_program(source, *, host=None, ffmpeg_executor=None, **compile_options):
+def run_direct_program(source, *, host=None, ffmpeg_executor=None, vlc_executor=None, **compile_options):
     """Compile and run a direct artifact; only an explicitly supplied host is used."""
     return _run_direct_result(compile_direct_program(source, **compile_options),
-                              host=host, ffmpeg_executor=ffmpeg_executor)
+                              host=host, ffmpeg_executor=ffmpeg_executor, vlc_executor=vlc_executor)
 
 
 def _positive_timeout(value):
@@ -156,6 +159,10 @@ def _main(*, run):
     selector.add_argument("--ffmpeg-path", help="Path to the separately installed FFmpeg executable.")
     selector.add_argument("--ffprobe-path", help="Path to the separately installed ffprobe executable.")
     selector.add_argument("--ffmpeg-timeout", type=_positive_timeout, help="Media process timeout in seconds.")
+    selector.add_argument("--vlc-dir", help="Directory containing the separately installed LibVLC libraries.")
+    selector.add_argument("--vlc-bridge", help="Path to the separately built shipmb_vlc native adapter.")
+    selector.add_argument("--vlc-startup-timeout", type=_positive_timeout, help="VLC startup timeout in seconds.")
+    selector.add_argument("--headless", action="store_true", help="Disable native VLC video window creation.")
     selector.add_argument("--memory", choices=["on", "off"], default="on")
     selector.add_argument("--memory-path", "--memory-db", dest="memory_path")
     selector.add_argument("--no-english-model", action="store_true", help="Use only the deterministic English grammar.")
@@ -163,6 +170,12 @@ def _main(*, run):
     selected, remaining = selector.parse_known_args()
     media_options = any(value is not None for value in
                         (selected.ffmpeg_path, selected.ffprobe_path, selected.ffmpeg_timeout))
+    vlc_options = selected.headless or any(value is not None for value in
+                        (selected.vlc_dir, selected.vlc_bridge, selected.vlc_startup_timeout))
+    if vlc_options and (selected.pipeline != "direct" or selected.profile == "roku"):
+        selector.error("VLC options require the direct general pipeline.")
+    if selected.vlc_startup_timeout is not None and not 1 <= selected.vlc_startup_timeout * 1000 <= 2147483647:
+        selector.error("VLC startup timeout must be between 0.001 and 2147483.647 seconds.")
     if media_options and (selected.pipeline != "direct" or selected.profile == "roku"):
         selector.error("FFmpeg options require the direct general pipeline.")
     if (selected.no_english_model or selected.review_model_interpretation) and selected.pipeline != "direct":
@@ -229,16 +242,27 @@ def _main(*, run):
             )
         ready = _ready(result)
         if run and ready and selected.pipeline == "direct":
-            executor = None
-            if result["target_code"].get("version") == "0.4" or media_options:
-                from shipmblang._compiler.ffmpeg import FFmpegExecutor
+            capabilities = result["target_code"].get("runtime_contract", {}).get("required_capabilities", [])
+            base_dir = Path(args.file).resolve().parent if args.file and args.file != "-" else Path.cwd()
+            with ExitStack() as stack:
+                executor = None
+                vlc_executor = None
+                if "ffmpeg" in capabilities:
+                    from shipmblang._compiler.ffmpeg import FFmpegExecutor
 
-                executor = FFmpegExecutor(
-                    ffmpeg_path=selected.ffmpeg_path, ffprobe_path=selected.ffprobe_path,
-                    timeout=selected.ffmpeg_timeout,
-                    base_dir=Path(args.file).resolve().parent if args.file and args.file != "-" else Path.cwd(),
-                )
-            result = _run_direct_result(result, ffmpeg_executor=executor)
+                    executor = FFmpegExecutor(
+                        ffmpeg_path=selected.ffmpeg_path, ffprobe_path=selected.ffprobe_path,
+                        timeout=selected.ffmpeg_timeout, base_dir=base_dir,
+                    )
+                if "vlc" in capabilities:
+                    from shipmblang._compiler.vlc import VLCExecutor
+
+                    vlc_executor = stack.enter_context(VLCExecutor(
+                        vlc_dir=selected.vlc_dir, bridge_path=selected.vlc_bridge, base_dir=base_dir,
+                        startup_timeout_ms=int((selected.vlc_startup_timeout or 10) * 1000),
+                        headless=selected.headless,
+                    ))
+                result = _run_direct_result(result, ffmpeg_executor=executor, vlc_executor=vlc_executor)
             ready = _ready(result)
         # Never hide clarification questions or unsupported explanations behind null bytecode.
         output = result if run or args.format == "json" or not ready else result["target_code"]

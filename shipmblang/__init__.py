@@ -3,6 +3,7 @@
 from importlib import import_module as _import_module
 
 _EXPORTS = {
+    'VLCExecutor': ('._compiler.vlc', 'VLCExecutor'),
     'FFmpegExecutor': ('._compiler.ffmpeg', 'FFmpegExecutor'),
     'compile_hyperframes': ('.hyperframes', 'compile_hyperframes'),
     'write_hyperframes_project': ('.hyperframes', 'write_hyperframes_project'),
@@ -49,6 +50,7 @@ def __dir__():
 
 
 __all__ = [
+    'VLCExecutor',
     'FFmpegExecutor',
     'compile_hyperframes',
     'write_hyperframes_project',

@@ -65,6 +65,15 @@ assert importlib.util.find_spec('shipmbc') is None
 assert not any(e.name == 'shipmbc' for e in metadata.entry_points(group='console_scripts'))
 result = run_direct_program('Show 2 plus 3.', memory=False, model_provider=None)
 assert result['runtime']['stdout'] == '5\\n', result
+vlc_program = 'Open VLC player "p" from "input.mp4". Show the VLC state of "p". Close VLC player "p".'
+vlc_artifact = compile_direct_program(vlc_program, memory=False, model_provider=None)
+assert vlc_artifact['status'] == 'compiled', vlc_artifact
+assert vlc_artifact['target_code']['version'] == '0.5'
+class FakeVLC:
+    def invoke(self, operation, values):
+        return 'playing' if operation == 'state' else None
+vlc_result = run_direct_program(vlc_program, vlc_executor=FakeVLC(), memory=False, model_provider=None)
+assert vlc_result['runtime']['stdout'].strip() == 'playing', vlc_result
 media = 'Convert "input.mp4" to "output.mp4".'
 compiled = compile_direct_program(media, memory=False, model_provider=None)
 assert compiled['status'] == 'compiled', compiled

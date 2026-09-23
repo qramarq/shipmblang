@@ -13,7 +13,9 @@ FIELDS = {'const': {'value','type'}, 'load': {'slot'}, 'store': {'slot'}, 'clear
           'length': set(), 'index': set(), 'jump': {'target'}, 'jump_if_false': {'target'},
           'show': set(), 'halt': set(), 'return': set(),
           'call': {'function','argument_types','return_type'},
-          'ffmpeg_execute': {'job', 'argument_types'}}
+          'ffmpeg_execute': {'job', 'argument_types'},
+          'vlc_execute': {'operation','argument_types'},
+          'vlc_query': {'operation','argument_types','return_type'}}
 
 class VMError(ValueError):
     def __init__(self, message, pc=0):
@@ -33,15 +35,15 @@ def _validate(artifact):
     if not isinstance(artifact, dict): raise VMError('Artifact must be an object.')
     for field, value in [('producer','shipmbcompiler'), ('target','shipmblang-bytecode'), ('profile','general')]:
         if artifact.get(field) != value: raise VMError(f'Invalid artifact {field}.')
-    if artifact.get('version') not in ('0.3', '0.4'): raise VMError('Invalid artifact version.')
+    if artifact.get('version') not in ('0.3', '0.4', '0.5'): raise VMError('Invalid artifact version.')
     if artifact.get('native_machine_code') is not False: raise VMError('Native code is not accepted.')
     if not isinstance(artifact.get('debug'),dict) or artifact['debug'].get('producer')!='shipmbcompiler': raise VMError('Invalid producer metadata.')
     contract=artifact.get('runtime_contract',{})
     if not isinstance(contract,dict) or not isinstance(contract.get('required_capabilities',[]),list): raise VMError('Invalid runtime contract.')
     capabilities=contract.get('required_capabilities',[])
     effects=contract.get('effects',[])
-    allowed_capabilities={'ffmpeg'} if artifact['version'] == '0.4' else set()
-    allowed_effects={'captured_output', 'host_media'} if artifact['version'] == '0.4' else {'captured_output'}
+    allowed_capabilities={'ffmpeg','vlc'} if artifact['version']=='0.5' else {'ffmpeg'} if artifact['version']=='0.4' else set()
+    allowed_effects={'captured_output', 'host_media'} if artifact['version'] in ('0.4','0.5') else {'captured_output'}
     if not isinstance(effects,list) or any(type(effect) is not str or effect not in allowed_effects for effect in effects): raise VMError('Invalid effect requirement.')
     if any(type(capability) is not str or capability not in allowed_capabilities for capability in capabilities): raise VMError('Unknown capability requirement.')
     if any(type(c) is not str for c in capabilities): raise VMError('Invalid capability requirement.')
@@ -109,6 +111,13 @@ def _validate_unit(code,slots,capabilities,effects,signatures,parameters=(),retu
             if not function or args['argument_types']!=function['argument_types'] or args['return_type']!=function['return_type']:
                 raise VMError('Invalid function call signature.',pc)
         if op=='show' and 'captured_output' not in effects: raise VMError('Captured output effect is undeclared.',pc)
+        if op in ('vlc_execute','vlc_query'):
+            from .vlc import OPERATIONS
+            signature=OPERATIONS.get(args['operation']) if isinstance(args['operation'],str) else None
+            if ('vlc' not in capabilities or 'host_media' not in effects or not signature
+                    or args['argument_types']!=signature[0] or (op=='vlc_query')!=bool(signature[1])
+                    or op=='vlc_query' and args['return_type']!=signature[1]):
+                raise VMError('Invalid VLC signature or capability.',pc)
         if op=='ffmpeg_execute':
             if 'ffmpeg' not in capabilities or 'host_media' not in effects:
                 raise VMError('FFmpeg capability and host media effect must be declared.', pc)
@@ -168,6 +177,9 @@ def _validate_unit(code,slots,capabilities,effects,signatures,parameters=(),retu
             stack.append(kind[5:-1])
         elif op=='jump_if_false': pop('boolean')
         elif op=='show': pop()
+        elif op in ('vlc_execute','vlc_query'):
+            for kind in reversed(args['argument_types']): pop(kind)
+            if op=='vlc_query': stack.append(args['return_type'])
         elif op=='ffmpeg_execute':
             for kind in reversed(args['argument_types']): pop(kind)
         elif op=='call':
@@ -197,12 +209,15 @@ def _display(value):
     return str(value)
 
 
-def run_general_artifact(artifact, *, max_steps=100000, host=None, ffmpeg_executor=None):
+def run_general_artifact(artifact, *, max_steps=100000, host=None, ffmpeg_executor=None, vlc_executor=None):
     state={'output':[], 'stdout':'', 'events':[], 'variables':{}}
     pc=0
     try:
         if type(max_steps) is not int or not 1<=max_steps<=1000000: raise VMError('Invalid execution fuel limit.')
         code,slots,functions=_validate(artifact)
+        if 'vlc' in artifact.get('runtime_contract',{}).get('required_capabilities',[]):
+            if vlc_executor is None or not callable(getattr(vlc_executor,'invoke',None)):
+                raise VMError('VLC execution requires an explicit VLC executor.')
         if 'ffmpeg' in artifact.get('runtime_contract', {}).get('required_capabilities', []):
             if ffmpeg_executor is None or not callable(getattr(ffmpeg_executor, 'execute', None)):
                 raise VMError('Media execution requires an explicit FFmpeg executor.')
@@ -249,6 +264,20 @@ def run_general_artifact(artifact, *, max_steps=100000, host=None, ffmpeg_execut
                 text=_display(stack.pop()); output_bytes+=len(text.encode('utf-8'))+1
                 if output_bytes>MAX_TEXT: raise VMError('Output size limit exceeded.',pc)
                 state['output'].append(text); state['stdout']+=text+'\n'
+            elif op in ('vlc_execute','vlc_query'):
+                from .vlc import validate_arguments
+                count=len(args['argument_types']);arguments=stack[-count:] if count else []
+                if count: del stack[-count:]
+                try:
+                    validate_arguments(args['operation'],arguments)
+                    if len(state['events'])>=MAX_ITEMS: raise ValueError('Media event limit exceeded.')
+                    result=vlc_executor.invoke(args['operation'],arguments)
+                    if op=='vlc_query':
+                        if not _value(result,args['return_type']): raise ValueError('Invalid VLC query result.')
+                        stack.append(result)
+                    state['events'].append({'kind':'vlc','operation':args['operation'],'status':'completed'})
+                except (ValueError,OSError) as error:
+                    raise VMError(str(error),pc) from error
             elif op=='ffmpeg_execute':
                 from .ffmpeg import resolve_job, FFmpegExecutionError
                 count = len(args['argument_types'])

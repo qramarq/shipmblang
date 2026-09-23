@@ -9,7 +9,7 @@ import re
 
 from .general_vocabulary import OUTPUT_PATTERN, SUM_NOUNS
 
-GRAMMAR_VERSION = "general-english-0.7"
+GRAMMAR_VERSION = "general-english-0.8"
 CATALOG_VERSION = "general-media-0.2"
 TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|\d+|[A-Za-z_][A-Za-z_0-9]*|[^\s]')
 TYPES = {"integer", "boolean", "text"}
@@ -209,6 +209,9 @@ class Expressions:
                 self.fail("Negative requires an integer.")
             return node("Unary", self.range(begin), operator="negate", operand=operand, type="integer")
         self.take("the")
+        if self.take("vlc"):
+            from .vlc_english import parse_query
+            return parse_query(self,begin)
         if self.take("result", "of"):
             for name, signature in sorted(self.owner.functions.items(), key=lambda pair: -len(pair[0])):
                 if not self.take(*name.split()):
@@ -379,6 +382,11 @@ class Parser:
                 if media is not None:
                     body.append(media)
                     continue
+            from .vlc_english import parse_vlc
+            vlc = parse_vlc(self,text,span)
+            if vlc is not None:
+                body.append(vlc)
+                continue
             # Explicit two-operand addition with a requested output, not an
             # implicit update. Parse both operands without rewriting offsets.
             addition = re.fullmatch(r"add (.+?) and (.+?)(?: together)? and tell me the result", text, re.I)

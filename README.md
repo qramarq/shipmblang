@@ -14,9 +14,19 @@ $env:SHIPMB_NATIVE_COMPILER = 'C:\private-tools\shipmbc_cpp.exe'
 .\shipmblang-native.cmd native/examples/general.shipmb --run
 ```
 
+## Media integrations in 0.5.0
+
+FFmpeg, HyperFrames and VLC are available through both the Python-based language
+and the separately supplied native compiler 0.5.0. See [media setup](docs/media-parity.md).
+Python VLC execution uses the optional native `shipmb_vlc.dll` adapter and an
+installed matching LibVLC 3.x; compilation needs neither. Native FFmpeg and
+HyperFrames run without Python, with their external media/render tools installed
+when execution is requested. Model-assisted English and persistent memory remain
+Python features; this release aligns media capabilities rather than every API.
+
 ## Python integrations
 
-Version 0.3.0 bundles ShipMBCompiler 0.3.0 and includes the FFmpeg media and
+Version 0.5.0 bundles ShipMBCompiler 0.5.0 and includes the FFmpeg media and
 HyperFrames video commands documented below.
 
 Write English requests in a `.shipmb` file and run them locally. Broader English

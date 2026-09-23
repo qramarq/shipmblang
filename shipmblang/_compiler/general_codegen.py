@@ -31,7 +31,9 @@ def emit_general(tree, symbols, *, function=False):
 
     def expression(value):
         kind = value["kind"]
-        if kind == "Literal":
+        if kind == 'VLCQuery':
+            vlc(value,query=True)
+        elif kind == "Literal":
             emit("const", {"value": value["value"], "type": value["type"]}, value)
         elif kind == "Name":
             emit("load", {"slot": value["slot"]}, value)
@@ -79,6 +81,13 @@ def emit_general(tree, symbols, *, function=False):
         for slot in slots:
             emit("clear", {"slot": slot}, source)
 
+    def vlc(value,query=False):
+        capabilities.add('vlc'); effects.add('host_media')
+        for argument in value['arguments']: expression(argument)
+        operands={'operation':value['operation'],'argument_types':[a['type'] for a in value['arguments']]}
+        if query: operands['return_type']=value['type']
+        emit('vlc_query' if query else 'vlc_execute',operands,value)
+
     def block(body):
         for statement in body:
             kind = statement["kind"]
@@ -93,6 +102,8 @@ def emit_general(tree, symbols, *, function=False):
                 effects.add("captured_output")
                 expression(statement["value"])
                 emit("show", {}, statement)
+            elif kind == 'VLC':
+                vlc(statement)
             elif kind == "FFmpeg":
                 capabilities.add("ffmpeg")
                 effects.add("host_media")
@@ -170,7 +181,7 @@ def emit_general(tree, symbols, *, function=False):
                           "return_type": definition["return_type"], "locals": compiled["locals"], "bytecode": compiled["bytecode"]})
     if len(locals_) > 10000 or len(functions) > 10000:
         raise GeneralLimitError("Program exceeds the supported number of locals or functions.")
-    return {"producer": "shipmbcompiler", "target": "shipmblang-bytecode", "version": "0.4" if 'ffmpeg' in capabilities else "0.3",
+    return {"producer": "shipmbcompiler", "target": "shipmblang-bytecode", "version": "0.5" if 'vlc' in capabilities else "0.4" if 'ffmpeg' in capabilities else "0.3",
             "profile": "general", "native_machine_code": False, "bytecode": code, "locals": locals_, "functions": functions,
             "debug": {"producer": "shipmbcompiler", "pipeline": "direct", "grammar": GRAMMAR_VERSION},
             "runtime_contract": {"effects": sorted(effects), "required_capabilities": sorted(capabilities)}}

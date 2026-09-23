@@ -11,7 +11,7 @@ from .limits import MAX_SOURCE_CHARS
 from .memory_support import open_memory, project_context
 from .clarification import revision, apply_answers
 
-COMPILER_VERSION = "0.3.0"
+COMPILER_VERSION = "0.5.0"
 _DEFAULT_MODEL = object()
 
 

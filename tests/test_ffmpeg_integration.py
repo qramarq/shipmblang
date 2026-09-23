@@ -15,7 +15,8 @@ from shipmblang import pipelines
 class FFmpegAdapterTests(unittest.TestCase):
     def setUp(self):
         self.result = {"status": "compiled", "diagnostics": [],
-                       "target_code": {"version": "0.4", "bytecode": []}}
+                       "target_code": {"version": "0.4", "bytecode": [],
+                                       "runtime_contract": {"required_capabilities": ["ffmpeg"]}}}
         self.runtime = types.ModuleType("shipmblang._compiler.runtime")
         self.runtime.run_artifact = Mock(return_value=({"stdout": ""}, []))
         self.media = types.ModuleType("shipmblang._compiler.ffmpeg")

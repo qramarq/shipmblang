@@ -31,11 +31,11 @@ GUARDABLE_OPCODES = {"run", "install_package", "declare_interface"}
 
 
 def run_artifact(artifact: dict[str, Any], *, ability_checker: AbilityChecker | None = None,
-                 action_executor: ActionExecutor | None = None, host=None, ffmpeg_executor=None) -> tuple[dict[str, Any], list[Diagnostic]]:
+                 action_executor: ActionExecutor | None = None, host=None, ffmpeg_executor=None, vlc_executor=None) -> tuple[dict[str, Any], list[Diagnostic]]:
     """Load compiler artifacts without accepting artifacts from another bytecode producer."""
-    if isinstance(artifact, dict) and artifact.get("version") in ("0.3", "0.4"):
+    if isinstance(artifact, dict) and artifact.get("version") in ("0.3", "0.4", "0.5"):
         from .general_runtime import run_general_artifact
-        return run_general_artifact(artifact, host=host, ffmpeg_executor=ffmpeg_executor)
+        return run_general_artifact(artifact, host=host, ffmpeg_executor=ffmpeg_executor, vlc_executor=vlc_executor)
     if (not isinstance(artifact, dict)
             or not isinstance(artifact.get("debug", {}), dict)
             or artifact.get("producer", artifact.get("debug", {}).get("producer")) != "shipmbcompiler"
