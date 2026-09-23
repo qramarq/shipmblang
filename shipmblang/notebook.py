@@ -1,4 +1,4 @@
-"""A local notebook/diary with an explicit ShipMBLang program workspace."""
+"""Executable sticky notes using the shared ShipMBLang runtime."""
 from __future__ import annotations
 
 import argparse
@@ -35,210 +35,235 @@ def execute_program(source, mode, *, timeout=20):
 
 
 class NotebookApp:
-    def __init__(self, root, store):
+    """One sticky window; the first window owns the store and other notes."""
+    def __init__(self, root, store, *, owner=None, entry=None):
         import tkinter as tk
-        from tkinter import ttk
         from tkinter.scrolledtext import ScrolledText
 
-        self.tk, self.ttk = tk, ttk
-        self.root, self.store = root, store
-        self.entry_id = None
+        self.tk, self.root, self.store = tk, root, store
+        self.owner = owner or self
+        if owner is None:
+            self.windows = []
+        self.owner.windows.append(self)
+        self.entry_id = entry["id"] if entry else None
+        self.entry_date = entry["entry_date"] if entry else date.today().isoformat()
+        self.legacy_journal = entry["journal"] if entry else ""
         self.dirty = False
-        self.loading = False
         self.busy = False
-        self.revision = 0
+        self.save_id = None
         self.results = queue.Queue()
-        self.title = tk.StringVar()
-        self.day = tk.StringVar(value=date.today().isoformat())
-        self.search = tk.StringVar()
-        self.status = tk.StringVar(value="New entry · saved locally when you press Save")
-        root.title("ShipMB Notebook")
-        root.geometry("1180x820")
-        root.minsize(860, 640)
-        root.configure(bg="#f6f3eb")
-        style = ttk.Style(root)
-        style.theme_use("clam")
-        style.configure("TFrame", background="#f6f3eb")
-        style.configure("TLabel", background="#f6f3eb", foreground="#253e39", font=("Segoe UI", 10))
-        style.configure("Heading.TLabel", font=("Georgia", 23))
-        style.configure("TButton", padding=(12, 7), font=("Segoe UI", 10))
-        style.configure("Accent.TButton", background="#245e50", foreground="white")
-        style.map("Accent.TButton", background=[("active", "#194b40")])
-        style.configure("Treeview", rowheight=34, font=("Segoe UI", 10), background="#fffdf7", fieldbackground="#fffdf7")
-        style.configure("Treeview.Heading", font=("Segoe UI", 9, "bold"))
-
-        header = ttk.Frame(root, padding=(22, 16))
-        header.pack(fill="x")
-        ttk.Label(header, text="ShipMB Notebook", style="Heading.TLabel").pack(side="left")
-        ttk.Label(header, text="A diary for thoughts. A workspace for programs.").pack(side="left", padx=24)
-        ttk.Button(header, text="Back up notebook", command=self.backup).pack(side="right")
-        body = ttk.Panedwindow(root, orient="horizontal")
-        body.pack(fill="both", expand=True, padx=18)
-        sidebar = ttk.Frame(body, padding=(0, 0, 12, 0))
-        body.add(sidebar, weight=1)
-        ttk.Button(sidebar, text="+ New entry", command=self.new_entry, style="Accent.TButton").pack(fill="x", pady=(0, 14))
-        ttk.Label(sidebar, text="Search entries").pack(anchor="w")
-        search_box = ttk.Entry(sidebar, textvariable=self.search, width=29)
-        search_box.pack(fill="x", pady=(4, 10))
-        self.entries = ttk.Treeview(sidebar, columns=("date",), show="tree headings", selectmode="browse")
-        self.entries.heading("#0", text="ENTRY")
-        self.entries.heading("date", text="DATE")
-        self.entries.column("#0", width=160, minwidth=90)
-        self.entries.column("date", width=90, minwidth=85, stretch=False)
-        self.entries.pack(fill="both", expand=True)
-        self.entries.bind("<<TreeviewSelect>>", self.select_entry)
-        ttk.Button(sidebar, text="Delete entry…", command=self.delete_entry).pack(fill="x", pady=(10, 0))
-
-        editor = ttk.Frame(body, padding=(12, 0, 0, 0))
-        body.add(editor, weight=4)
-        fields = ttk.Frame(editor)
-        fields.pack(fill="x")
-        ttk.Label(fields, text="Entry title").grid(row=0, column=0, sticky="w")
-        ttk.Label(fields, text="Date · YYYY-MM-DD").grid(row=0, column=1, sticky="w", padx=10)
-        self.title_input = ttk.Entry(fields, textvariable=self.title, font=("Georgia", 17))
-        self.title_input.grid(row=1, column=0, sticky="ew", pady=5)
-        ttk.Entry(fields, textvariable=self.day, width=13).grid(row=1, column=1, padx=10)
-        ttk.Button(fields, text="Save", command=self.save, style="Accent.TButton").grid(row=1, column=2)
-        fields.columnconfigure(0, weight=1)
-        ttk.Label(editor, text="JOURNAL · your notes stay here").pack(anchor="w", pady=(12, 5))
-        self.journal = ScrolledText(editor, height=9, wrap="word", undo=True, font=("Georgia", 12),
-                                    bg="#fffdf7", fg="#273e39", relief="flat", padx=14, pady=12)
-        self.journal.pack(fill="both", expand=True)
-        toolbar = ttk.Frame(editor)
-        toolbar.pack(fill="x", pady=(14, 6))
-        ttk.Label(toolbar, text="PROGRAM · compile a selection or the whole program").pack(side="left")
-        ttk.Button(toolbar, text="Example", command=self.example).pack(side="right")
-        self.program = ScrolledText(editor, height=6, wrap="word", undo=True, font=("Consolas", 11),
-                                    bg="#edf3ee", fg="#183e32", relief="flat", padx=14, pady=10)
-        self.program.pack(fill="both", expand=True)
-        actions = ttk.Frame(editor)
-        actions.pack(fill="x", pady=8)
-        self.compile_button = ttk.Button(actions, text="Compile", command=lambda: self.execute("compile"))
-        self.compile_button.pack(side="left")
-        self.run_button = ttk.Button(actions, text="Run program", command=lambda: self.execute("run"), style="Accent.TButton")
-        self.run_button.pack(side="left", padx=8)
-        ttk.Label(actions, text="Offline grammar · no model calls").pack(side="right")
-        self.output = ScrolledText(editor, height=7, wrap="word", font=("Consolas", 10),
-                                   bg="#223c35", fg="#e2f0e6", relief="flat", padx=12, pady=10, state="disabled")
+        self.terminal_visible = False
+        self.status = tk.StringVar(value="Saved" if entry else "New note")
+        paper, ink = "#fff0ac", "#423820"
+        root.title("ShipMB Notes")
+        root.geometry("410x380")
+        root.minsize(300, 260)
+        root.configure(bg=paper)
+        root.grid_columnconfigure(0, weight=1)
+        root.grid_rowconfigure(0, weight=1)
+        self.program = tk.Text(root, wrap="word", undo=True, font=("Segoe UI", 14),
+                               bg=paper, fg=ink, insertbackground=ink, relief="flat",
+                               borderwidth=0, highlightthickness=0, padx=20, pady=18)
+        self.program.grid(row=0, column=0, sticky="nsew")
+        if entry:
+            self.program.insert("1.0", entry["program"])
+        self.program.edit_modified(False)
+        self.program.bind("<<Modified>>", self.changed)
+        self.footer = tk.Frame(root, bg=paper, padx=14, pady=10)
+        self.footer.grid(row=1, column=0, sticky="ew")
+        button_style = dict(font=("Segoe UI", 10), relief="flat", borderwidth=0,
+                            cursor="hand2", padx=14, pady=6)
+        self.run_button = tk.Button(self.footer, text="Run", command=self.execute,
+                                    bg=ink, fg=paper, activebackground="#605032", activeforeground=paper, **button_style)
+        self.run_button.pack(side="left")
+        self.terminal_button = tk.Button(self.footer, text="Terminal", command=self.toggle_terminal,
+                                         bg=paper, fg=ink, activebackground="#efdf97", **button_style)
+        self.terminal_button.pack(side="left", padx=6)
+        tk.Label(self.footer, textvariable=self.status, bg=paper, fg="#776c47",
+                 font=("Segoe UI", 9)).pack(side="right")
+        self.terminal = tk.Frame(root, bg="#252721")
+        self.output = ScrolledText(self.terminal, height=8, wrap="word", font=("Consolas", 10),
+                                   bg="#252721", fg="#f6efce", relief="flat", borderwidth=0,
+                                   highlightthickness=0, padx=14, pady=12, state="disabled")
         self.output.pack(fill="both", expand=True)
-        ttk.Label(root, textvariable=self.status, padding=(22, 10)).pack(fill="x")
+        self.write_output("Ready. Press Run to execute this note.")
 
-        self.title.trace_add("write", self.changed)
-        self.day.trace_add("write", self.changed)
-        self.search.trace_add("write", lambda *_: self.refresh())
-        for widget in (self.journal, self.program):
-            widget.bind("<<Modified>>", self.text_changed)
-        root.bind("<Control-s>", lambda _: self.save())
-        root.bind("<Control-n>", lambda _: self.new_entry())
+        self.menu = tk.Menu(root, tearoff=False)
+        self.menu.add_command(label="New note", accelerator="Ctrl+N", command=self.new_note)
+        self.menu.add_command(label="Open noteâ€¦", accelerator="Ctrl+O", command=self.open_notes)
+        self.menu.add_separator()
+        for label in ("Undo", "Cut", "Copy", "Paste"):
+            self.menu.add_command(label=label, command=lambda value=label: self.program.event_generate(f"<<{value}>>"))
+        self.menu.add_separator()
+        self.menu.add_command(label="Back up notesâ€¦", command=self.backup)
+        if self.legacy_journal:
+            self.menu.add_command(label="Previous journalâ€¦", command=self.show_journal)
+        self.menu.add_command(label="Delete noteâ€¦", command=self.delete_note)
+        for widget in (self.program, self.footer):
+            widget.bind("<Button-3>", self.context_menu)
+        for key, action in (("<Control-n>", self.new_note), ("<Control-o>", self.open_notes),
+                            ("<Control-s>", self.save), ("<Control-Return>", self.execute),
+                            ("<Control-grave>", self.toggle_terminal)):
+            root.bind(key, lambda _, action=action: self.shortcut(action))
+        root.bind("<Shift-F10>", self.keyboard_menu)
         root.protocol("WM_DELETE_WINDOW", self.close)
-        self.refresh()
-        self.write_output("Write a program, or choose Example to try English instructions.")
         self.poll_id = root.after(100, self.poll)
+        self.program.focus_set()
 
-    def changed(self, *_):
-        if not self.loading:
-            self.dirty = True
-            self.revision += 1
-            self.status.set("Unsaved changes · Ctrl+S to save")
+    @staticmethod
+    def shortcut(action):
+        action()
+        return "break"
 
-    def text_changed(self, event):
-        if event.widget.edit_modified():
-            self.changed()
-            event.widget.edit_modified(False)
-
-    def refresh(self):
-        self.entries.delete(*self.entries.get_children())
-        for entry in self.store.list(self.search.get()):
-            self.entries.insert("", "end", iid=entry["id"], text=entry["title"], values=(entry["entry_date"],))
-        if self.entry_id and self.entries.exists(self.entry_id):
-            self.entries.selection_set(self.entry_id)
-
-    def save(self):
-        from tkinter import messagebox
+    def keyboard_menu(self, _=None):
         try:
-            self.entry_id = self.store.save(
-                entry_id=self.entry_id, title=self.title.get(), entry_date=self.day.get(),
-                journal=self.journal.get("1.0", "end-1c"), program=self.program.get("1.0", "end-1c"))
-        except (ValueError, OSError, sqlite3.Error) as error:
-            messagebox.showerror("Could not save", str(error), parent=self.root)
-            return False
-        self.dirty = False
-        self.status.set(f"Saved locally · {self.store.path}")
-        self.refresh()
-        return True
+            self.menu.tk_popup(self.root.winfo_rootx()+25, self.root.winfo_rooty()+45)
+        finally:
+            self.menu.grab_release()
+        return "break"
 
-    def may_leave(self):
+    def context_menu(self, event):
+        try:
+            self.menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self.menu.grab_release()
+        return "break"
+
+    def text(self):
+        return self.program.get("1.0", "end-1c")
+
+    def changed(self, _=None):
+        if not self.program.edit_modified():
+            return
+        self.program.edit_modified(False)
+        self.dirty = True
+        self.status.set("Savingâ€¦")
+        if self.save_id is not None:
+            self.root.after_cancel(self.save_id)
+        self.save_id = self.root.after(600, self.save)
+
+    def save(self, *, notify=False):
         from tkinter import messagebox
+        if self.save_id is not None:
+            self.root.after_cancel(self.save_id)
+            self.save_id = None
+        if self.program.edit_modified():
+            self.dirty = True
+            self.program.edit_modified(False)
         if not self.dirty:
             return True
-        answer = messagebox.askyesnocancel("Save entry?", "Save your changes before leaving this entry?", parent=self.root)
-        return self.save() if answer else answer is False
-
-    def load(self, entry=None):
-        self.loading = True
-        self.entry_id = entry["id"] if entry else None
-        self.title.set(entry["title"] if entry else "")
-        self.day.set(entry["entry_date"] if entry else date.today().isoformat())
-        for widget, key in ((self.journal, "journal"), (self.program, "program")):
-            widget.delete("1.0", "end")
-            widget.insert("1.0", entry[key] if entry else "")
-            widget.edit_reset()
-            widget.edit_modified(False)
-        self.loading = False
+        source = self.text()
+        title = next((line.strip() for line in source.splitlines() if line.strip()), "Untitled note")[:60]
+        try:
+            self.entry_id = self.store.save(entry_id=self.entry_id, title=title,
+                entry_date=self.entry_date, journal=self.legacy_journal, program=source)
+        except (ValueError, OSError, sqlite3.Error) as error:
+            self.status.set("Not saved")
+            if notify:
+                messagebox.showerror("Could not save note", str(error), parent=self.root)
+            return False
         self.dirty = False
-        self.revision += 1
-        self.status.set("Entry opened" if entry else "New entry · Ctrl+S to save")
-        self.write_output("Results appear here after you compile or run a program.")
-        self.title_input.focus_set()
+        self.status.set("Saved")
+        return True
 
-    def new_entry(self):
-        if self.may_leave():
-            self.load()
-            self.entries.selection_remove(self.entries.selection())
+    def new_note(self, entry=None):
+        if entry:
+            for window in self.owner.windows:
+                if window.entry_id == entry["id"]:
+                    window.root.deiconify()
+                    window.root.lift()
+                    return window
+        window = self.tk.Toplevel(self.owner.root)
+        app = NotebookApp(window, self.store, owner=self.owner, entry=entry)
+        window.geometry(f"+{self.root.winfo_x()+32}+{self.root.winfo_y()+32}")
+        return app
 
-    def select_entry(self, _=None):
-        selected = self.entries.selection()
-        if not selected or selected[0] == self.entry_id:
-            return
-        target = selected[0]
-        if self.may_leave():
-            self.load(self.store.get(target))
-            if self.entries.exists(target):
-                self.entries.selection_set(target)
-        elif self.entry_id and self.entries.exists(self.entry_id):
-            self.entries.selection_set(self.entry_id)
-        else:
-            self.entries.selection_remove(self.entries.selection())
+    def open_notes(self):
+        from tkinter import ttk
+        window = self.tk.Toplevel(self.root)
+        window.title("Open a note Â· double-click to open")
+        window.geometry("420x320")
+        search = self.tk.StringVar()
+        ttk.Label(window, text="Search notes").pack(anchor="w", padx=12, pady=(10, 0))
+        field = ttk.Entry(window, textvariable=search)
+        field.pack(fill="x", padx=12, pady=8)
+        entries = ttk.Treeview(window, columns=("date",), show="tree", selectmode="browse")
+        entries.column("#0", width=280)
+        entries.column("date", width=90, stretch=False)
+        entries.pack(fill="both", expand=True, padx=12, pady=(0, 12))
 
-    def delete_entry(self):
+        def refresh(*_):
+            entries.delete(*entries.get_children())
+            for entry in self.store.list(search.get()):
+                entries.insert("", "end", iid=entry["id"], text=entry["title"], values=(entry["entry_date"],))
+
+        def open_selected(_=None):
+            selected = entries.selection()
+            if selected:
+                entry = self.store.get(selected[0])
+                if entry:
+                    self.new_note(entry)
+                    window.destroy()
+
+        search.trace_add("write", refresh)
+        entries.bind("<Double-1>", open_selected)
+        entries.bind("<Return>", open_selected)
+        refresh()
+        field.focus_set()
+
+    def show_journal(self):
+        from tkinter.scrolledtext import ScrolledText
+        window = self.tk.Toplevel(self.root)
+        window.title("Previous journal Â· preserved")
+        text = ScrolledText(window, wrap="word", font=("Segoe UI", 12))
+        text.pack(fill="both", expand=True)
+        text.insert("1.0", self.legacy_journal)
+        text.configure(state="disabled")
+
+    def delete_note(self):
         from tkinter import messagebox
-        if self.entry_id and messagebox.askyesno("Delete entry?", "Permanently delete this saved entry and any unsaved edits?", parent=self.root):
-            try:
+        if not messagebox.askyesno("Delete note?", "Permanently delete this note?", parent=self.root):
+            return
+        try:
+            if self.entry_id:
                 self.store.delete(self.entry_id)
-            except sqlite3.Error as error:
-                messagebox.showerror("Could not delete", str(error), parent=self.root)
-                return
-            self.load()
-            self.refresh()
+        except sqlite3.Error as error:
+            messagebox.showerror("Could not delete", str(error), parent=self.root)
+            return
+        if self.save_id is not None:
+            self.root.after_cancel(self.save_id)
+            self.save_id = None
+        self.entry_id = None
+        self.entry_date = date.today().isoformat()
+        self.legacy_journal = ""
+        self.program.delete("1.0", "end")
+        self.program.edit_reset()
+        self.program.edit_modified(False)
+        self.dirty = False
+        self.status.set("New note")
+        self.write_output("Ready.")
 
     def backup(self):
         from tkinter import filedialog, messagebox
-        if not self.may_leave():
+        if not all(window.save(notify=True) for window in self.owner.windows):
             return
-        destination = filedialog.asksaveasfilename(parent=self.root, title="Back up saved entries",
-            defaultextension=".sqlite3", initialfile=f"shipmb-notebook-{date.today()}.sqlite3",
-            filetypes=[("Notebook database", "*.sqlite3")])
+        destination = filedialog.asksaveasfilename(parent=self.root, title="Back up notes",
+            defaultextension=".sqlite3", initialfile=f"shipmb-notes-{date.today()}.sqlite3",
+            filetypes=[("Notes database", "*.sqlite3")])
         if destination:
             try:
                 self.store.backup(destination)
-                self.status.set(f"Notebook backed up to {destination}")
+                self.status.set("Backed up")
             except (OSError, ValueError, sqlite3.Error) as error:
                 messagebox.showerror("Backup failed", str(error), parent=self.root)
 
-    def example(self):
-        self.program.insert("end", ('\n' if self.program.get("1.0", "end-1c") else '') +
-                            'Pls show me the total of 2 and 3.\nPresent "A small idea, made real.".\n')
-        self.program.focus_set()
+    def toggle_terminal(self):
+        self.terminal_visible = not self.terminal_visible
+        if self.terminal_visible:
+            self.terminal.grid(row=2, column=0, sticky="ew")
+        else:
+            self.terminal.grid_remove()
+        self.terminal_button.configure(relief="sunken" if self.terminal_visible else "flat")
 
     def write_output(self, text):
         self.output.configure(state="normal")
@@ -246,77 +271,89 @@ class NotebookApp:
         self.output.insert("1.0", text)
         self.output.configure(state="disabled")
 
-    def execute(self, mode):
+    def execute(self):
         if self.busy:
             return
-        selected = bool(self.program.tag_ranges("sel"))
-        source = self.program.get("sel.first", "sel.last") if selected else self.program.get("1.0", "end-1c")
+        if not self.terminal_visible:
+            self.toggle_terminal()
+        source = self.text()
         if not source.strip():
-            self.write_output("Write a program first, or choose Example.")
+            self.write_output("Write English instructions first. Try: Show the sum of 2 and 3.")
             return
         self.busy = True
-        self.compile_button.state(["disabled"])
-        self.run_button.state(["disabled"])
-        self.write_output(f"{mode.title()} · {'selected text' if selected else 'whole program'}…")
-        revision = self.revision
+        self.run_button.configure(state="disabled")
+        self.write_output("Runningâ€¦")
 
         def work():
             try:
-                code, result = execute_program(source, mode)
+                code, result = execute_program(source, "run")
                 if code:
-                    text = "Needs attention\n\n" + json.dumps(result, indent=2, ensure_ascii=False)
-                elif mode == "compile":
-                    text = "Compiled successfully\n\n" + json.dumps(result.get("target_code"), indent=2, ensure_ascii=False)
+                    messages = [d.get("message", "") for d in result.get("diagnostics", [])]
+                    text = "Needs attention\n\n" + ("\n".join(filter(None, messages)) or json.dumps(result, indent=2, ensure_ascii=False))
                 else:
-                    text = result.get("runtime", {}).get("stdout", "") or "Program finished with no printed output."
+                    text = result.get("runtime", {}).get("stdout", "") or "Finished. No printed output."
             except subprocess.TimeoutExpired:
-                text = "Program stopped after 20 seconds. Simplify it and try again."
+                text = "Stopped after 20 seconds. Simplify the program and try again."
             except Exception as error:
-                text = f"Could not {mode}: {error}"
-            self.results.put((revision, text))
+                text = f"Could not run: {error}"
+            self.results.put((source, text))
 
         threading.Thread(target=work, daemon=True).start()
 
     def poll(self):
         try:
-            revision, text = self.results.get_nowait()
+            source, text = self.results.get_nowait()
         except queue.Empty:
             pass
         else:
             self.busy = False
-            self.compile_button.state(["!disabled"])
-            self.run_button.state(["!disabled"])
-            if revision == self.revision:
-                self.write_output(text)
-            else:
-                self.write_output("Entry changed during execution. Compile or run again for current results.")
+            self.run_button.configure(state="normal")
+            if source != self.text():
+                text = "Result from before your latest edit:\n\n" + text
+            self.write_output(text)
         self.poll_id = self.root.after(100, self.poll)
 
+    def dispose(self):
+        if self.save_id is not None:
+            self.root.after_cancel(self.save_id)
+        self.root.after_cancel(self.poll_id)
+        self.owner.windows.remove(self)
+        self.root.destroy()
+
     def close(self):
-        if self.may_leave():
-            self.root.after_cancel(self.poll_id)
+        if not self.save(notify=True):
+            return
+        if self is self.owner:
+            if len(self.windows) > 1:
+                self.root.withdraw()
+                return
             self.store.close()
-            self.root.destroy()
+            self.dispose()
+        else:
+            self.dispose()
+            if len(self.owner.windows) == 1 and self.owner.root.state() == "withdrawn":
+                self.owner.close()
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Open the local ShipMB notebook and diary.")
-    parser.add_argument("--database", type=Path, default=default_database(), help="Notebook SQLite file (also opens a backup).")
+    parser = argparse.ArgumentParser(description="Open executable ShipMB sticky notes.")
+    parser.add_argument("--database", type=Path, default=default_database(), help="Notes SQLite file (also opens a backup).")
     args = parser.parse_args()
     try:
         import tkinter as tk
     except ImportError:
-        parser.exit(2, "ShipMB Notebook needs Tkinter. Install Python's Tk support (python3-tk on many Linux systems).\n")
+        parser.exit(2, "ShipMB Notes needs Tkinter. Install Python's Tk support (python3-tk on many Linux systems).\n")
     try:
         root = tk.Tk()
     except tk.TclError as error:
-        parser.exit(2, f"ShipMB Notebook needs a desktop display: {error}\n")
+        parser.exit(2, f"ShipMB Notes needs a desktop display: {error}\n")
     try:
         store = NotebookStore(args.database)
+        entries = store.list()
     except (OSError, sqlite3.Error) as error:
         root.destroy()
-        parser.exit(2, f"Could not open notebook: {error}\n")
-    NotebookApp(root, store)
+        parser.exit(2, f"Could not open notes: {error}\n")
+    NotebookApp(root, store, entry=store.get(entries[0]["id"]) if entries else None)
     root.mainloop()
 
 

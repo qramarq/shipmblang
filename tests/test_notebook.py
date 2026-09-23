@@ -100,52 +100,99 @@ class NotebookInterfaceTests(unittest.TestCase):
 
     def tearDown(self):
         if hasattr(self, "app"):
-            self.root.after_cancel(self.app.poll_id)
-            self.root.destroy()
+            for window in list(reversed(self.app.windows)):
+                window.dispose()
             self.store.close()
             self.directory.cleanup()
 
-    def test_save_switch_search_and_reopen(self):
+    def wait_until(self, predicate, timeout=3):
+        import time
+        deadline = time.monotonic() + timeout
+        while not predicate() and time.monotonic() < deadline:
+            self.root.update()
+            time.sleep(0.01)
+        self.assertTrue(predicate())
+
+    def test_autosave_and_reopen(self):
         app = self.app
-        app.title.set("Today")
-        app.journal.insert("1.0", "My diary isn't a program.")
-        app.example()
+        app.program.insert("1.0", 'Present "Today’s idea".')
         self.root.update()
         self.assertTrue(app.dirty)
-        self.assertTrue(app.save())
+        self.wait_until(lambda: not app.dirty)
         entry_id = app.entry_id
-        app.new_entry()
-        self.root.update()
-        self.assertFalse(app.dirty)
-        self.assertEqual(app.journal.get("1.0", "end-1c"), "")
-        app.entries.selection_set(entry_id)
-        self.root.update()
-        self.assertEqual(app.title.get(), "Today")
-        self.assertIn("isn't a program", app.journal.get("1.0", "end-1c"))
-        app.search.set("not found")
-        self.root.update()
-        self.assertEqual(app.entries.get_children(), ())
+        self.assertEqual(self.store.get(entry_id)["program"], 'Present "Today’s idea".')
+        self.assertEqual(self.store.list("idea")[0]["id"], entry_id)
+        self.assertIs(app.new_note(self.store.get(entry_id)), app)
 
-    def test_only_program_selection_sent_to_compiler(self):
-        import time
+    def test_run_entire_note_and_toggle_terminal_without_losing_output(self):
         app = self.app
-        app.journal.insert("1.0", "This private diary must never be compiled.")
         app.program.insert("1.0", "Show 5. Show 9.")
         self.root.update()
         app.program.tag_add("sel", "1.0", "1.7")
-        with patch("shipmblang.notebook.execute_program", return_value=(0, {"runtime": {"stdout": "5\n"}})) as execute:
-            app.execute("run")
-            deadline = time.monotonic() + 3
-            while app.busy and time.monotonic() < deadline:
-                self.root.update()
-                time.sleep(0.01)
-        execute.assert_called_once_with("Show 5.", "run")
+        self.assertFalse(app.terminal_visible)
+        with patch("shipmblang.notebook.execute_program", return_value=(0, {"runtime": {"stdout": "5\n9\n"}})) as execute:
+            app.run_button.invoke()
+            self.wait_until(lambda: not app.busy)
+        execute.assert_called_once_with("Show 5. Show 9.", "run")
         self.assertFalse(app.busy)
-        self.assertEqual(app.output.get("1.0", "end-1c"), "5\n")
+        self.assertTrue(app.terminal_visible)
+        app.terminal_button.invoke()
+        self.assertFalse(app.terminal_visible)
+        app.terminal_button.invoke()
+        self.assertTrue(app.terminal_visible)
+        self.assertEqual(app.output.get("1.0", "end-1c"), "5\n9\n")
 
-    def test_cancel_preserves_dirty_entry(self):
-        self.app.title.set("Unsaved thought")
-        with patch("tkinter.messagebox.askyesnocancel", return_value=None):
-            self.app.new_entry()
-        self.assertEqual(self.app.title.get(), "Unsaved thought")
+    def test_failed_save_keeps_note_open(self):
+        import sqlite3
+        self.app.program.insert("1.0", "Show 7.")
+        self.root.update()
+        with patch.object(self.store, "save", side_effect=sqlite3.OperationalError("read only")), patch("tkinter.messagebox.showerror"):
+            self.app.close()
         self.assertTrue(self.app.dirty)
+        self.assertEqual(self.app.status.get(), "Not saved")
+        self.assertTrue(self.root.winfo_exists())
+
+    def test_two_buttons_and_independent_notes(self):
+        buttons = [w.cget("text") for w in self.app.footer.winfo_children() if w.winfo_class() == "Button"]
+        self.assertEqual(buttons, ["Run", "Terminal"])
+        second = self.app.new_note()
+        second.root.withdraw()
+        self.app.program.insert("1.0", "Show 1.")
+        second.program.insert("1.0", "Show 2.")
+        self.root.update()
+        self.app.save()
+        second.save()
+        self.assertNotEqual(self.app.entry_id, second.entry_id)
+        self.assertEqual(self.store.get(second.entry_id)["program"], "Show 2.")
+
+    def test_preserves_old_journal_and_does_not_execute_it(self):
+        entry_id = self.store.save(title="Old diary", entry_date="2026-09-23",
+                                  journal="This diary is private prose.", program="Show 3.")
+        note = self.app.new_note(self.store.get(entry_id))
+        note.root.withdraw()
+        self.assertEqual(note.text(), "Show 3.")
+        note.program.delete("1.0", "end")
+        self.root.update()
+        note.save()
+        self.assertEqual(self.store.get(entry_id)["journal"], "This diary is private prose.")
+        self.assertEqual(self.store.get(entry_id)["program"], "")
+
+    def test_delete_cancels_pending_autosave(self):
+        self.app.program.insert("1.0", "Show 8.")
+        self.root.update()
+        self.app.save()
+        self.app.program.insert("end", " Show 9.")
+        self.root.update()
+        with patch("tkinter.messagebox.askyesno", return_value=True):
+            self.app.delete_note()
+        self.root.update()
+        self.assertIsNone(self.app.save_id)
+        self.assertFalse(self.app.dirty)
+        self.assertEqual(self.store.list(), [])
+
+    def test_result_after_edit_is_labeled_and_does_not_reopen_hidden_terminal(self):
+        self.app.program.insert("1.0", "Show 9.")
+        self.root.update()
+        self.app.results.put(("Show 5.", "5\n"))
+        self.wait_until(lambda: "before your latest edit" in self.app.output.get("1.0", "end-1c"))
+        self.assertFalse(self.app.terminal_visible)

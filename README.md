@@ -110,10 +110,9 @@ Run saved Notepad files or pipe copied program text from Google Keep and Noteboo
 through the same runtime as VS Code. See [text-app workflows](docs/text-apps.md)
 and the [Colab notebook](examples/text_apps_colab.ipynb).
 
-## ShipMB Notebook and diary
+## ShipMB executable sticky notes
 
-Run `python -m shipmblang notebook` for the local desktop app, or double-click
-`notebook.cmd` on Windows. Save dated journal entries, search your notes, and
-compile or run English programs in a separate program area. Notes stay in a
-local database; supported grammar and slang work offline. See the
-[notebook guide](docs/notebook.md) for usage and backups.
+Run `python -m shipmblang notebook`, or double-click `notebook.cmd` on Windows.
+Write English directly on a small sticky note. **Run** executes it; **Terminal**
+shows or hides output. Notes autosave locally. Right-click for new notes, search,
+and backups. See the [notes guide](docs/notebook.md).
