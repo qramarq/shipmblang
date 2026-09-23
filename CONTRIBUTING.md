@@ -2,6 +2,16 @@
 
 Thanks for helping improve ShipMBLang.
 
+## Contributor Agreement
+
+A signed contributor agreement is required before an external contribution can
+be merged. The agreement text and signing process are pending maintainer setup;
+contact the maintainer before submitting a contribution. Opening a pull request
+does not by itself sign an agreement or transfer copyright.
+
+Maintainers: do not merge external contributions until the agreed terms are
+available and acceptance has been recorded. See [CLA setup](docs/cla-setup.md).
+
 ## Local Setup
 
 ```bash
