@@ -1,0 +1,32 @@
+{
+  "distribution": "shipmbcompiler",
+  "version": "0.2.4",
+  "sha256": {
+    "__init__.py": "1181ef18f155d62a4b1a53a48723e6311f1aff4eacc5239e4c4667523e17016f",
+    "clarification.py": "0004b013e9a6fdbb2371e074d30b3694e30659b9cd1afee81e0f87721b84d40f",
+    "compiler.py": "bba94ffa3356b02c7430280cc50eecab9674ff0a960601c20a07ab7d42b311ab",
+    "core.py": "4a96852adfe711645340e819113d1f7f253ffb3df69e70e5fcbc24b7668a6937",
+    "diagnostics.py": "4c850c53d1b62b64e7e87e243e1ac9a6e7706502041f3620bec291d73742754d",
+    "direct.py": "9a2c57c5afac953e6a506e55079fc4effa2239ac3ae614f25560bfd1622cc01f",
+    "english.py": "82920143fe030c155174fb05ccc84649737b5d4f3129e15ac7846bcf000c4c12",
+    "english_model.py": "212991cd3246324c86b84d3ea2a35c43be123d5eae7b33a78a1fdb8d59dc33fe",
+    "general_codegen.py": "d4da9cb533993f365c4fc9a425171eb2e7d20edb1f4cbcb20bcf3074976b8404",
+    "general_english.py": "ba029fb4a6e2b826d87baf4082dedfa26ab7e76bf744a0816f848de6abf5b73f",
+    "general_runtime.py": "3ea7e5466e9073186ec18651f34d93f6abf575bfd7109f00f997913d3de0f24f",
+    "ir.py": "5ce13d85a3f4a27f38a377359b1f32c043ae6709826a76779caa20c23c7861e7",
+    "lexer.py": "45f975e8940d019954d46ae0c7319211173f9b1e1d8cee0c43a798332d308a52",
+    "limits.py": "ab229304bbdc852862939ea9a2f91a6baa81861787739a67b53a94d08974c081",
+    "memory.py": "7eb16475f53a061e216467659271775cf49aed00b3cf43cfc12fba1ce48759bd",
+    "memory_support.py": "403da6277235849275189f451840adcfd1219b93fdee21de026e2542ae7687bf",
+    "models.py": "dbe51dbfa0efe7d8a2a0a580bff3552ac92518138d6669431a363cd74a89c289",
+    "normalizer.py": "4eb79fbd649364247a2f11f2baa7a4839702d8ef71e906e87d446ce599e0f00e",
+    "optimizer.py": "f0510538512611c0d3522ce71a8468c553962b5dd3c2e41332356920c05ceabf",
+    "parser.py": "0999b2d624575d422dc6404691ec75a359f9c644e1fa1fd22db30009be5a02d7",
+    "runtime.py": "4c541de06160b7d7854b2cf5d9619ac69db80f1d01d04ed53adca65e4ecd9e5e",
+    "semantics.py": "1368e881eb8261005b41d938bb5bd16fb6f638cc49a5462323550e06d600cd81",
+    "source_format.py": "7bfe9a06892477f9e32ed4f1b387816ce0ffac44509b1f7ad22c13c84b3acb56",
+    "target.py": "40365ea8bbd32e7d6e7b0568db110c3b74ca06ac558b98f5f277b0fae6b6cd7c",
+    "thesaurus.py": "551eb9a02e75b538e9bb36f7ca1f1d297b0a07cfc225a31ea77b066480d399b5",
+    "urban_slang.py": "5f114292d5ceebae4c8dd2f9d0fb0c4157cf97dedfe2d4cd65a7e8958f610073"
+  }
+}

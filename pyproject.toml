@@ -7,7 +7,7 @@ name = "shipmblang"
 version = "0.2.1"
 description = "Natural language programming layer for ShipMB with deterministic compilation to ShipMBLang bytecode."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "ZMachinery LLC" }]
@@ -17,7 +17,6 @@ classifiers = [
     "Environment :: Console",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Debuggers",
@@ -59,4 +58,7 @@ shipmb-onboarding = "shipmblang.onboarding:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["driplm", "driplm.*", "shiplang", "shiplang.*", "shipmblang", "shipmblang.*", "shipmb", "shipmb.*", "driplang", "driplang.*", "shipmbcompiler", "shipmbcompiler.*"]
+include = ["driplm", "driplm.*", "shiplang", "shiplang.*", "shipmblang", "shipmblang.*", "shipmb", "shipmb.*", "driplang", "driplang.*"]
+
+[tool.setuptools.package-data]
+"shipmblang._compiler" = ["BUNDLED.json"]

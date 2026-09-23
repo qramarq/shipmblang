@@ -11,7 +11,8 @@ information produce diagnostics or clarification questions, never placeholder co
 
 ## Install
 
-You need Python 3.11+ and Git. The language includes its compiler and runtime:
+You need Python 3.11+ and Git. The language includes its compiler and runtime
+internally; no separate compiler installation or compiler command is needed:
 
 ```sh
 git clone https://github.com/qramarq/shipmblang.git
@@ -87,3 +88,10 @@ documentation, and other intellectual property it created or acquired.
 Third-party materials remain the property of their respective owners.
 This license grants usage rights without transferring ownership or granting
 trademark rights except as expressly provided in the license. See [NOTICE](NOTICE).
+
+## Compiler updates for maintainers
+
+Compiler changes are developed and pushed in the compiler repository; language
+changes are developed and pushed in this language repository. Each language
+release bundles a selected compiler snapshot so users install only ShipMBLang.
+See [the bundle update and verification workflow](docs/bundled-compiler.md).

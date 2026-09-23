@@ -20,7 +20,7 @@ class BundledCompilerTests(unittest.TestCase):
                 self.assertEqual(result["runtime"]["stdout"], expected)
 
     def test_ir_pipeline_is_available(self):
-        from shipmbcompiler import compile_source
+        from shipmblang._compiler import compile_source
 
         result = compile_source(
             "Use the tv pack library in shipmblang to control this Roku TV like a remote.",

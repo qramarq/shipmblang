@@ -9,7 +9,7 @@ def capture_submission(source, result, *, pipeline, project=None, memory=True, m
     if not memory or (memory_path is None and os.environ.get("SHIPMB_MEMORY", "").lower() in {"off", "0", "false"}):
         return
     try:
-        from shipmbcompiler.memory import MemoryStore
+        from shipmblang._compiler.memory import MemoryStore
 
         store = MemoryStore(memory_path or os.environ.get("SHIPMB_MEMORY_DB"))
         store.record_submission(source, str(project or Path.cwd().resolve()), pipeline, result)
@@ -17,6 +17,6 @@ def capture_submission(source, result, *, pipeline, project=None, memory=True, m
         # Capture is optional; its failure must not discard a compilation result.
         warnings.warn(
             f"ShipMB memory capture failed ({type(error).__name__}: {error}). "
-            "Install shipmblang[direct] or disable capture with SHIPMB_MEMORY=off / --memory off.",
+            "Check the memory database path or disable capture with SHIPMB_MEMORY=off / --memory off.",
             RuntimeWarning, stacklevel=2,
         )

@@ -1,4 +1,4 @@
-"""Optional compiler integration; legacy and compiler artifacts stay distinct."""
+"""Bundled compiler integration; legacy and compiler artifacts stay distinct."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import sys
 
 
 class CompilerUnavailableError(RuntimeError):
-    """The selected optional compiler cannot be loaded."""
+    """The bundled compiler cannot be loaded."""
 
 
 _CONFIGURED_MODEL = object()
@@ -22,7 +22,7 @@ def _english_model(profile):
     """Load the configured model only if deterministic parsing needs help."""
     def propose(source):
         from .providers import load_chat_provider
-        from shipmbcompiler.english_model import EnglishModelFrontend
+        from shipmblang._compiler.english_model import EnglishModelFrontend
 
         provider = load_chat_provider()
         if provider is None:
@@ -39,15 +39,15 @@ def _compiler():
     if sys.version_info < (3, 11):
         raise CompilerUnavailableError("The direct and ir pipelines require Python 3.11 or newer.")
     try:
-        compiler = importlib.import_module("shipmbcompiler")
+        compiler = importlib.import_module("shipmblang._compiler")
     except ModuleNotFoundError as error:
-        if error.name != "shipmbcompiler":
+        if error.name != "shipmblang._compiler":
             raise
         raise CompilerUnavailableError(
-            'Install the optional compiler with: python -m pip install "shipmblang[direct]"'
+            'The bundled compiler is missing. Reinstall ShipMBLang: python -m pip install --force-reinstall shipmblang'
         ) from error
     if not callable(getattr(compiler, "compile_direct_program", None)):
-        raise CompilerUnavailableError("Install shipmbcompiler>=0.2.1,<0.3; this compiler lacks the direct API.")
+        raise CompilerUnavailableError("Reinstall ShipMBLang; its bundled compiler lacks the direct API.")
     return compiler
 
 
@@ -58,7 +58,7 @@ def _memory_enabled(requested, memory_path=None):
 def compile_direct_program(source, *, memory=True, memory_path=None, project=None,
                            bindings=None, clarification_answers=None, model_provider=_CONFIGURED_MODEL,
                            profile="general", accept_model_interpretation=True):
-    """Delegate to the optional compiler without importing the legacy pipeline.
+    """Delegate to the bundled compiler without importing the legacy pipeline.
 
     Broader English translation is the default when deterministic parsing needs
     help. Pass model_provider=None for deterministic-only compilation, or
@@ -71,7 +71,7 @@ def compile_direct_program(source, *, memory=True, memory_path=None, project=Non
     parameters = inspect.signature(compile_program).parameters
     supports_profile = "profile" in parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values())
     if profile != "roku" and not supports_profile:
-        raise CompilerUnavailableError("This compiler does not support the general profile. Install a profile-capable shipmbcompiler>=0.2.1,<0.3 build.")
+        raise CompilerUnavailableError("Reinstall ShipMBLang; its bundled compiler does not support the general profile.")
     supports_acceptance = "accept_model_interpretation" in parameters or any(
         p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values())
     automatic_model = model_provider is _CONFIGURED_MODEL
@@ -79,7 +79,7 @@ def compile_direct_program(source, *, memory=True, memory_path=None, project=Non
         configured = os.environ.get("SHIPMB_MODEL_PROVIDER", "none").strip().lower() not in {"", "none", "disabled"}
         model_provider = _english_model(profile) if configured else None
     if model_provider is not None and not supports_acceptance:
-        raise CompilerUnavailableError("Update shipmbcompiler to a build supporting broader English translation, or pass model_provider=None.")
+        raise CompilerUnavailableError("Update ShipMBLang to a build supporting broader English translation, or pass model_provider=None.")
     result = compile_program(
         source, memory=_memory_enabled(memory, memory_path),
         memory_path=memory_path or os.environ.get("SHIPMB_MEMORY_DB"), project=project,
@@ -106,7 +106,7 @@ def _ready(result):
 def _run_direct_result(result, *, host=None):
     if not _ready(result):
         return result
-    from shipmbcompiler.runtime import run_artifact
+    from shipmblang._compiler.runtime import run_artifact
 
     state, diagnostics = run_artifact(result["target_code"], **({"host": host} if host is not None else {}))
     return {**result, "runtime": state,
