@@ -116,3 +116,11 @@ Run `python -m shipmblang notebook`, or double-click `notebook.cmd` on Windows.
 Write English directly on a small sticky note. **Run** executes it; **Terminal**
 shows or hides output. Notes autosave locally. Right-click for new notes, search,
 and backups. See the [notes guide](docs/notebook.md).
+
+## iOS and Android
+
+The [mobile app](apps/mobile/README.md) provides executable sticky notes with
+local saving and Run/Terminal controls. It connects to the authenticated
+ShipMBLang service using the current pinned compiler snapshot. Expo development,
+preview, and production build profiles are included; signed device builds and
+store submissions require your release accounts and a hosted HTTPS service.

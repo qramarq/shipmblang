@@ -86,7 +86,10 @@ class NotebookTests(unittest.TestCase):
 
 class NotebookInterfaceTests(unittest.TestCase):
     def setUp(self):
-        import tkinter as tk
+        try:
+            import tkinter as tk
+        except ImportError:
+            self.skipTest("Tkinter is not installed on this test host.")
         from shipmblang.notebook import NotebookApp
         try:
             self.root = tk.Tk()
