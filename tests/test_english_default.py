@@ -22,7 +22,7 @@ End the loop.
 Show total.'''
 
 
-@unittest.skipUnless(sys.version_info >= (3, 11) and importlib.util.find_spec("shipmbcompiler"), "Requires Python 3.11+ and the compiler or bundled distribution")
+@unittest.skipUnless(sys.version_info >= (3, 11) and importlib.util.find_spec("shipmblang._compiler"), "Requires Python 3.11+ and the compiler or bundled distribution")
 class DefaultEnglishTests(unittest.TestCase):
     def setUp(self):
         self.requests = []

@@ -30,6 +30,11 @@ python -m pip install -e ".[train]"
 
 ## Development Notes
 
+Push compiler changes to the compiler repository and language changes to this
+repository. Refresh the internal compiler snapshot using the
+[bundle workflow](docs/bundled-compiler.md) before releasing its changes to users.
+
+
 - Keep the core compiler deterministic and dependency-light.
 - Add or update tests for compiler behavior, bytecode behavior, and public CLI entry points.
 - Do not commit local model checkpoints, virtual environments, generated datasets, or packaged VS Code extension builds.
