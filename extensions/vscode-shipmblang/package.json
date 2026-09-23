@@ -4,7 +4,7 @@
   "description": "Compile and run ShipMBLang prose, inspect diagnostics, and explain errors.",
   "version": "0.3.1",
   "publisher": "shipmb",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
   "private": true,
   "repository": {
     "type": "git",

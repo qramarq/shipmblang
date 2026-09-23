@@ -4,7 +4,7 @@ Compile/run `.shipmb`, `.shiplang`, and `.smb` prose from the active editor, inc
 
 ## Setup
 
-1. Install ShipMBLang and the optional shipmbcompiler package into the same Python environment. Direct compilation requires Python 3.11+ and shipmbcompiler >=0.2.3,<0.3. For local private checkouts, install the compiler checkout first, then the language checkout with `python -m pip install -e .` in each package root.
+1. Install ShipMBLang with `python -m pip install .` from the repository root. The compiler and runtime are bundled; no private checkout or separate compiler installation is needed. Direct compilation requires Python 3.11+.
 2. Install the local VSIX through **Extensions: Install from VSIX**, or launch this folder with an Extension Development Host.
 3. Set `shipmblang.pythonPath` to that environment's Python executable (not a command with arguments). Use a full path when necessary.
 4. For general programs, set `shipmblang.pipeline` to `direct` and `shipmblang.profile` to `general`. Extension 0.3.0 defaults to `direct`/`general`; existing explicit settings take precedence. The profile setting only applies to `direct`.

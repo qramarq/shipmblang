@@ -1,0 +1,14 @@
+ShipMB / ShipMBLang
+Copyright 2026 ZMachinery LLC (zmachinery)
+
+ZMachinery LLC owns the original ShipMB / ShipMBLang code, compiler, runtime,
+documentation, and other intellectual property it created or acquired.
+Licensed under the Apache License, Version 2.0.
+Third-party materials remain the property of their respective owners; existing
+third-party license and attribution notices remain applicable. This notice does
+not assign third-party intellectual property or modify the Apache License.
+
+The bundled shipmbcompiler Python package is derived from
+https://github.com/qramarq/shipmblang-compiler
+commit 863547434271683851d99926a0c10093a6a226b3 (version 0.2.3).
+It is included under this repository's Apache License, Version 2.0.

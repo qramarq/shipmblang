@@ -29,12 +29,12 @@ def main():
         wheels = root / "wheels"
         wheels.mkdir()
         for name, source, packages, modules in (
-            ("language", language, ["shipmblang", "driplm", "shiplang", "shipmb", "driplang"], []),
+            ("language", language, ["shipmblang", "driplm", "shiplang", "shipmb", "driplang", "shipmbcompiler"], []),
             ("compiler", compiler, ["shipmbcompiler"], ["shipmbc.py"]),
         ):
             staging = root / name
             staging.mkdir()
-            for file in ["pyproject.toml", "README.md", *(["LICENSE"] if (source / "LICENSE").is_file() else []), *modules]:
+            for file in ["pyproject.toml", "README.md", *[name for name in ("LICENSE", "NOTICE") if (source / name).is_file()], *modules]:
                 shutil.copy2(source / file, staging / file)
             for package in packages:
                 shutil.copytree(source / package, staging / package, ignore=shutil.ignore_patterns("__pycache__"))
@@ -53,7 +53,7 @@ import importlib.metadata as metadata
 import json
 import shipmblang, shipmbcompiler
 assert metadata.version('shipmblang') == '0.2.1'
-assert metadata.metadata('shipmblang')['License-Expression'] == 'LicenseRef-Proprietary'
+assert metadata.metadata('shipmblang')['License-Expression'] == 'Apache-2.0'
 assert callable(shipmblang.build_onboarding_manifest)
 assert callable(shipmblang.run_onboarding_checks)
 assert metadata.version('shipmbcompiler') == '0.2.3'

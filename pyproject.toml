@@ -8,8 +8,8 @@ version = "0.2.1"
 description = "Natural language programming layer for ShipMB with deterministic compilation to ShipMBLang bytecode."
 readme = "README.md"
 requires-python = ">=3.10"
-license = "LicenseRef-Proprietary"
-license-files = ["LICENSE"]
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 authors = [{ name = "ZMachinery LLC" }]
 keywords = ["shiplang", "shipmblang", "shipmb", "printurf", "mcp", "vscode", "errors"]
 classifiers = [
@@ -25,7 +25,8 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-direct = ["shipmbcompiler>=0.2.3,<0.3; python_version >= '3.11'"]
+# Kept for compatibility; the compiler is now included in the base package.
+direct = []
 model = [
     "numpy>=1.24.0",
     "tokenizers>=0.19.0",
@@ -58,4 +59,4 @@ shipmb-onboarding = "shipmblang.onboarding:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["driplm", "driplm.*", "shiplang", "shiplang.*", "shipmblang", "shipmblang.*", "shipmb", "shipmb.*", "driplang", "driplang.*"]
+include = ["driplm", "driplm.*", "shiplang", "shiplang.*", "shipmblang", "shipmblang.*", "shipmb", "shipmb.*", "driplang", "driplang.*", "shipmbcompiler", "shipmbcompiler.*"]
