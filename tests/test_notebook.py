@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from shipmblang.notebook import execute_program
+from shipmblang.notebook import execute_program, STARTERS
 from shipmblang.notebook_store import NotebookStore
 
 
@@ -65,6 +65,29 @@ class NotebookTests(unittest.TestCase):
         code, result = execute_program(source, "run")
         self.assertEqual(code, 0)
         self.assertEqual(result["runtime"]["stdout"], "5\ncafé\n")
+
+    def test_quoted_starters_use_actual_050_without_check_execution(self):
+        import json
+        mobile = Path(__file__).resolve().parents[1] / "apps/mobile/src/starters.json"
+        self.assertEqual(json.loads(mobile.read_text()), STARTERS)
+        for starter in STARTERS:
+            with self.subTest(starter=starter["title"]):
+                code, checked = execute_program(starter["source"], "compile")
+                self.assertEqual(code, 0)
+                self.assertNotIn("runtime", checked)
+                code, result = execute_program(starter["source"], "run")
+                self.assertEqual(code, 0)
+                self.assertEqual(result["compiler"]["version"], "0.5.0")
+                self.assertEqual(result["compiler"]["commit"], "1d44e1d5f5feb4e1629008edc3a80c9246dcbca2")
+                self.assertEqual(result["runtime"]["stdout"], starter["output"])
+
+    def test_media_never_reaches_run_in_notes(self):
+        for filename in ("ffmpeg-transcode.shipmb", "vlc-playback.shipmb"):
+            source = (Path(__file__).resolve().parents[1] / "examples" / filename).read_text()
+            code, result = execute_program(source, "run")
+            self.assertNotEqual(code, 0)
+            self.assertNotIn("runtime", result)
+            self.assertIn("not enabled in Notes", result["diagnostics"][0]["message"])
 
     def test_unknown_prose_does_not_run(self):
         code, result = execute_program("Present it.", "run")
@@ -157,7 +180,7 @@ class NotebookInterfaceTests(unittest.TestCase):
 
     def test_two_buttons_and_independent_notes(self):
         buttons = [w.cget("text") for w in self.app.footer.winfo_children() if w.winfo_class() == "Button"]
-        self.assertEqual(buttons, ["Run", "Terminal"])
+        self.assertEqual(buttons, ["Check", "Run", "Terminal"])
         second = self.app.new_note()
         second.root.withdraw()
         self.app.program.insert("1.0", "Show 1.")
@@ -199,3 +222,23 @@ class NotebookInterfaceTests(unittest.TestCase):
         self.app.results.put(("Show 5.", "5\n"))
         self.wait_until(lambda: "before your latest edit" in self.app.output.get("1.0", "end-1c"))
         self.assertFalse(self.app.terminal_visible)
+
+    def test_starter_opens_separate_note_without_execution(self):
+        self.app.program.insert("1.0", 'Present "Keep my writing".')
+        self.root.update()
+        self.app.save()
+        with patch("shipmblang.notebook.execute_program") as execute:
+            note = self.app.start_note(STARTERS[0])
+            self.root.update()
+            note.save()
+            execute.assert_not_called()
+        self.assertEqual(self.app.text(), 'Present "Keep my writing".')
+        self.assertEqual(note.text(), STARTERS[0]["source"])
+        self.assertNotEqual(note.entry_id, self.app.entry_id)
+
+    def test_check_does_not_execute(self):
+        self.app.program.insert("1.0", STARTERS[0]["source"])
+        self.root.update()
+        self.app.check_button.invoke()
+        self.wait_until(lambda: not self.app.busy)
+        self.assertIn("nothing executed", self.app.output.get("1.0", "end-1c"))

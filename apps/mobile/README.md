@@ -1,15 +1,15 @@
 # ShipMB Notes for iOS and Android
 
 Expo / React Native implementation of the executable sticky notes. Local notes
-autosave, each note has Run and Terminal controls, and output survives toggling
-the terminal. Run sends only the current note to an authenticated ShipMBLang
+autosave, each note has Check, Run and Terminal controls, and output survives toggling
+the terminal. Check compiles without execution; Run executes. Both send only the current note to an authenticated ShipMBLang
 service. This initial build does **not** embed Python on the phone: editing is
 offline; execution needs the service connection.
 
 ## Current compiler
 
-Compiler **0.2.4**, upstream commit
-`db568cee173f9e74da9a07936022f75c935cedfc`, was the latest compiler main commit
+Compiler **0.5.0**, upstream commit
+`1d44e1d5f5feb4e1629008edc3a80c9246dcbca2`, was the latest compiler main commit
 verified on 2026-09-23. `src/compiler-snapshot.json` pins its version, commit, and
 canonical manifest hash. The service verifies bundled source hashes on startup,
 and both endpoints/client reject a mismatched snapshot. No approximate mobile
@@ -107,3 +107,13 @@ Official references: [EAS builds](https://docs.expo.dev/build/setup/),
 [store submission](https://docs.expo.dev/deploy/submit-to-app-stores/).
 
 Scaffold based on Expo's blank TypeScript template; its notice is in TEMPLATE-LICENSE.
+
+## Writing your first program
+
+Choose a starter to create a separate note, edit the quoted words, then press
+Check. A successful check does not execute anything. Press Run to print the
+result in Terminal. The returned compiler version and commit identify the
+actual runtime. Existing notes and storage keys are unchanged.
+
+This interface currently supports core programs. Media workflows and embedded
+VLC/FFmpeg/HyperFrames controls are a separate integration plan.

@@ -68,3 +68,20 @@ class MobileServiceTests(unittest.TestCase):
     def test_token_is_required(self):
         with self.assertRaises(ValueError):
             create_app("short")
+
+    def test_check_uses_compile_only(self):
+        runner = Mock(return_value=(0, {"diagnostics": []}))
+        app = create_app(TOKEN, runner=runner)
+        status, _, result = self.request(app, {"source": "Show 5.", "compiler": compiler_snapshot()}, path="/v1/check")
+        self.assertEqual(status, "200 OK")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["stdout"], "")
+        runner.assert_called_once_with("Show 5.", "compile", timeout=20)
+
+    def test_remote_media_returns_diagnostic_without_host_execution(self):
+        from pathlib import Path
+        source = (Path(__file__).resolve().parents[1] / "examples/vlc-playback.shipmb").read_text()
+        status, _, result = self.request(create_app(TOKEN), {"source": source, "compiler": compiler_snapshot()})
+        self.assertEqual(status, "200 OK")
+        self.assertFalse(result["ok"])
+        self.assertIn("not enabled in Notes", result["diagnostics"][0]["message"])

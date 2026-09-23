@@ -10,8 +10,12 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import time
 
+from .notebook_runtime import compiler_snapshot
 from .notebook_store import NotebookStore, default_database
+
+STARTERS = json.loads(Path(__file__).with_name("note_starters.json").read_text(encoding="utf-8"))
 
 
 def execute_program(source, mode, *, timeout=20):
@@ -20,8 +24,15 @@ def execute_program(source, mode, *, timeout=20):
         raise ValueError("Expected compile or run.")
     if not source.strip():
         raise ValueError("Write or select a program first.")
+    started = time.monotonic()
+    if mode == "run":
+        code, checked = execute_program(source, "compile", timeout=timeout)
+        if code:
+            return code, checked
+        timeout = max(0.001, timeout - (time.monotonic() - started))
+    snapshot = compiler_snapshot()
     command = [sys.executable, "-X", "utf8", "-m", "shipmblang", mode,
-               "--file", "-", "--format", "json", "--memory", "off", "--no-english-model"]
+               "--pipeline", "direct", "--profile", "general", "--file", "-", "--format", "json", "--memory", "off", "--no-english-model"]
     completed = subprocess.run(
         command, input=source, capture_output=True, encoding="utf-8", timeout=timeout,
         cwd=Path(__file__).resolve().parents[1],
@@ -31,6 +42,13 @@ def execute_program(source, mode, *, timeout=20):
         result = json.loads(completed.stdout)
     except json.JSONDecodeError as error:
         raise RuntimeError(completed.stderr.strip() or "The compiler returned no readable result.") from error
+    capabilities = (result.get("target_code") or {}).get("runtime_contract", {}).get("required_capabilities", [])
+    if capabilities:
+        result.pop("runtime", None)
+        result["diagnostics"] = [{"level": "error", "message": "Media and host capabilities are not enabled in Notes yet. Use the standalone ShipMBLang tools for media programs."}]
+        result["compiler"] = snapshot
+        return 2, result
+    result["compiler"] = snapshot
     return completed.returncode, result
 
 
@@ -56,23 +74,36 @@ class NotebookApp:
         self.status = tk.StringVar(value="Saved" if entry else "New note")
         paper, ink = "#fff0ac", "#423820"
         root.title("ShipMB Notes")
-        root.geometry("410x380")
-        root.minsize(300, 260)
+        root.geometry("540x580")
+        root.minsize(440, 420)
         root.configure(bg=paper)
         root.grid_columnconfigure(0, weight=1)
-        root.grid_rowconfigure(0, weight=1)
+        root.grid_rowconfigure(1, weight=1)
+        snapshot = compiler_snapshot()
+        header = tk.Frame(root, bg=paper, padx=20, pady=16)
+        header.grid(row=0, column=0, sticky="ew")
+        tk.Label(header, text="Write a little program", bg=paper, fg=ink, font=("Segoe UI", 20, "bold")).pack(anchor="w")
+        tk.Label(header, text="Write → Check → Run · ShipMBLang " + snapshot["version"], bg=paper, fg=ink, font=("Segoe UI", 11)).pack(anchor="w", pady=(6, 8))
+        starter_menu = tk.Menubutton(header, text="Start with an example ▾", bg="#f8e498", fg=ink, relief="flat", padx=10, pady=8, font=("Segoe UI", 11))
+        starter_menu.pack(anchor="w")
+        choices = tk.Menu(starter_menu, tearoff=False)
+        for starter in STARTERS:
+            choices.add_command(label=starter["title"], command=lambda item=starter: self.start_note(item))
+        starter_menu.configure(menu=choices)
         self.program = tk.Text(root, wrap="word", undo=True, font=("Segoe UI", 14),
                                bg=paper, fg=ink, insertbackground=ink, relief="flat",
-                               borderwidth=0, highlightthickness=0, padx=20, pady=18)
-        self.program.grid(row=0, column=0, sticky="nsew")
+                               borderwidth=0, highlightthickness=0, padx=20, pady=18, spacing1=4, spacing3=8)
+        self.program.grid(row=1, column=0, sticky="nsew")
         if entry:
             self.program.insert("1.0", entry["program"])
         self.program.edit_modified(False)
         self.program.bind("<<Modified>>", self.changed)
         self.footer = tk.Frame(root, bg=paper, padx=14, pady=10)
-        self.footer.grid(row=1, column=0, sticky="ew")
+        self.footer.grid(row=2, column=0, sticky="ew")
         button_style = dict(font=("Segoe UI", 10), relief="flat", borderwidth=0,
                             cursor="hand2", padx=14, pady=6)
+        self.check_button = tk.Button(self.footer, text="Check", command=lambda: self.execute("compile"), bg="#f8e498", fg=ink, **button_style)
+        self.check_button.pack(side="left", padx=(0, 8))
         self.run_button = tk.Button(self.footer, text="Run", command=self.execute,
                                     bg=ink, fg=paper, activebackground="#605032", activeforeground=paper, **button_style)
         self.run_button.pack(side="left")
@@ -86,19 +117,19 @@ class NotebookApp:
                                    bg="#252721", fg="#f6efce", relief="flat", borderwidth=0,
                                    highlightthickness=0, padx=14, pady=12, state="disabled")
         self.output.pack(fill="both", expand=True)
-        self.write_output("Ready. Press Run to execute this note.")
+        self.write_output("Check reads your instructions without running them. Run executes the whole note.\n\nCompiler " + snapshot["version"] + "\nSource " + snapshot["commit"])
 
         self.menu = tk.Menu(root, tearoff=False)
         self.menu.add_command(label="New note", accelerator="Ctrl+N", command=self.new_note)
-        self.menu.add_command(label="Open noteâ€¦", accelerator="Ctrl+O", command=self.open_notes)
+        self.menu.add_command(label="Open note…", accelerator="Ctrl+O", command=self.open_notes)
         self.menu.add_separator()
         for label in ("Undo", "Cut", "Copy", "Paste"):
             self.menu.add_command(label=label, command=lambda value=label: self.program.event_generate(f"<<{value}>>"))
         self.menu.add_separator()
-        self.menu.add_command(label="Back up notesâ€¦", command=self.backup)
+        self.menu.add_command(label="Back up notes…", command=self.backup)
         if self.legacy_journal:
-            self.menu.add_command(label="Previous journalâ€¦", command=self.show_journal)
-        self.menu.add_command(label="Delete noteâ€¦", command=self.delete_note)
+            self.menu.add_command(label="Previous journal…", command=self.show_journal)
+        self.menu.add_command(label="Delete note…", command=self.delete_note)
         for widget in (self.program, self.footer):
             widget.bind("<Button-3>", self.context_menu)
         for key, action in (("<Control-n>", self.new_note), ("<Control-o>", self.open_notes),
@@ -137,7 +168,7 @@ class NotebookApp:
             return
         self.program.edit_modified(False)
         self.dirty = True
-        self.status.set("Savingâ€¦")
+        self.status.set("Saving…")
         if self.save_id is not None:
             self.root.after_cancel(self.save_id)
         self.save_id = self.root.after(600, self.save)
@@ -166,6 +197,12 @@ class NotebookApp:
         self.status.set("Saved")
         return True
 
+    def start_note(self, starter):
+        note = self.new_note()
+        note.program.insert("1.0", starter["source"])
+        note.changed()
+        return note
+
     def new_note(self, entry=None):
         if entry:
             for window in self.owner.windows:
@@ -181,7 +218,7 @@ class NotebookApp:
     def open_notes(self):
         from tkinter import ttk
         window = self.tk.Toplevel(self.root)
-        window.title("Open a note Â· double-click to open")
+        window.title("Open a note · double-click to open")
         window.geometry("420x320")
         search = self.tk.StringVar()
         ttk.Label(window, text="Search notes").pack(anchor="w", padx=12, pady=(10, 0))
@@ -214,7 +251,7 @@ class NotebookApp:
     def show_journal(self):
         from tkinter.scrolledtext import ScrolledText
         window = self.tk.Toplevel(self.root)
-        window.title("Previous journal Â· preserved")
+        window.title("Previous journal · preserved")
         text = ScrolledText(window, wrap="word", font=("Segoe UI", 12))
         text.pack(fill="both", expand=True)
         text.insert("1.0", self.legacy_journal)
@@ -260,7 +297,7 @@ class NotebookApp:
     def toggle_terminal(self):
         self.terminal_visible = not self.terminal_visible
         if self.terminal_visible:
-            self.terminal.grid(row=2, column=0, sticky="ew")
+            self.terminal.grid(row=3, column=0, sticky="ew")
         else:
             self.terminal.grid_remove()
         self.terminal_button.configure(relief="sunken" if self.terminal_visible else "flat")
@@ -271,7 +308,7 @@ class NotebookApp:
         self.output.insert("1.0", text)
         self.output.configure(state="disabled")
 
-    def execute(self):
+    def execute(self, mode="run"):
         if self.busy:
             return
         if not self.terminal_visible:
@@ -282,16 +319,19 @@ class NotebookApp:
             return
         self.busy = True
         self.run_button.configure(state="disabled")
-        self.write_output("Runningâ€¦")
+        self.check_button.configure(state="disabled")
+        self.write_output("Checking…" if mode == "compile" else "Running…")
 
         def work():
             try:
-                code, result = execute_program(source, "run")
+                code, result = execute_program(source, mode)
                 if code:
                     messages = [d.get("message", "") for d in result.get("diagnostics", [])]
                     text = "Needs attention\n\n" + ("\n".join(filter(None, messages)) or json.dumps(result, indent=2, ensure_ascii=False))
                 else:
-                    text = result.get("runtime", {}).get("stdout", "") or "Finished. No printed output."
+                    text = "Check passed. Ready to Run; nothing executed." if mode == "compile" else result.get("runtime", {}).get("stdout", "") or "Finished. No printed output."
+                if result.get("compiler"):
+                    text += "\n\nShipMBLang " + result["compiler"]["version"] + " · " + result["compiler"]["commit"][:12]
             except subprocess.TimeoutExpired:
                 text = "Stopped after 20 seconds. Simplify the program and try again."
             except Exception as error:
@@ -308,6 +348,7 @@ class NotebookApp:
         else:
             self.busy = False
             self.run_button.configure(state="normal")
+            self.check_button.configure(state="normal")
             if source != self.text():
                 text = "Result from before your latest edit:\n\n" + text
             self.write_output(text)

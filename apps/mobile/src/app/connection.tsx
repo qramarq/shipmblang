@@ -26,7 +26,7 @@ export default function ConnectionScreen() {
     <ScrollView contentContainerStyle={[styles.page, { flex: undefined, flexGrow: 1, gap: 18, paddingBottom: 36 }]} keyboardShouldPersistTaps="handled">
       <View style={styles.header}><Pressable accessibilityRole="button" accessibilityLabel="Back" onPress={() => router.canGoBack() ? router.back() : router.replace('/')} style={styles.iconButton}><Text style={styles.icon}>‹</Text></Pressable><Text style={styles.label}>CONNECTION</Text></View>
       <Text style={styles.heading}>Your compiler.</Text>
-      <Text style={styles.body}>Notes stay on this device. Run sends only the current note to this ShipMBLang service. It uses the same compiler snapshot as the desktop app.</Text>
+      <Text style={styles.body}>Notes stay on this device. Check and Run send only the current note to this ShipMBLang service. It uses the same compiler snapshot as the desktop app.</Text>
       <Text style={styles.label}>Service URL</Text><TextInput accessibilityLabel="Service URL" style={styles.field} value={url} onChangeText={setUrl} placeholder="https://compiler.example.com" autoCapitalize="none" autoCorrect={false} keyboardType="url" />
       <Text style={styles.label}>Access token</Text><TextInput accessibilityLabel="Access token" style={styles.field} value={token} onChangeText={setToken} placeholder="Your private service token" secureTextEntry autoCapitalize="none" autoCorrect={false} />
       <Pressable accessibilityRole="button" disabled={busy} onPress={connect} style={[styles.button, busy && { opacity: 0.5 }]}><Text style={styles.buttonText}>{busy ? 'Checking…' : 'Connect'}</Text></Pressable>

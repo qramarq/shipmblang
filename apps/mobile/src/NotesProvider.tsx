@@ -5,7 +5,7 @@ import { createNote, createWriter, decodeNotes, type Note } from './model';
 
 const KEY = 'shipmb.notes.v1';
 type NotesContext = { notes: Note[]; ready: boolean; loadError: string; saveState: string;
-  add: () => string; update: (id: string, text: string) => void; remove: (id: string) => void; retry: () => void };
+  add: (source?: string) => string; update: (id: string, text: string) => void; remove: (id: string) => void; retry: () => void };
 const Context = createContext<NotesContext | null>(null);
 export function NotesProvider({ children }: { children: React.ReactNode }) {
   const [notes, setNotes] = useState<Note[]>([]);
@@ -28,7 +28,7 @@ export function NotesProvider({ children }: { children: React.ReactNode }) {
     }).catch(() => { if (turn === revision.current) setSaveState('Not saved · tap to retry'); });
   }
   return <Context.Provider value={{ notes, ready, loadError, saveState,
-    add: () => { const note = createNote(randomUUID(), current.current.length); persist([note, ...current.current]); return note.id; },
+    add: (source = '') => { const note = { ...createNote(randomUUID(), current.current.length), text: source }; persist([note, ...current.current]); return note.id; },
     update: (id, text) => persist(current.current.map(note => note.id === id ? { ...note, text, updatedAt: new Date().toISOString() } : note)),
     remove: id => persist(current.current.filter(note => note.id !== id)),
     retry: () => persist(current.current),

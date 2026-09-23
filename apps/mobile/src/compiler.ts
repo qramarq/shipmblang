@@ -40,9 +40,9 @@ export async function compilerRequest(connection: Connection, path: string, deve
   } finally { clearTimeout(timeout); }
 }
 export async function runNote(connection: Connection, source: string, expected: Snapshot,
-  development: boolean, fetcher: typeof fetch = fetch): Promise<RunResult> {
+  development: boolean, fetcher: typeof fetch = fetch, mode: 'run' | 'check' = 'run'): Promise<RunResult> {
   if (!source.trim()) throw new Error('Write a program first. Try: Show the sum of 2 and 3.');
-  const value = await compilerRequest(connection, '/v1/run', development, { source, compiler: expected }, fetcher);
+  const value = await compilerRequest(connection, '/v1/' + mode, development, { source, compiler: expected }, fetcher);
   if (!sameSnapshot(value.compiler, expected)) throw new Error('Compiler snapshot mismatch. Update the app and service together.');
   if (typeof value.ok !== 'boolean' || typeof value.stdout !== 'string' || !Array.isArray(value.diagnostics) || !Array.isArray(value.clarifications)) {
     throw new Error('The compiler returned an unreadable response.');

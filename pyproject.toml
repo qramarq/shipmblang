@@ -61,4 +61,5 @@ where = ["."]
 include = ["driplm", "driplm.*", "shiplang", "shiplang.*", "shipmblang", "shipmblang.*", "shipmb", "shipmb.*", "driplang", "driplang.*"]
 
 [tool.setuptools.package-data]
+"shipmblang" = ["note_starters.json"]
 "shipmblang._compiler" = ["BUNDLED.json", "hyperframes/node/*.mjs", "hyperframes/node/*.json", "hyperframes/vendor/*"]

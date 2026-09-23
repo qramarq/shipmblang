@@ -1,7 +1,8 @@
 # ShipMB Notes
 
-Small executable sticky notes. Type English directly on the note; the only
-visible actions are **Run** and **Terminal**. Notes save automatically after
+Small executable sticky notes. Choose **Start with an example**, or write English
+directly on a note. **Check**, **Run**, and **Terminal** guide the next steps.
+Notes save automatically after
 600 milliseconds without typing and when you close them.
 
 ```text
@@ -11,8 +12,9 @@ python -m shipmblang notebook
 On Windows, double-click `notebook.cmd`. Python 3.11+ and Tkinter are required.
 On many Linux distributions install `python3-tk`. A desktop display is needed.
 
-## Two buttons
+## Write, Check, Run
 
+- **Check** compiles the whole note without executing it and reports whether it is ready.
 - **Run** compiles and executes the whole note, then shows its output. Selecting
   a fragment does not change what runs. Ctrl+Enter also runs the note.
 - **Terminal** shows or hides output without clearing it. Ctrl+backtick also
@@ -61,3 +63,26 @@ stored with the note. Open a backup or separate database with:
 ```text
 python -m shipmblang notebook --database "path/to/my-notes.sqlite3"
 ```
+
+
+## Notes with ShipMBLang 0.5.0
+
+Open `notebook.cmd` in this checkout, or install this checkout with
+`python -m pip install .` and run `python -m shipmblang notebook`.
+The notes runner explicitly chooses the bundled direct/general compiler,
+checks its source hashes, and displays its version and source commit.
+This release uses compiler 0.5.0 from `1d44e1d5f5feb4e1629008edc3a80c9246dcbca2`.
+Older checkout launchers continue using their own snapshots.
+
+Choose **Start with an example** to open a separate note. Existing writing
+is never replaced. The paragraph starter shares a mutable total across quoted
+instruction paragraphs and prints `5`. Edit the text, press **Check** to compile
+without executing, then **Run** to execute the whole note. **Terminal** toggles
+output visibility. Results include compiler provenance; no program runs merely
+by opening or editing a note. Existing SQLite schema, database location, notes,
+and preserved diary text are unchanged.
+
+Notes currently accepts core programs. Artifacts requiring host capabilities,
+including FFmpeg and VLC, return a media-not-enabled diagnostic before execution.
+The standalone CLI retains its media support. See [the media integration
+plan](notes-media-plan.md) for assets, jobs, preview and mobile delivery phases.

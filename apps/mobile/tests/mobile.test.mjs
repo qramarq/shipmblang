@@ -54,3 +54,15 @@ test('different snapshots and failed requests never look like successful runs', 
 test('compiler diagnostics are presented instead of invented output', () => {
   assert.equal(terminalText({ ok: false, stdout: '', compiler: snapshot, diagnostics: [{ message: 'Which value?' }], clarifications: [] }), 'Which value?');
 });
+
+test('Check sends source to the compile-only endpoint', async () => {
+  let called;
+  const fetcher = async (url, options) => {
+    called = { url, body: JSON.parse(options.body) };
+    return Response.json({ compiler: snapshot, ok: true, stdout: '', diagnostics: [], clarifications: [] });
+  };
+  await runNote({ url: 'https://compiler.example.com', token: 'test-token' }, 'Show 5.', snapshot, false, fetcher, 'check');
+  assert.equal(called.url, 'https://compiler.example.com/v1/check');
+  assert.equal(called.body.source, 'Show 5.');
+  assert.equal(called.body.compiler.version, '0.5.0');
+});

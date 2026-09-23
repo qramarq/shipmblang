@@ -12,6 +12,7 @@ export default function NoteScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const { notes, ready, update, remove, saveState, retry } = useNotes();
   const note = notes.find(value => value.id === id);
+  const [editing, setEditing] = useState(false);
   const [terminal, setTerminal] = useState(false);
   const [output, setOutput] = useState('Ready when you are.');
   const [busy, setBusy] = useState(false);
@@ -21,15 +22,15 @@ export default function NoteScreen() {
   const running = useRef(false);
   const mounted = useRef(true);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  async function run() {
+  async function run(mode: 'run' | 'check' = 'run') {
     if (running.current || !note) return;
     running.current = true; setBusy(true); setTerminal(true); Keyboard.dismiss();
-    const source = note.text; setSourceRun(source); setOutput('Running…');
+    const source = note.text; setSourceRun(source); setOutput(mode === 'check' ? 'Checking…' : 'Running…');
     try {
       const connection = await loadConnection();
-      if (!connection.url) throw new Error('Connect your ShipMBLang compiler from the ··· menu. Your note stays on this device until you press Run.');
-      const result = await runNote(connection, source, snapshot, __DEV__);
-      if (mounted.current) setOutput(terminalText(result));
+      if (!connection.url) throw new Error('Connect your ShipMBLang compiler from the ··· menu. Your note stays on this device until you press Check or Run.');
+      const result = await runNote(connection, source, snapshot, __DEV__, fetch, mode);
+      if (mounted.current) setOutput((mode === 'check' && result.ok ? 'Check passed. Ready to Run; nothing executed.' : terminalText(result)) + '\n\nShipMBLang ' + result.compiler.version + ' · ' + result.compiler.commit.slice(0, 12));
     } catch (error) {
       if (mounted.current) setOutput(error instanceof Error ? error.message : String(error));
     } finally { running.current = false; if (mounted.current) setBusy(false); }
@@ -41,10 +42,11 @@ export default function NoteScreen() {
       <View style={s.top}><Pressable accessibilityRole="button" accessibilityLabel="Back to notes" onPress={() => router.back()} style={styles.iconButton}><Text style={s.back}>‹</Text></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Retry saving note" onPress={retry}><Text style={styles.label}>{saveState}</Text></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Note menu" onPress={() => { Keyboard.dismiss(); setMenu(true); }} style={styles.iconButton}><Text style={styles.icon}>···</Text></Pressable></View>
-      <TextInput accessibilityLabel="Note program" value={note.text} onChangeText={text => update(id, text)} multiline
+      {!editing && <View style={s.guide}><Text style={s.guideTitle}>Make your words do something.</Text><Text style={s.guideText}>1 Write · 2 Check · 3 Run</Text><Text style={s.guideText}>Write instructions in English. Paragraphs can go in quotes; use Show to print a result.</Text></View>}
+      <TextInput accessibilityLabel="Note program" value={note.text} onChangeText={text => update(id, text)} onFocus={() => { setEditing(true); setTerminal(false); }} onBlur={() => setEditing(false)} multiline
         autoCorrect={false} autoCapitalize="sentences" maxLength={30000} textAlignVertical="top" selectionColor="#B59C48"
-        placeholder={'Write it in English.\n\nShow the sum of 2 and 3.'} placeholderTextColor="#8E8664" style={s.input} />
-      <View style={s.actions}><Pressable accessibilityRole="button" accessibilityLabel="Run note" accessibilityState={{ disabled: busy }} disabled={busy} onPress={run} style={[styles.button, busy && { opacity: 0.55 }]}><Text style={styles.buttonText}>{busy ? 'Running…' : 'Run'}</Text></Pressable>
+        placeholder={'Try: Present "Hello, world!".\n\nThen add your next instruction.'} placeholderTextColor="#65624E" style={s.input} />
+      <View style={s.actions}><Pressable accessibilityRole="button" accessibilityLabel="Check note" disabled={busy} onPress={() => run('check')} style={s.checkButton}><Text style={s.terminalLabel}>Check</Text></Pressable><Pressable accessibilityRole="button" accessibilityLabel="Run note" accessibilityState={{ disabled: busy }} disabled={busy} onPress={() => run('run')} style={[styles.button, busy && { opacity: 0.55 }]}><Text style={styles.buttonText}>{busy ? 'Working…' : 'Run'}</Text></Pressable>
         <Pressable accessibilityRole="button" accessibilityState={{ expanded: terminal }} onPress={() => setTerminal(value => !value)} style={s.terminalButton}><Text style={s.terminalLabel}>Terminal {terminal ? '−' : '+'}</Text></Pressable></View>
       {terminal && <View style={s.terminal}><View style={s.terminalHeader}><Text style={s.terminalCaption}>SHIPMBLANG</Text><Text style={s.terminalCaption}>compiler {snapshot.version}</Text></View>
         <ScrollView style={s.outputScroll}>{sourceRun !== null && sourceRun !== note.text && <Text style={s.stale}>Output from the previous text.</Text>}
@@ -64,9 +66,10 @@ export default function NoteScreen() {
 }
 const s = StyleSheet.create({
   editor: { flex: 1, width: '100%', maxWidth: 720, alignSelf: 'center' }, top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12 }, back: { fontSize: 36, color: ink },
-  input: { flex: 1, paddingHorizontal: 26, paddingTop: 22, paddingBottom: 12, fontSize: 23, lineHeight: 34, color: ink, minHeight: 100 },
-  actions: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 22, paddingVertical: 16, gap: 10 },
-  terminalButton: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 16 }, terminalLabel: { color: ink, fontSize: 16 },
+  guide: { paddingHorizontal: 26, paddingVertical: 12, gap: 6 }, guideTitle: { color: ink, fontSize: 20, fontWeight: '600' }, guideText: { color: '#50513D', fontSize: 13, lineHeight: 19 }, checkButton: { minHeight: 48, paddingHorizontal: 16, justifyContent: 'center', borderWidth: 1, borderColor: '#7B775E', borderRadius: 12 },
+  input: { flex: 1, paddingHorizontal: 26, paddingTop: 22, paddingBottom: 12, fontSize: 20, lineHeight: 31, color: ink, minHeight: 100 },
+  actions: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingVertical: 12, gap: 6 },
+  terminalButton: { minHeight: 48, justifyContent: 'center', paddingHorizontal: 10 }, terminalLabel: { color: ink, fontSize: 16 },
   terminal: { backgroundColor: '#242B25', paddingHorizontal: 22, paddingTop: 16, paddingBottom: 20, height: 230, maxHeight: '42%' },
   terminalHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16 }, terminalCaption: { color: '#A2B19D', fontSize: 10, letterSpacing: 1.4 },
   outputScroll: { flex: 1 }, output: { fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', fontSize: 14, lineHeight: 23, color: '#F5F1D4' }, stale: { color: '#D8C886', fontSize: 12, marginBottom: 10 },

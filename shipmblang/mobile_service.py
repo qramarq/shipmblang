@@ -6,28 +6,16 @@ HTTPS reverse proxy and a production WSGI server for access outside a LAN.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import hmac
 import json
 import os
-from pathlib import Path
 import subprocess
 from wsgiref.simple_server import make_server
 
 from .notebook import execute_program
+from .notebook_runtime import compiler_snapshot
 
 MAX_BODY = 65536
-
-
-def compiler_snapshot():
-    root = Path(__file__).parent / "_compiler"
-    manifest = json.loads((root / "BUNDLED.json").read_text(encoding="utf-8"))
-    for filename, expected in manifest["sha256"].items():
-        path = (root / filename).resolve()
-        if not path.is_relative_to(root.resolve()) or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
-            raise ValueError(f"Compiler snapshot integrity check failed: {filename}")
-    return {"version": manifest["version"], "commit": manifest["source_commit"],
-            "manifest_sha256": hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()}
 
 
 def create_app(token=None, *, allowed_origin=None, runner=execute_program):
@@ -61,7 +49,7 @@ def create_app(token=None, *, allowed_origin=None, runner=execute_program):
         method = environ["REQUEST_METHOD"]
         if path == "/v1/info" and method == "GET":
             return reply("200 OK", {"compiler": snapshot, "language": "ShipMBLang", "model_calls": False})
-        if path != "/v1/run":
+        if path not in {"/v1/run", "/v1/check"}:
             return reply("404 Not Found", {"error": "Unknown endpoint."})
         if method != "POST":
             return reply("405 Method Not Allowed", {"error": "Use POST."})
@@ -82,7 +70,7 @@ def create_app(token=None, *, allowed_origin=None, runner=execute_program):
         if value.get("compiler") != snapshot:
             return reply("409 Conflict", {"error": "Compiler snapshot mismatch. Update the app and service together.", "compiler": snapshot})
         try:
-            code, result = runner(value["source"], "run", timeout=20)
+            code, result = runner(value["source"], "compile" if path == "/v1/check" else "run", timeout=20)
         except subprocess.TimeoutExpired:
             return reply("408 Request Timeout", {"error": "Program stopped after 20 seconds."})
         except Exception:
