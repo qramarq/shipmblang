@@ -16,7 +16,7 @@ from unittest.mock import Mock, patch
 from shipmblang import pipelines
 
 
-@unittest.skipIf(sys.version_info < (3, 11), "Optional direct compiler requires Python 3.11+")
+@unittest.skipIf(sys.version_info < (3, 11), "Direct compiler requires Python 3.11+")
 class PipelineTests(unittest.TestCase):
     def setUp(self):
         environment = patch.dict(os.environ, {"SHIPMB_MEMORY": "off"})
@@ -45,8 +45,13 @@ class PipelineTests(unittest.TestCase):
         self.assertFalse(call.kwargs["memory"])
         self.assertEqual(call.kwargs["memory_path"], "custom.sqlite")
         self.assertIs(call.kwargs["model_provider"], provider)
-        self.assertEqual(call.kwargs["profile"], "roku")
+        self.assertEqual(call.kwargs["profile"], "general")
+        self.assertTrue(call.kwargs["accept_model_interpretation"])
         self.compiler.compile_source.assert_not_called()
+
+    def test_direct_defaults_to_bytecode(self):
+        with patch.dict(sys.modules, {"shipmbcompiler": self.compiler}):
+            self.assertEqual(self.invoke("--pipeline", "direct", "--memory", "off", "Use ShipMB."), self.artifact)
 
     def test_quoted_paragraph_file_is_forwarded_verbatim(self):
         source = '\u201cStart with 12.\nAdd 15 and show the result.\u201d\n'
@@ -65,10 +70,6 @@ class PipelineTests(unittest.TestCase):
             with patch.dict(sys.modules, {"shipmbcompiler": self.compiler}):
                 self.invoke("--pipeline", "direct", "--profile", "general", "--file", str(path))
         self.assertEqual(self.compiler.compile_direct_program.call_args.args, (source,))
-
-    def test_direct_defaults_to_bytecode(self):
-        with patch.dict(sys.modules, {"shipmbcompiler": self.compiler}):
-            self.assertEqual(self.invoke("--pipeline", "direct", "--memory", "off", "Use ShipMB."), self.artifact)
 
     def test_general_profile_is_forwarded_without_artifact_rewriting(self):
         self.artifact.update(version="0.3", profile="general")
@@ -110,7 +111,7 @@ class PipelineTests(unittest.TestCase):
             runtime.run_artifact.assert_called_with(self.artifact)
 
     def test_profile_requires_direct_pipeline_before_loading_any_compiler(self):
-        for args in (("--profile", "general"), ("--pipeline", "legacy", "--profile", "roku"), ("--pipeline", "ir", "--profile", "general")):
+        for args in (("--pipeline", "legacy", "--profile", "roku"), ("--pipeline", "ir", "--profile", "general")):
             with self.subTest(args=args), patch.object(pipelines, "_compiler") as compiler, contextlib.redirect_stderr(io.StringIO()):
                 with self.assertRaises(SystemExit) as failure:
                     self.invoke(*args, "Use ShipMB.")
@@ -128,7 +129,7 @@ class PipelineTests(unittest.TestCase):
             return self.result
         self.compiler.compile_direct_program = old_compile
         with patch.dict(sys.modules, {"shipmbcompiler": self.compiler}):
-            self.assertIs(pipelines.compile_direct_program("Use ShipMB."), self.result)
+            self.assertIs(pipelines.compile_direct_program("Use ShipMB.", profile="roku", model_provider=None), self.result)
             with self.assertRaisesRegex(pipelines.CompilerUnavailableError, "profile-capable"):
                 pipelines.compile_direct_program("Show 27.", profile="general")
 
@@ -226,11 +227,59 @@ class PipelineTests(unittest.TestCase):
         runtime.run_artifact.assert_called_once_with(self.artifact)
         self.assertEqual(result["runtime"], {"events": []})
 
-    def test_legacy_default_output_unchanged(self):
+    def test_explicit_legacy_output_unchanged(self):
         output = io.StringIO()
-        with patch.object(sys, "argv", ["compile", "Use ShipMB."]), contextlib.redirect_stdout(output):
+        with patch.object(sys, "argv", ["compile", "--pipeline", "legacy", "Use ShipMB."]), contextlib.redirect_stdout(output):
             pipelines.main()
         self.assertEqual(output.getvalue().strip(), "use shipmb")
+
+    def test_default_compiles_broader_english_with_general_profile(self):
+        with patch.dict(sys.modules, {"shipmbcompiler": self.compiler}), patch.dict(os.environ, {"SHIPMB_MODEL_PROVIDER": "openai_compatible"}):
+            self.assertEqual(self.invoke("Add up the odd scores."), self.artifact)
+        options = self.compiler.compile_direct_program.call_args.kwargs
+        self.assertEqual(options["profile"], "general")
+        self.assertTrue(options["accept_model_interpretation"])
+        self.assertTrue(callable(options["model_provider"]))
+
+    def test_model_can_be_disabled_or_reviewed(self):
+        with patch.dict(sys.modules, {"shipmbcompiler": self.compiler}):
+            self.invoke("--no-english-model", "Show 7.")
+            self.assertIsNone(self.compiler.compile_direct_program.call_args.kwargs["model_provider"])
+            self.invoke("--review-model-interpretation", "Add up the odd scores.")
+            self.assertFalse(self.compiler.compile_direct_program.call_args.kwargs["accept_model_interpretation"])
+
+    def test_model_options_require_direct(self):
+        for flag in ("--no-english-model", "--review-model-interpretation"):
+            with patch.object(pipelines, "_compiler") as compiler, contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit) as failure:
+                    self.invoke("--pipeline", "legacy", flag, "Show 7.")
+                self.assertEqual(failure.exception.code, 2)
+                compiler.assert_not_called()
+
+    def test_model_frontend_is_lazy_and_uses_existing_chat_provider(self):
+        frontend_module = types.ModuleType("shipmbcompiler.english_model")
+        frontend_module.EnglishModelFrontend = Mock(return_value=lambda source: {"paraphrase": "Show 9."})
+        provider = object()
+        with patch.dict(sys.modules, {"shipmbcompiler.english_model": frontend_module}), patch("shipmblang.providers.load_chat_provider", return_value=provider) as load:
+            proposal = pipelines._english_model("general")
+            load.assert_not_called()
+            self.assertEqual(proposal("What is three squared?"), {"paraphrase": "Show 9."})
+        frontend_module.EnglishModelFrontend.assert_called_once_with(provider, profile="general")
+
+    def test_missing_model_returns_actionable_question(self):
+        frontend_module = types.ModuleType("shipmbcompiler.english_model")
+        frontend_module.EnglishModelFrontend = Mock()
+        with patch.dict(sys.modules, {"shipmbcompiler.english_model": frontend_module}), patch("shipmblang.providers.load_chat_provider", return_value=None):
+            proposal = pipelines._english_model("general")("Do something new.")
+        self.assertIn("SHIPMB_MODEL_BASE_URL", proposal["question"])
+        frontend_module.EnglishModelFrontend.assert_not_called()
+
+    def test_bytecode_output_exposes_translation_on_stderr(self):
+        self.result["interpretation_source"] = "Show 9."
+        stderr = io.StringIO()
+        with patch.dict(sys.modules, {"shipmbcompiler": self.compiler}), contextlib.redirect_stderr(stderr):
+            self.assertEqual(self.invoke("What is three squared?"), self.artifact)
+        self.assertIn("Show 9.", stderr.getvalue())
 
     def test_legacy_captures_original_text_and_result(self):
         from shipmblang import compile_natural_program

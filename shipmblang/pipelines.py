@@ -15,6 +15,26 @@ class CompilerUnavailableError(RuntimeError):
     """The selected optional compiler cannot be loaded."""
 
 
+_CONFIGURED_MODEL = object()
+
+
+def _english_model(profile):
+    """Load the configured model only if deterministic parsing needs help."""
+    def propose(source):
+        from .providers import load_chat_provider
+        from shipmbcompiler.english_model import EnglishModelFrontend
+
+        provider = load_chat_provider()
+        if provider is None:
+            return {"question": (
+                "Broader English translation needs a configured model. Set "
+                "SHIPMB_MODEL_PROVIDER=openai_compatible, SHIPMB_MODEL_BASE_URL, "
+                "and SHIPMB_MODEL_NAME, or restate the request in supported English."
+            )}
+        return EnglishModelFrontend(provider, profile=profile)(source)
+    return propose
+
+
 def _compiler():
     if sys.version_info < (3, 11):
         raise CompilerUnavailableError("The direct and ir pipelines require Python 3.11 or newer.")
@@ -36,27 +56,45 @@ def _memory_enabled(requested, memory_path=None):
 
 
 def compile_direct_program(source, *, memory=True, memory_path=None, project=None,
-                           bindings=None, clarification_answers=None, model_provider=None,
-                           profile="roku"):
+                           bindings=None, clarification_answers=None, model_provider=_CONFIGURED_MODEL,
+                           profile="general", accept_model_interpretation=True):
     """Delegate to the optional compiler without importing the legacy pipeline.
 
-    Results retain the compiler's status, diagnostics and artifact schema. No
-    automatic fallback or model selection occurs.
+    Broader English translation is the default when deterministic parsing needs
+    help. Pass model_provider=None for deterministic-only compilation, or
+    accept_model_interpretation=False to review translations before compiling.
+    Results retain the compiler's status, diagnostics and artifact schema.
     """
     if profile not in {"roku", "general"}:
         raise ValueError("profile must be 'roku' or 'general'")
     compile_program = _compiler().compile_direct_program
     parameters = inspect.signature(compile_program).parameters
     supports_profile = "profile" in parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values())
-    if profile == "general" and not supports_profile:
+    if profile != "roku" and not supports_profile:
         raise CompilerUnavailableError("This compiler does not support the general profile. Install a profile-capable shipmbcompiler>=0.2.1,<0.3 build.")
-    return compile_program(
+    supports_acceptance = "accept_model_interpretation" in parameters or any(
+        p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values())
+    automatic_model = model_provider is _CONFIGURED_MODEL
+    if automatic_model:
+        configured = os.environ.get("SHIPMB_MODEL_PROVIDER", "none").strip().lower() not in {"", "none", "disabled"}
+        model_provider = _english_model(profile) if configured else None
+    if model_provider is not None and not supports_acceptance:
+        raise CompilerUnavailableError("Update shipmbcompiler to a build supporting broader English translation, or pass model_provider=None.")
+    result = compile_program(
         source, memory=_memory_enabled(memory, memory_path),
         memory_path=memory_path or os.environ.get("SHIPMB_MEMORY_DB"), project=project,
         bindings=bindings, clarification_answers=clarification_answers,
         model_provider=model_provider,
         **({"profile": profile} if supports_profile else {}),
+        **({"accept_model_interpretation": accept_model_interpretation} if supports_acceptance else {}),
     )
+    if automatic_model and model_provider is None and result.get("status") != "compiled":
+        result = {**result, "diagnostics": [*result.get("diagnostics", []), {
+            "level": "warning", "code": "SMBL001",
+            "message": "Broader English translation needs a configured model. Set SHIPMB_MODEL_PROVIDER=openai_compatible, SHIPMB_MODEL_BASE_URL, and SHIPMB_MODEL_NAME, or supply --interpretation.",
+            "span": {"start": 0, "end": len(source)},
+        }]}
+    return result
 
 
 def _ready(result):
@@ -90,12 +128,16 @@ def run_main():
 
 def _main(*, run):
     selector = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
-    selector.add_argument("--pipeline", choices=["legacy", "direct", "ir"], default="legacy")
+    selector.add_argument("--pipeline", choices=["legacy", "direct", "ir"], default="direct")
     selector.add_argument("--profile", choices=["roku", "general"])
     selector.add_argument("--run", action="store_true")
     selector.add_argument("--memory", choices=["on", "off"], default="on")
     selector.add_argument("--memory-path", "--memory-db", dest="memory_path")
+    selector.add_argument("--no-english-model", action="store_true", help="Use only the deterministic English grammar.")
+    selector.add_argument("--review-model-interpretation", "--review-interpretation", action="store_true", help="Review validated model translations before compilation.")
     selected, remaining = selector.parse_known_args()
+    if (selected.no_english_model or selected.review_model_interpretation) and selected.pipeline != "direct":
+        selector.error("English model options require --pipeline direct.")
     if selected.run and selected.pipeline != "direct":
         selector.error("--run requires --pipeline direct; use the run command for legacy or ir.")
     run = run or selected.run
@@ -128,7 +170,7 @@ def _main(*, run):
         parser.error("--interpretation requires --pipeline direct.")
     try:
         if args.file:
-            # Keep source offsets identical to the editor, including Windows CRLF.
+            # Preserve editor offsets, including Windows CRLF.
             with Path(args.file).open(encoding="utf-8", newline="") as source_file:
                 source = source_file.read()
         else:
@@ -138,7 +180,9 @@ def _main(*, run):
                 source, memory=selected.memory == "on", memory_path=selected.memory_path,
                 project=args.root,
                 clarification_answers={"interpretation": args.interpretation} if args.interpretation is not None else None,
-                profile=selected.profile or "roku",
+                profile=selected.profile or "general",
+                model_provider=None if selected.no_english_model else _CONFIGURED_MODEL,
+                accept_model_interpretation=not selected.review_model_interpretation,
             )
         else:
             result = _compiler().compile_source(
@@ -152,6 +196,8 @@ def _main(*, run):
         # Never hide clarification questions or unsupported explanations behind null bytecode.
         output = result if run or args.format == "json" or not ready else result["target_code"]
         if output is result.get("target_code"):
+            if result.get("interpretation_source"):
+                print("shipmblang: translated English:\n" + result["interpretation_source"], file=sys.stderr)
             for diagnostic in result.get("diagnostics", []):
                 if diagnostic.get("level") == "warning":
                     print(f"shipmblang: {diagnostic.get('code', 'warning')}: {diagnostic.get('message', '')}", file=sys.stderr)

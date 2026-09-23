@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from copy import deepcopy
 
 from .english import CATALOG_VERSION, GRAMMAR_VERSION, parse_english, diagnostic
@@ -10,7 +11,8 @@ from .limits import MAX_SOURCE_CHARS
 from .memory_support import open_memory, project_context
 from .clarification import revision, apply_answers
 
-COMPILER_VERSION = "0.2.3"
+COMPILER_VERSION = "0.2.4"
+_DEFAULT_MODEL = object()
 
 
 def _nodes(tree):
@@ -70,17 +72,31 @@ def emit_direct(tree):
 
 
 def compile_direct_program(source, *, memory=True, memory_path=None, project=None, bindings=None,
-                           clarification_answers=None, model_provider=None, profile="roku"):
+                           clarification_answers=None, model_provider=_DEFAULT_MODEL, profile="general",
+                           accept_model_interpretation=True):
     """Compile known English, or return structured clarification/unsupported status.
 
 Answers use {'interpretation': '<clarified English>'}. Model callbacks propose
-{'paraphrase': '<English>'}; proposals never run without an explicit answer.
+{'paraphrase': '<English>'}, {'question': '<question>'}, or
+{'unsupported': '<reason>'}. Validated proposals compile by default; set
+accept_model_interpretation=False to review them first. This permits compilation, not
+execution, and does not confirm the model's meaning in persistent memory.
 Confirmed paraphrases are parsed and validated again, never treated as code.
 """
     if not isinstance(source, str):
         raise TypeError("source must be a string")
     if profile not in {"roku", "general"}:
         raise ValueError("Direct profile must be roku or general.")
+    if model_provider is _DEFAULT_MODEL:
+        if os.environ.get("SHIPMB_MODEL_PROVIDER", "none").strip().lower() in {"", "none", "disabled"}:
+            model_provider = None
+        else:
+            def model_provider(source):
+                from .english_model import load_english_model
+                provider = load_english_model(profile)
+                if provider is None:
+                    raise ValueError("English model configuration is unavailable.")
+                return provider(source)
     parse = parse_english
     grammar, catalog = GRAMMAR_VERSION, CATALOG_VERSION
     if profile == "general":
@@ -119,7 +135,7 @@ Confirmed paraphrases are parsed and validated again, never treated as code.
             raise ValueError("The interpretation answer must be nonempty English within the source limit.")
         resolved_source = answer or source
         stale = [row for row in related if row["status"] == "confirmed" and row["versions"] != versions]
-        if not answer and (stale or (candidates and not confirmed)):
+        if not answer and (stale or (candidates and not confirmed and not (model_provider and accept_model_interpretation))):
             suggestions = []
             for row in stale or candidates:
                 meaning = row["meaning"]
@@ -164,17 +180,35 @@ Confirmed paraphrases are parsed and validated again, never treated as code.
         result["status"] = "unsupported" if errors else "needs_clarification" if questions else "compiled"
         if result["status"] != "compiled" and model_provider is not None and not answer:
             # A provider is a proposal source, not a compiler or execution authority.
-            proposal = model_provider(source)
-            paraphrase = proposal.get("paraphrase") if isinstance(proposal, dict) else None
-            if not isinstance(paraphrase, str) or not paraphrase.strip() or len(paraphrase) > MAX_SOURCE_CHARS:
-                raise ValueError("Model proposal must contain a bounded English paraphrase.")
-            _, _, _, proposal_errors, proposal_questions = parse(paraphrase, bindings)
+            from .english_model import validate_proposal
+            proposal = validate_proposal(model_provider(resolved_source))
+            if "question" in proposal:
+                result["status"] = "needs_clarification"
+                result["diagnostics"] = [d for d in result["diagnostics"] if d["level"] != "error"]
+                result["clarifications"] = [{"id": "model-question", "question": proposal["question"],
+                                            "choices": [], "span": {"start": 0, "end": len(source)}}]
+                return _save(store, result, context, versions)
+            if "unsupported" in proposal:
+                result["status"] = "unsupported"
+                result["clarifications"] = []
+                result["diagnostics"].append(diagnostic("SMBD110", proposal["unsupported"], 0, len(source)))
+                return _save(store, result, context, versions)
+            paraphrase = proposal["paraphrase"]
+            proposal_tokens, proposal_tree, proposal_symbols, proposal_errors, proposal_questions = parse(paraphrase, bindings)
             if proposal_errors or proposal_questions:
                 result["diagnostics"].append(diagnostic("SMBD108", "Model proposal failed deterministic validation.", 0, len(source)))
             else:
+                result["diagnostics"] = [d for d in result["diagnostics"] if d["level"] != "error"]
                 result["status"] = "needs_clarification"
                 result["clarifications"] = [{"id": "model-interpretation", "question": "Does this interpretation express your intended program?", "choices": [paraphrase], "span": {"start": 0, "end": len(source)}}]
                 result["candidate_interpretation"] = {"clarified_source": paraphrase}
+                if accept_model_interpretation:
+                    resolved_source = paraphrase
+                    tree, symbols = proposal_tree, proposal_symbols
+                    result.update(status="compiled", tokens=proposal_tokens, syntax_tree=tree,
+                                  symbols=symbols, clarifications=[], interpretation_source=paraphrase,
+                                  interpretation_revision=revision(paraphrase),
+                                  interpretation_origin="model")
         if result["status"] == "compiled":
             if profile == "general":
                 from .general_codegen import emit_general, GeneralLimitError

@@ -67,7 +67,7 @@ sys.meta_path.insert(0, BlockExternal())
 sys.path.insert(0, sys.argv.pop(1))
 from shipmblang import compile_natural_program
 assert compile_natural_program(sys.argv[1], include_core=False)['core'] is None
-sys.argv = ['shipmblang', 'compile', sys.argv[1], '--format', 'bytecode']
+sys.argv = ['shipmblang', 'compile', sys.argv[1], '--pipeline', 'legacy', '--format', 'bytecode']
 runpy.run_module('shipmblang', run_name='__main__')
 """
     result = subprocess.run(
