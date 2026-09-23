@@ -32,3 +32,26 @@ next explicit update. Runtime never downloads or upgrades the compiler.
 Build and distribute the language wheel from this project after verification.
 Older `output/*publish` directories are historical staging copies; they do not
 automatically receive changes made here.
+
+## Contextual vocabulary integration (2026-09-23)
+
+The selected compiler snapshot now includes grammar `general-english-0.6` and
+vocabulary `contextual-general-2` from tested compiler commit
+`db568cee173f9e74da9a07936022f75c935cedfc`. The 27-module manifest SHA-256 is
+`aa2a44dbd86c277affe80f6506d790f12448a0b6bf60d1e1866b4f855f668da1`.
+Python snapshot bytes use LF before hashing so Git checkout does not invalidate
+integrity records. New [contextual vocabulary](contextual-vocabulary.md) describes
+the bounded executable senses and examples.
+
+The three reported forms now execute offline and output 5. Public API/CLI tests
+cover source preservation, literal data, identifier senses, ambiguous targets,
+negation and constraints. A local fixture endpoint verifies relevant reviewed
+hints and the unchanged request reach the configured provider. These are
+transport tests, not evidence of live Qwen semantic accuracy.
+
+Verification: 65 tests pass in the publish checkout. The active source's existing
+virtual environment runs 88 tests successfully, with 3 skips and 51 successful
+subtests. Both clean offline wheel installations pass. The publish-wheel check
+also verifies every manifest hash and runs the new vocabulary through installed
+API and CLI entry points. Earlier baseline results above describe the previous
+snapshot; they are not the behavior of this integrated snapshot.

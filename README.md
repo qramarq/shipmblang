@@ -40,6 +40,14 @@ If an instruction is unsupported or needs clarification, revise it and run again
 
 ## Broader English
 
+Reviewed contextual wording also works offline: `Present the sum of 2 and 3.`,
+`Could you add 2 and 3 together and tell me the result?`, and
+`Compute the aggregate of 2 and 3.` each output `5`. Quoted text and variable
+names retain their spelling; arithmetic `add` never becomes package installation.
+See [contextual vocabulary](docs/contextual-vocabulary.md) for supported forms
+and ambiguity limits. Broader requests sent to your configured model, including
+Qwen, receive relevant reviewed vocabulary hints alongside the original request.
+
 Configure an existing model endpoint once (PowerShell example):
 
 ```powershell

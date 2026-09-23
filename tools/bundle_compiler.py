@@ -3,7 +3,6 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
-import shutil
 import tomllib
 
 
@@ -35,8 +34,10 @@ def main():
         if not destination.resolve().is_relative_to(target):
             raise ValueError("Refusing a path outside the compiler snapshot")
         destination.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(file, destination)
-        hashes[relative.as_posix()] = hashlib.sha256(file.read_bytes()).hexdigest()
+        # Match the LF transport contract in .gitattributes before hashing.
+        data = file.read_bytes().replace(b"\r\n", b"\n")
+        destination.write_bytes(data)
+        hashes[relative.as_posix()] = hashlib.sha256(data).hexdigest()
     record = {"distribution": "shipmbcompiler", "version": metadata["project"]["version"], "sha256": hashes}
     (target / "BUNDLED.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
     print(f"Bundled shipmbcompiler {record['version']} ({len(files)} modules). Run the packaging check before release.")

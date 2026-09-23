@@ -77,6 +77,39 @@ class DefaultEnglishTests(unittest.TestCase):
         self.assertEqual(result["runtime"]["stdout"], "27\n")
         self.assertEqual(self.requests, [])
 
+    def test_contextual_vocabulary_cli_stays_offline(self):
+        for source in (
+            "Present the sum of 2 and 3.",
+            "Could you add 2 and 3 together and tell me the result?",
+            "Compute the aggregate of 2 and 3.",
+        ):
+            with self.subTest(source=source):
+                result = self.invoke("run", source)
+                self.assertEqual(result["runtime"]["stdout"], "5\n")
+                self.assertEqual(result["source"], source)
+        self.assertEqual(self.requests, [])
+
+    def test_broader_slang_receives_reviewed_vocabulary_and_original_source(self):
+        source = 'Yo, present the aggregate of the odd values in 2, 5, 8, and 11. Do not change the order.'
+        result = self.invoke("run", source)
+        self.assertEqual(result["runtime"]["stdout"], "16\n")
+        payload = self.requests[0]
+        self.assertEqual(payload["model"], "test-translator")
+        self.assertEqual(payload["messages"][-1]["content"], source)
+        prompt = payload["messages"][0]["content"]
+        self.assertIn("Reviewed contextual vocabulary", prompt)
+        self.assertIn("show/print/display/present", prompt)
+        self.assertIn("sum/total/aggregate", prompt)
+        self.assertIn("constraint, and negation", prompt)
+
+    def test_quoted_vocabulary_is_not_retrieved_as_an_instruction(self):
+        source = 'Tell me how many characters are in "present aggregate add".'
+        self.proposal = {"question": "Do you want the character count including spaces?"}
+        result = self.invoke("run", source, expected=1)
+        self.assertEqual(result["status"], "needs_clarification")
+        self.assertNotIn("Reviewed contextual vocabulary", self.requests[0]["messages"][0]["content"])
+        self.assertEqual(self.requests[0]["messages"][-1]["content"], source)
+
     def test_review_does_not_execute_translation(self):
         result = self.invoke("run", REQUEST, "--review-model-interpretation", expected=1)
         self.assertEqual(result["status"], "needs_clarification")

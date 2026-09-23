@@ -105,8 +105,9 @@ Confirmed paraphrases are parsed and validated again, never treated as code.
     context = {"project": project_context(project), "bindings": bindings or {}}
     if profile != "roku":
         context["profile"] = profile
+    from .general_vocabulary import VOCABULARY_VERSION
     versions = {"compiler": COMPILER_VERSION, "grammar": grammar,
-                "catalog": catalog, "vocabulary": "contextual-builtin-1"}
+                "catalog": catalog, "vocabulary": VOCABULARY_VERSION if profile == "general" else "contextual-builtin-1"}
     result = {"source": source, "source_revision": revision(source), "pipeline": "direct", "profile": profile, "status": "unsupported", "core_source": None,
               "target_code": None, "diagnostics": [], "clarifications": [],
               "tokens": [], "syntax_tree": None, "symbols": {}, "memory": {"enabled": False}}

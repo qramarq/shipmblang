@@ -1,4 +1,5 @@
 """Build one wheel and verify it alone in a clean environment, without network."""
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -35,6 +36,12 @@ def main():
             names = archive.namelist()
             assert "shipmblang/_compiler/direct.py" in names
             assert "shipmblang/_compiler/BUNDLED.json" in names
+            manifest_bytes = archive.read("shipmblang/_compiler/BUNDLED.json")
+            assert manifest_bytes == (source / "shipmblang/_compiler/BUNDLED.json").read_bytes()
+            manifest = json.loads(manifest_bytes)
+            assert "general_vocabulary.py" in manifest["sha256"]
+            for name, digest in manifest["sha256"].items():
+                assert hashlib.sha256(archive.read("shipmblang/_compiler/" + name)).hexdigest() == digest, name
             assert not any(name.startswith(("shipmbcompiler/", "shipmbc.")) for name in names)
             metadata = archive.read(next(name for name in names if name.endswith(".dist-info/METADATA"))).decode()
             assert "Requires-Dist: shipmbcompiler" not in metadata
@@ -48,12 +55,15 @@ from shipmblang import run_direct_program
 assert importlib.util.find_spec('shipmbcompiler') is None
 assert importlib.util.find_spec('shipmbc') is None
 assert not any(e.name == 'shipmbc' for e in metadata.entry_points(group='console_scripts'))
-result = run_direct_program('Show 2 plus 3.', memory=False, model_provider=None)
-assert result['runtime']['stdout'] == '5\\n', result
+for source in ('Present the sum of 2 and 3.',
+               'Could you add 2 and 3 together and tell me the result?',
+               'Compute the aggregate of 2 and 3.'):
+    result = run_direct_program(source, memory=False, model_provider=None)
+    assert result['runtime']['stdout'] == '5\\n', result
 print(json.dumps({'installed': metadata.version('shipmblang'), 'output': result['runtime']['stdout']}))
 '''
         print(command([str(python), "-I", "-c", check], root).strip())
-        result = json.loads(command([str(python), "-I", "-m", "shipmblang", "run", "Show 2 plus 3.", "--memory", "off", "--no-english-model"], root))
+        result = json.loads(command([str(python), "-I", "-m", "shipmblang", "run", "Compute the aggregate of 2 and 3.", "--memory", "off", "--no-english-model"], root))
         assert result["runtime"]["stdout"] == "5\n", result
         print("PASS: one wheel, private bundled compiler, no separate compiler package or command, API and CLI execute.")
 

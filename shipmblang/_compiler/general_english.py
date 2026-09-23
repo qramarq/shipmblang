@@ -7,7 +7,9 @@ from __future__ import annotations
 import json
 import re
 
-GRAMMAR_VERSION = "general-english-0.4"
+from .general_vocabulary import OUTPUT_PATTERN, SUM_NOUNS
+
+GRAMMAR_VERSION = "general-english-0.6"
 CATALOG_VERSION = "pure-computation-0.1"
 TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|\d+|[A-Za-z_][A-Za-z_0-9]*|[^\s]')
 TYPES = {"integer", "boolean", "text"}
@@ -80,7 +82,7 @@ def clauses(source):
         if token == ']': depth -= 1
         if depth == 0 and token.lower() in {'and', 'then'}:
             tail = source[match.start():]
-            link = re.match(r'(?:and\s+then|and|then)\s+(?=(?:please\s+)?(?:show|print|display|let|set|change|start|add|subtract|multiply|divide)\b)', tail, re.I)
+            link = re.match(r'(?:and\s+then|and|then)\s+(?=(?:(?:please|pls)\s+)?(?:show|print|display|let|set|change|start|add|subtract|multiply|divide)\b)', tail, re.I)
             if link:
                 start_link = match.start()
                 if start_link and source[start_link-1] == ',': start_link -= 1
@@ -100,7 +102,7 @@ def clauses(source):
                 quoted = False
         elif char == '"':
             quoted = True
-        elif char in ".;:\n":
+        elif char in ".;:\n?":
             # A decimal literal is unsupported, but must not become two statements.
             if char == "." and i and i + 1 < len(source) and source[i-1].isdigit() and source[i+1].isdigit():
                 continue
@@ -223,12 +225,14 @@ class Expressions:
                     arguments.append(argument)
                 return node("Call", self.range(begin), function=signature["id"], arguments=arguments, argument_types=[p["type"] for p in signature["parameters"]], type=signature["return_type"])
             self.fail("Name a declared function after 'the result of'.", question=True)
-        for word, operator, separator in (("sum", "add", "and"), ("difference", "subtract", "and"), ("product", "multiply", "and"), ("quotient", "divide", "and"), ("remainder", "modulo", "and")):
+        for word, operator, separator in tuple((word, "add", "and") for word in SUM_NOUNS) + (("difference", "subtract", "and"), ("product", "multiply", "and"), ("quotient", "divide", "and"), ("remainder", "modulo", "and")):
             if self.take(word, "of"):
                 left = self.expression(4)
                 if not self.take(separator):
                     self.fail(f"State both operands: {word} of one value and another.", question=True)
                 right = self.expression(4)
+                if word in {"total", "aggregate"} and (left['type'] != 'integer' or right['type'] != 'integer'):
+                    self.fail("This aggregation sense requires two integers; specify the intended operation.", question=True)
                 value = self.binary(operator, left, right)
                 value["explicit_group"] = True
                 return value
@@ -319,7 +323,7 @@ class Parser:
         self.functions, self.function_nodes, self.return_type = {}, [], None
         # Collect signatures before resolving any function call (including recursion).
         for text, span in self.clauses:
-            match = FUNCTION.fullmatch(re.sub(r"^please\s+", "", text, flags=re.I))
+            match = FUNCTION.fullmatch(re.sub(r"^(?:(?:could|would|can) you\s+(?:(?:please|pls)\s+)?|I want you to\s+(?:(?:please|pls)\s+)?|(?:please|pls)\s+)", "", text, flags=re.I))
             if not match:
                 continue
             name, params, result_type = match.groups()
@@ -365,10 +369,21 @@ class Parser:
             if returns(body):
                 raise EnglishError("This statement cannot run because the preceding paths return.", span)
             self.at += 1
-            polite = re.match(r"(?:please\s+)", text, re.I)
+            polite = re.match(r"(?:(?:could|would|can) you\s+(?:(?:please|pls)\s+)?|I want you to\s+(?:(?:please|pls)\s+)?|(?:please|pls)\s+)", text, re.I)
             if polite:
                 text = text[polite.end():]
                 span = {"start": span["start"] + polite.end(), "end": span["end"]}
+            # Explicit two-operand addition with a requested output, not an
+            # implicit update. Parse both operands without rewriting offsets.
+            addition = re.fullmatch(r"add (.+?) and (.+?)(?: together)? and tell me the result", text, re.I)
+            if addition:
+                left = self.expr(addition[1], span['start'] + addition.start(1))
+                right = self.expr(addition[2], span['start'] + addition.start(2))
+                if left['type'] != 'integer' or right['type'] != 'integer':
+                    raise EnglishError('Arithmetic addition requires two integers.', span)
+                value = node('Binary', span, operator='add', left=left, right=right, type='integer', explicit_group=True)
+                body.append(node('Show', span, value=value))
+                continue
             match = re.fullmatch(r"start with (?:(.+?) at )?(.+)", text, re.I)
             if match:
                 value = self.expr(match[2], span['start'] + match.start(2))
@@ -466,9 +481,10 @@ class Parser:
                     raise EnglishError("Assignment cannot change a variable's type.", span)
                 body.append(node("Assign", span, slot=symbol["id"], value=value))
                 continue
-            match = re.fullmatch(r"(?:show|print|display) (?:me )?(.+)", text, re.I)
+            match = re.fullmatch(rf"{OUTPUT_PATTERN} (?:me )?(.+)|(?:compute|calculate) ((?:the )?(?:sum|total|aggregate|difference|product|quotient|remainder) of .+)", text, re.I)
             if match:
-                body.append(node("Show", span, value=self.expr(match[1], span["end"] - len(match[1]))))
+                group = 1 if match[1] is not None else 2
+                body.append(node("Show", span, value=self.expr(match[group], span["start"] + match.start(group))))
                 continue
             match = re.fullmatch(r"if (.+?) then", text, re.I)
             if match:
