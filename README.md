@@ -109,3 +109,11 @@ See [the bundle update and verification workflow](docs/bundled-compiler.md).
 Run saved Notepad files or pipe copied program text from Google Keep and NotebookLM
 through the same runtime as VS Code. See [text-app workflows](docs/text-apps.md)
 and the [Colab notebook](examples/text_apps_colab.ipynb).
+
+## ShipMB Notebook and diary
+
+Run `python -m shipmblang notebook` for the local desktop app, or double-click
+`notebook.cmd` on Windows. Save dated journal entries, search your notes, and
+compile or run English programs in a separate program area. Notes stay in a
+local database; supported grammar and slang work offline. See the
+[notebook guide](docs/notebook.md) for usage and backups.

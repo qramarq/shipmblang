@@ -4,6 +4,15 @@ import sys
 
 
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "notebook":
+        from .notebook import main as notebook_main
+
+        previous = sys.argv
+        sys.argv = [previous[0], *previous[2:]]
+        try:
+            return notebook_main()
+        finally:
+            sys.argv = previous
     if len(sys.argv) > 1 and sys.argv[1] in {"compile", "ship", "run", "ship-run"}:
         from . import pipelines
 

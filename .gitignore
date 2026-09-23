@@ -64,6 +64,12 @@ Desktop.ini
 *.tmp
 *.bak
 
+# Personal notebook data
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+
 # Local editor test runtime and VSIX output
 .vscode-test/
 *.vsix
