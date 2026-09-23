@@ -68,30 +68,14 @@ and the [language guide](docs/shipmblang.md) for more.
 
 ## Multi-paragraph requests
 
-Write the complete request in one `.shipmb` file. Blank lines separate paragraphs,
-not separate programs: the translator receives the entire document, including
-cross-paragraph references and constraints. For example:
+Put the full request in one `.shipmb` file, separating paragraphs with blank lines.
+ShipMBLang processes them as one program, so later paragraphs can refer to earlier
+values and add constraints. Broader wording uses your configured model; the whole
+translated program is validated before execution. Unsupported operations or
+unresolved questions block execution of the entire program.
 
-```text
-Work with readings 2, 5, 8, and 11. Define a function that doubles a reading.
-
-Ignore even readings. Add each remaining doubled reading to a total and count it.
-Do not print anything while processing the readings.
-
-Print the count first, then the total. If the total is at least 30, print "ready";
-otherwise print "waiting". Preserve that output order.
-```
-
-The intended output is `2`, `32`, then `ready`. Compilation checks the whole
-translated program before execution. An unsupported operation or unresolved
-question in a later paragraph blocks execution of the earlier paragraphs too.
-A model can still mistranslate intent; inspect `interpretation_source` or use
-`--review-model-interpretation` when reviewing a complex request.
-
-The automated integration tests use a local test endpoint, including functions,
-loops, filters, conditions, Unicode, Windows line endings, and paragraph ordering.
-They verify the translation/compilation/runtime contract, not the accuracy of an
-arbitrary configured model.
+Run it with `python -m shipmblang run --file program.shipmb`. Use
+`--review-model-interpretation` to review a model translation before compiling it.
 
 ## License
 
