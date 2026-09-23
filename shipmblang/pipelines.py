@@ -6,6 +6,7 @@ import argparse
 import importlib
 import inspect
 import json
+import math
 import os
 from pathlib import Path
 import sys
@@ -18,7 +19,7 @@ class CompilerUnavailableError(RuntimeError):
 _CONFIGURED_MODEL = object()
 
 
-def _english_model(profile):
+def _english_model(profile, ffmpeg_catalog=None, ffmpeg_path=None):
     """Load the configured model only if deterministic parsing needs help."""
     def propose(source):
         from .providers import load_chat_provider
@@ -31,7 +32,12 @@ def _english_model(profile):
                 "SHIPMB_MODEL_PROVIDER=openai_compatible, SHIPMB_MODEL_BASE_URL, "
                 "and SHIPMB_MODEL_NAME, or restate the request in supported English."
             )}
-        return EnglishModelFrontend(provider, profile=profile)(source)
+        catalog = ffmpeg_catalog
+        if catalog is None and ffmpeg_path is not None:
+            from shipmblang._compiler.ffmpeg_catalog import available_catalog
+            catalog = available_catalog(source, ffmpeg_path)
+        return EnglishModelFrontend(provider, profile=profile,
+                                    **({"ffmpeg_catalog": catalog} if catalog is not None else {}))(source)
     return propose
 
 
@@ -57,7 +63,8 @@ def _memory_enabled(requested, memory_path=None):
 
 def compile_direct_program(source, *, memory=True, memory_path=None, project=None,
                            bindings=None, clarification_answers=None, model_provider=_CONFIGURED_MODEL,
-                           profile="general", accept_model_interpretation=True):
+                           profile="general", accept_model_interpretation=True,
+                           ffmpeg_catalog=None, ffmpeg_path=None):
     """Delegate to the bundled compiler without importing the legacy pipeline.
 
     Broader English translation is the default when deterministic parsing needs
@@ -77,7 +84,7 @@ def compile_direct_program(source, *, memory=True, memory_path=None, project=Non
     automatic_model = model_provider is _CONFIGURED_MODEL
     if automatic_model:
         configured = os.environ.get("SHIPMB_MODEL_PROVIDER", "none").strip().lower() not in {"", "none", "disabled"}
-        model_provider = _english_model(profile) if configured else None
+        model_provider = _english_model(profile, ffmpeg_catalog, ffmpeg_path) if configured else None
     if model_provider is not None and not supports_acceptance:
         raise CompilerUnavailableError("Update ShipMBLang to a build supporting broader English translation, or pass model_provider=None.")
     result = compile_program(
@@ -87,6 +94,7 @@ def compile_direct_program(source, *, memory=True, memory_path=None, project=Non
         model_provider=model_provider,
         **({"profile": profile} if supports_profile else {}),
         **({"accept_model_interpretation": accept_model_interpretation} if supports_acceptance else {}),
+        **({"ffmpeg_catalog": ffmpeg_catalog} if ffmpeg_catalog is not None else {}),
     )
     if automatic_model and model_provider is None and result.get("status") != "compiled":
         result = {**result, "diagnostics": [*result.get("diagnostics", []), {
@@ -103,19 +111,33 @@ def _ready(result):
             and not any(d.get("level") == "error" for d in result.get("diagnostics", [])))
 
 
-def _run_direct_result(result, *, host=None):
+def _run_direct_result(result, *, host=None, ffmpeg_executor=None):
     if not _ready(result):
         return result
     from shipmblang._compiler.runtime import run_artifact
 
-    state, diagnostics = run_artifact(result["target_code"], **({"host": host} if host is not None else {}))
+    options = {"host": host} if host is not None else {}
+    if ffmpeg_executor is not None:
+        options["ffmpeg_executor"] = ffmpeg_executor
+    state, diagnostics = run_artifact(result["target_code"], **options)
     return {**result, "runtime": state,
             "diagnostics": [*result.get("diagnostics", []), *[d.to_dict() for d in diagnostics]]}
 
 
-def run_direct_program(source, *, host=None, **compile_options):
+def run_direct_program(source, *, host=None, ffmpeg_executor=None, **compile_options):
     """Compile and run a direct artifact; only an explicitly supplied host is used."""
-    return _run_direct_result(compile_direct_program(source, **compile_options), host=host)
+    return _run_direct_result(compile_direct_program(source, **compile_options),
+                              host=host, ffmpeg_executor=ffmpeg_executor)
+
+
+def _positive_timeout(value):
+    try:
+        timeout = float(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("Timeout must be a positive finite number.") from error
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise argparse.ArgumentTypeError("Timeout must be a positive finite number.")
+    return timeout
 
 
 def main():
@@ -131,11 +153,18 @@ def _main(*, run):
     selector.add_argument("--pipeline", choices=["legacy", "direct", "ir"], default="direct")
     selector.add_argument("--profile", choices=["roku", "general"])
     selector.add_argument("--run", action="store_true")
+    selector.add_argument("--ffmpeg-path", help="Path to the separately installed FFmpeg executable.")
+    selector.add_argument("--ffprobe-path", help="Path to the separately installed ffprobe executable.")
+    selector.add_argument("--ffmpeg-timeout", type=_positive_timeout, help="Media process timeout in seconds.")
     selector.add_argument("--memory", choices=["on", "off"], default="on")
     selector.add_argument("--memory-path", "--memory-db", dest="memory_path")
     selector.add_argument("--no-english-model", action="store_true", help="Use only the deterministic English grammar.")
     selector.add_argument("--review-model-interpretation", "--review-interpretation", action="store_true", help="Review validated model translations before compilation.")
     selected, remaining = selector.parse_known_args()
+    media_options = any(value is not None for value in
+                        (selected.ffmpeg_path, selected.ffprobe_path, selected.ffmpeg_timeout))
+    if media_options and (selected.pipeline != "direct" or selected.profile == "roku"):
+        selector.error("FFmpeg options require the direct general pipeline.")
     if (selected.no_english_model or selected.review_model_interpretation) and selected.pipeline != "direct":
         selector.error("English model options require --pipeline direct.")
     if selected.run and selected.pipeline != "direct":
@@ -157,15 +186,18 @@ def _main(*, run):
             sys.argv = previous
         return
 
-    parser = argparse.ArgumentParser(description="Compile English using the optional ShipMB compiler.")
+    parser = argparse.ArgumentParser(parents=[selector], description="Compile English using the bundled ShipMB compiler.")
     parser.add_argument("text", nargs="*")
     parser.add_argument("--file", help="UTF-8 source file, or - to read pasted/piped text from stdin.")
     parser.add_argument("--root")
+    parser.add_argument("--thesaurus-path", help="Reviewed slang thesaurus for the ir compatibility pipeline.")
     parser.add_argument("--interpretation", help="Explicit clarified English for the original source (direct pipeline only).")
     parser.add_argument("--format", choices=["bytecode", "json", "core", "text"], default="json" if run else "bytecode")
     args = parser.parse_args(remaining)
     if args.file and args.text:
         parser.error("Use either source text or --file, not both.")
+    if args.thesaurus_path is not None and selected.pipeline != "ir":
+        parser.error("--thesaurus-path requires --pipeline ir.")
     if args.format == "core" or (args.format == "text" and not run):
         parser.error("Use --pipeline legacy for Core output; direct and ir here emit compiler bytecode or JSON.")
     if args.interpretation is not None and selected.pipeline != "direct":
@@ -187,15 +219,26 @@ def _main(*, run):
                 profile=selected.profile or "general",
                 model_provider=None if selected.no_english_model else _CONFIGURED_MODEL,
                 accept_model_interpretation=not selected.review_model_interpretation,
+                ffmpeg_path=selected.ffmpeg_path,
             )
         else:
             result = _compiler().compile_source(
-                source, include_core=False, run=run, memory=_memory_enabled(selected.memory == "on", selected.memory_path),
+                source, include_core=False, run=run, thesaurus_path=args.thesaurus_path,
+                memory=_memory_enabled(selected.memory == "on", selected.memory_path),
                 memory_path=selected.memory_path or os.environ.get("SHIPMB_MEMORY_DB"), project=args.root,
             )
         ready = _ready(result)
         if run and ready and selected.pipeline == "direct":
-            result = _run_direct_result(result)
+            executor = None
+            if result["target_code"].get("version") == "0.4" or media_options:
+                from shipmblang._compiler.ffmpeg import FFmpegExecutor
+
+                executor = FFmpegExecutor(
+                    ffmpeg_path=selected.ffmpeg_path, ffprobe_path=selected.ffprobe_path,
+                    timeout=selected.ffmpeg_timeout,
+                    base_dir=Path(args.file).resolve().parent if args.file and args.file != "-" else Path.cwd(),
+                )
+            result = _run_direct_result(result, ffmpeg_executor=executor)
             ready = _ready(result)
         # Never hide clarification questions or unsupported explanations behind null bytecode.
         output = result if run or args.format == "json" or not ready else result["target_code"]

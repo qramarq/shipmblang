@@ -3,7 +3,7 @@
 Write English requests in a `.shipmb` file and run them locally. Broader English
 translation is the default: supported grammar compiles directly, and other wording
 uses your configured model to produce English that the existing compiler validates.
-The bytecode formats and runtimes remain unchanged.
+Computation programs retain their existing bytecode format; media programs use the explicit FFmpeg runtime.
 
 No model or API key is required for the deterministic grammar. Broader wording
 requires a configured local or hosted model; unsupported operations and missing
@@ -37,6 +37,54 @@ python -m shipmblang run --file hello.shipmb --memory off
 The JSON result contains `runtime.stdout` with the value `"12\n"`.
 `--memory off` disables saving your program to local compiler memory.
 If an instruction is unsupported or needs clarification, revise it and run again.
+
+## FFmpeg media jobs
+
+Compile a media program without processing its inputs:
+
+```powershell
+python -m shipmblang compile --file examples/ffmpeg-transcode.shipmb --memory off --no-english-model
+```
+
+The example converts `input.mp4` to `output.mp4`. Put the input beside the source
+file, then opt into execution using your separately installed FFmpeg and ffprobe:
+
+```powershell
+python -m shipmblang compile --file examples/ffmpeg-transcode.shipmb --run --ffmpeg-path C:/tools/ffmpeg/bin/ffmpeg.exe --ffprobe-path C:/tools/ffmpeg/bin/ffprobe.exe --ffmpeg-timeout 120 --memory off --no-english-model
+```
+
+Media blocks support variables, loops and functions, scoped input/output options,
+stream mapping and filter graphs. They use bytecode 0.4; computation-only programs
+keep bytecode 0.3. Relative media paths resolve from the source file's directory.
+Existing outputs are protected unless the program says `Overwrite outputs.`
+Python callers explicitly supply `FFmpegExecutor` to `run_direct_program`.
+
+Deterministic media grammar needs no model or executable to compile. Broader
+wording uses the configured model and can consult installed FFmpeg help without
+processing media. Available codecs and filters depend on the installed build.
+See [media programs](docs/ffmpeg.md) for the grammar, Python API and environment
+variables for executable paths.
+
+## HyperFrames video projects
+
+Compile supported video instructions into a standalone HTML project:
+
+```powershell
+python -m shipmblang hyperframes compile examples/hyperframes-title.shipmb --out output/title
+```
+
+This deterministic command writes the project without a model, Node or a render
+process. To produce an MP4, first install Node.js 22+, FFmpeg/ffprobe and the pinned
+renderer dependencies as described in the [HyperFrames guide](docs/hyperframes.md),
+then explicitly render:
+
+```powershell
+python -m shipmblang hyperframes render output/title --out output/title.mp4 --timeout 300
+```
+
+Compilation refuses an existing project directory; rendering refuses an existing
+output file. The Python API provides `compile_hyperframes`,
+`write_hyperframes_project` and `render_hyperframes_project`.
 
 ## Broader English
 

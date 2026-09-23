@@ -1,0 +1,9 @@
+Create a video at 1280 by 720 pixels and 30 frames per second.
+Add scene "intro" lasting 3 seconds.
+Set the background of scene "intro" to "#102030".
+Show text "Hello from ShipMBLang" as "title" in scene "intro".
+Place "title" at 120 by 280 pixels.
+Set the font size of "title" to 64 pixels.
+Set the color of "title" to "#ffffff".
+Fade in "title" over 0.5 seconds.
+Fade out "title" over 0.5 seconds.

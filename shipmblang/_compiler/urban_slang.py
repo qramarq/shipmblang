@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .thesaurus import CANONICAL_TRIGGERS
+from .direct import COMPILER_VERSION
 
 
 MAX_URBAN_TERMS = 50
@@ -108,14 +109,21 @@ class UrbanDictionaryMCPClient:
             cwd=str(pathlib_parent(self.server_path)),
             env=_restricted_subprocess_env(),
         )
-        self.request(
-            "initialize",
-            {
-                "protocolVersion": "2025-06-18",
-                "capabilities": {},
-                "clientInfo": {"name": "shipmbcompiler", "version": "0.1.0"},
-            },
-        )
+        try:
+            self.request(
+                "initialize",
+                {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "shipmbcompiler", "version": COMPILER_VERSION},
+                },
+            )
+            assert self._process.stdin is not None
+            self._process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
+            self._process.stdin.flush()
+        except Exception:
+            self.close()
+            raise
 
     def close(self) -> None:
         process = self._process

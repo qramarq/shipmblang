@@ -1,9 +1,12 @@
 """ShipMBLang prose compiler package."""
 
-__all__ = ["compile_source", "compile_direct_program", "TriggerLexicon"]
+__all__ = ["compile_source", "compile_direct_program", "TriggerLexicon", "FFmpegExecutor"]
 
 
 def __getattr__(name):
+    if name == 'FFmpegExecutor':
+        from .ffmpeg import FFmpegExecutor
+        return FFmpegExecutor
     # Importing the direct compiler must not import the legacy IR pipeline.
     if name == "compile_source":
         from .compiler import compile_source

@@ -11,7 +11,7 @@ from .limits import MAX_SOURCE_CHARS
 from .memory_support import open_memory, project_context
 from .clarification import revision, apply_answers
 
-COMPILER_VERSION = "0.2.4"
+COMPILER_VERSION = "0.3.0"
 _DEFAULT_MODEL = object()
 
 
@@ -73,7 +73,7 @@ def emit_direct(tree):
 
 def compile_direct_program(source, *, memory=True, memory_path=None, project=None, bindings=None,
                            clarification_answers=None, model_provider=_DEFAULT_MODEL, profile="general",
-                           accept_model_interpretation=True):
+                           accept_model_interpretation=True, ffmpeg_catalog=None):
     """Compile known English, or return structured clarification/unsupported status.
 
 Answers use {'interpretation': '<clarified English>'}. Model callbacks propose
@@ -93,7 +93,7 @@ Confirmed paraphrases are parsed and validated again, never treated as code.
         else:
             def model_provider(source):
                 from .english_model import load_english_model
-                provider = load_english_model(profile)
+                provider = load_english_model(profile, **({'ffmpeg_catalog': ffmpeg_catalog} if ffmpeg_catalog is not None else {}))
                 if provider is None:
                     raise ValueError("English model configuration is unavailable.")
                 return provider(source)

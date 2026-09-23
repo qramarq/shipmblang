@@ -12,7 +12,8 @@ FIELDS = {'const': {'value','type'}, 'load': {'slot'}, 'store': {'slot'}, 'clear
           'binary': {'operator'}, 'unary': {'operator'}, 'make_list': {'count','element_type'},
           'length': set(), 'index': set(), 'jump': {'target'}, 'jump_if_false': {'target'},
           'show': set(), 'halt': set(), 'return': set(),
-          'call': {'function','argument_types','return_type'}}
+          'call': {'function','argument_types','return_type'},
+          'ffmpeg_execute': {'job', 'argument_types'}}
 
 class VMError(ValueError):
     def __init__(self, message, pc=0):
@@ -30,16 +31,17 @@ def _value(value, kind):
 
 def _validate(artifact):
     if not isinstance(artifact, dict): raise VMError('Artifact must be an object.')
-    for field, value in [('producer','shipmbcompiler'), ('target','shipmblang-bytecode'), ('version','0.3'), ('profile','general')]:
+    for field, value in [('producer','shipmbcompiler'), ('target','shipmblang-bytecode'), ('profile','general')]:
         if artifact.get(field) != value: raise VMError(f'Invalid artifact {field}.')
+    if artifact.get('version') not in ('0.3', '0.4'): raise VMError('Invalid artifact version.')
     if artifact.get('native_machine_code') is not False: raise VMError('Native code is not accepted.')
     if not isinstance(artifact.get('debug'),dict) or artifact['debug'].get('producer')!='shipmbcompiler': raise VMError('Invalid producer metadata.')
     contract=artifact.get('runtime_contract',{})
     if not isinstance(contract,dict) or not isinstance(contract.get('required_capabilities',[]),list): raise VMError('Invalid runtime contract.')
     capabilities=contract.get('required_capabilities',[])
     effects=contract.get('effects',[])
-    allowed_capabilities=set()
-    allowed_effects={'captured_output'}
+    allowed_capabilities={'ffmpeg'} if artifact['version'] == '0.4' else set()
+    allowed_effects={'captured_output', 'host_media'} if artifact['version'] == '0.4' else {'captured_output'}
     if not isinstance(effects,list) or any(type(effect) is not str or effect not in allowed_effects for effect in effects): raise VMError('Invalid effect requirement.')
     if any(type(capability) is not str or capability not in allowed_capabilities for capability in capabilities): raise VMError('Unknown capability requirement.')
     if any(type(c) is not str for c in capabilities): raise VMError('Invalid capability requirement.')
@@ -107,6 +109,16 @@ def _validate_unit(code,slots,capabilities,effects,signatures,parameters=(),retu
             if not function or args['argument_types']!=function['argument_types'] or args['return_type']!=function['return_type']:
                 raise VMError('Invalid function call signature.',pc)
         if op=='show' and 'captured_output' not in effects: raise VMError('Captured output effect is undeclared.',pc)
+        if op=='ffmpeg_execute':
+            if 'ffmpeg' not in capabilities or 'host_media' not in effects:
+                raise VMError('FFmpeg capability and host media effect must be declared.', pc)
+            from .ffmpeg import validate_job
+            if not isinstance(args['argument_types'], list):
+                raise VMError('FFmpeg operand types must be a list.', pc)
+            try:
+                validate_job(args['job'], args['argument_types'])
+            except (ValueError, TypeError, UnicodeError) as error:
+                raise VMError(str(error), pc) from error
     states={0:((),frozenset(parameters),frozenset(parameters))}; pending=deque([0]); visits=0
     while pending:
         visits+=1
@@ -156,6 +168,8 @@ def _validate_unit(code,slots,capabilities,effects,signatures,parameters=(),retu
             stack.append(kind[5:-1])
         elif op=='jump_if_false': pop('boolean')
         elif op=='show': pop()
+        elif op=='ffmpeg_execute':
+            for kind in reversed(args['argument_types']): pop(kind)
         elif op=='call':
             for kind in reversed(args['argument_types']): pop(kind)
             stack.append(args['return_type'])
@@ -183,12 +197,15 @@ def _display(value):
     return str(value)
 
 
-def run_general_artifact(artifact, *, max_steps=100000, host=None):
+def run_general_artifact(artifact, *, max_steps=100000, host=None, ffmpeg_executor=None):
     state={'output':[], 'stdout':'', 'events':[], 'variables':{}}
     pc=0
     try:
         if type(max_steps) is not int or not 1<=max_steps<=1000000: raise VMError('Invalid execution fuel limit.')
         code,slots,functions=_validate(artifact)
+        if 'ffmpeg' in artifact.get('runtime_contract', {}).get('required_capabilities', []):
+            if ffmpeg_executor is None or not callable(getattr(ffmpeg_executor, 'execute', None)):
+                raise VMError('Media execution requires an explicit FFmpeg executor.')
         stack=[]; values={}; frames=[]; steps=0; output_bytes=0; allocated_items=0
         while True:
             if steps>=max_steps: raise VMError('Execution fuel exhausted.',pc)
@@ -232,6 +249,22 @@ def run_general_artifact(artifact, *, max_steps=100000, host=None):
                 text=_display(stack.pop()); output_bytes+=len(text.encode('utf-8'))+1
                 if output_bytes>MAX_TEXT: raise VMError('Output size limit exceeded.',pc)
                 state['output'].append(text); state['stdout']+=text+'\n'
+            elif op=='ffmpeg_execute':
+                from .ffmpeg import resolve_job, FFmpegExecutionError
+                count = len(args['argument_types'])
+                arguments = stack[-count:] if count else []
+                if count: del stack[-count:]
+                try:
+                    if len(state['events']) >= MAX_ITEMS:
+                        raise ValueError('Media event limit exceeded.')
+                    job = resolve_job(args['job'], arguments, args['argument_types'])
+                    event = ffmpeg_executor.execute(job)
+                    state['events'].append(event)
+                except FFmpegExecutionError as error:
+                    state['events'].append(error.result)
+                    raise VMError(str(error), pc) from error
+                except (ValueError, OSError) as error:
+                    raise VMError(str(error), pc) from error
             elif op=='call':
                 if len(frames)>=63: raise VMError('Call depth limit exceeded.',pc)
                 function=functions[args['function']]

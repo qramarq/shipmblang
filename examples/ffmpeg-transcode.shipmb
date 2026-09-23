@@ -1,0 +1,8 @@
+Let source be "input.mp4".
+Let destination be "output.mp4".
+Run FFmpeg:
+Input clip from source.
+Output result to destination.
+Output option "-c:v" for result with "libx264".
+Output option "-c:a" for result with "aac".
+End FFmpeg.

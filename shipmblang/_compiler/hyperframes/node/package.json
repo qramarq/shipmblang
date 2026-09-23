@@ -1,0 +1,14 @@
+{
+  "name": "shipmb-hyperframes-renderer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {"node": ">=22"},
+  "dependencies": {
+    "@hyperframes/producer": "0.8.66",
+    "@hyperframes/lint": "0.8.66",
+    "hyperframes": "0.8.66",
+    "gsap": "3.15.0",
+    "@fontsource/inter": "5.3.0"
+  }
+}

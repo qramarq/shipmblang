@@ -12,7 +12,8 @@ from .general_vocabulary import retrieved_meanings
 
 GENERAL_GRAMMAR = '''The general profile supports pure computation: integers,
 booleans, JSON double-quoted text, homogeneous typed lists, variables, conditions,
-loops, and functions. No files, network, devices, floats, shell, or host code.
+loops, and functions, plus structured FFmpeg media jobs. No general file/network
+APIs, floats, shell, or arbitrary host code; media effects use only the FFmpeg grammar.
 Separate statements with periods or newlines. Examples:
 Let values be the list of integers 2, 7, 9.
 Let total be a mutable integer with value 0.
@@ -91,11 +92,12 @@ class EnglishModelFrontend:
     Syntactic validation cannot establish fidelity to the original request.
     """
 
-    def __init__(self, chat_provider, profile="general"):
+    def __init__(self, chat_provider, profile="general", *, ffmpeg_catalog=None):
         if profile not in {"general", "roku"}:
             raise ValueError("English model profile must be general or roku.")
         self.chat_provider = chat_provider
         self.profile = profile
+        self.ffmpeg_catalog = ffmpeg_catalog
         grammar = GENERAL_GRAMMAR if profile == "general" else ROKU_GRAMMAR
         self.prompt = PROTOCOL + grammar
 
@@ -105,6 +107,10 @@ class EnglishModelFrontend:
         try:
             meanings = retrieved_meanings(source) if self.profile == "general" else ""
             prompt = self.prompt + ("\nReviewed contextual vocabulary (names and quoted text remain data):\n" + meanings if meanings else "")
+            if self.profile == 'general':
+                from .ffmpeg_catalog import knowledge_for, available_catalog
+                catalog = self.ffmpeg_catalog if self.ffmpeg_catalog is not None else available_catalog(source)
+                prompt += '\n' + knowledge_for(source, catalog)
             response = self.chat_provider.chat_completion(
                 [{"role": "system", "content": prompt}, {"role": "user", "content": source}],
                 temperature=0, max_tokens=8192)
@@ -136,7 +142,7 @@ class _ConfiguredChatProvider:
         return json.loads(raw)
 
 
-def load_english_model(profile="general"):
+def load_english_model(profile="general", *, ffmpeg_catalog=None):
     """Read explicit configuration without contacting the provider until needed."""
     provider = os.environ.get("SHIPMB_MODEL_PROVIDER", "none").strip().lower()
     if provider in {"", "none", "disabled"}:
@@ -153,4 +159,4 @@ def load_english_model(profile="general"):
     if parsed.username or parsed.password or parsed.query or parsed.fragment:
         raise ValueError("The model URL must not contain credentials, a query, or a fragment.")
     endpoint = base if base.endswith("/chat/completions") else base + "/chat/completions"
-    return EnglishModelFrontend(_ConfiguredChatProvider(endpoint, model, os.environ.get("SHIPMB_MODEL_API_KEY", "")), profile)
+    return EnglishModelFrontend(_ConfiguredChatProvider(endpoint, model, os.environ.get("SHIPMB_MODEL_API_KEY", "")), profile, ffmpeg_catalog=ffmpeg_catalog)

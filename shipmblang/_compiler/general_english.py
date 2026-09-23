@@ -1,4 +1,4 @@
-"""Compositional, source-linked English for the pure computation profile.
+"""Compositional, source-linked English for general computation and media jobs.
 
 No bytecode, runtime, Core or IR imports. Every clause must be consumed.
 """
@@ -9,8 +9,8 @@ import re
 
 from .general_vocabulary import OUTPUT_PATTERN, SUM_NOUNS
 
-GRAMMAR_VERSION = "general-english-0.6"
-CATALOG_VERSION = "pure-computation-0.1"
+GRAMMAR_VERSION = "general-english-0.7"
+CATALOG_VERSION = "general-media-0.2"
 TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|\d+|[A-Za-z_][A-Za-z_0-9]*|[^\s]')
 TYPES = {"integer", "boolean", "text"}
 RESERVED = {"it", "them", "true", "false", "and", "or", "not", "the", "a", "an", "if", "then", "otherwise", "end", "let", "set", "show", "for", "each", "while", "be", "to", "in", "of"}
@@ -373,6 +373,12 @@ class Parser:
             if polite:
                 text = text[polite.end():]
                 span = {"start": span["start"] + polite.end(), "end": span["end"]}
+            if re.match(r'(?:run ffmpeg\b|convert\b|transcode\b|extract audio\b|resize\b|trim\b)', text, re.I):
+                from .media_english import parse_media
+                media = parse_media(self, text, span)
+                if media is not None:
+                    body.append(media)
+                    continue
             # Explicit two-operand addition with a requested output, not an
             # implicit update. Parse both operands without rewriting offsets.
             addition = re.fullmatch(r"add (.+?) and (.+?)(?: together)? and tell me the result", text, re.I)

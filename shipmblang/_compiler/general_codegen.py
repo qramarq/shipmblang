@@ -93,6 +93,13 @@ def emit_general(tree, symbols, *, function=False):
                 effects.add("captured_output")
                 expression(statement["value"])
                 emit("show", {}, statement)
+            elif kind == "FFmpeg":
+                capabilities.add("ffmpeg")
+                effects.add("host_media")
+                for argument in statement['arguments']:
+                    expression(argument)
+                emit('ffmpeg_execute', {'job': deepcopy(statement['job']),
+                     'argument_types': [a['type'] for a in statement['arguments']]}, statement)
             elif kind == "If":
                 expression(statement["condition"])
                 otherwise = emit("jump_if_false", {"target": 0}, statement)
@@ -158,11 +165,12 @@ def emit_general(tree, symbols, *, function=False):
     for definition in tree.get("functions", []):
         compiled = emit_general(definition, {"locals": definition["locals"]}, function=True)
         effects.update(compiled["runtime_contract"]["effects"])
+        capabilities.update(compiled["runtime_contract"]["required_capabilities"])
         functions.append({"id": definition["id"], "name": definition["name"], "parameter_slots": definition["parameter_slots"],
                           "return_type": definition["return_type"], "locals": compiled["locals"], "bytecode": compiled["bytecode"]})
     if len(locals_) > 10000 or len(functions) > 10000:
         raise GeneralLimitError("Program exceeds the supported number of locals or functions.")
-    return {"producer": "shipmbcompiler", "target": "shipmblang-bytecode", "version": "0.3",
+    return {"producer": "shipmbcompiler", "target": "shipmblang-bytecode", "version": "0.4" if 'ffmpeg' in capabilities else "0.3",
             "profile": "general", "native_machine_code": False, "bytecode": code, "locals": locals_, "functions": functions,
             "debug": {"producer": "shipmbcompiler", "pipeline": "direct", "grammar": GRAMMAR_VERSION},
             "runtime_contract": {"effects": sorted(effects), "required_capabilities": sorted(capabilities)}}

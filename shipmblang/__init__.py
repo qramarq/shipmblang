@@ -3,6 +3,10 @@
 from importlib import import_module as _import_module
 
 _EXPORTS = {
+    'FFmpegExecutor': ('._compiler.ffmpeg', 'FFmpegExecutor'),
+    'compile_hyperframes': ('.hyperframes', 'compile_hyperframes'),
+    'write_hyperframes_project': ('.hyperframes', 'write_hyperframes_project'),
+    'render_hyperframes_project': ('.hyperframes', 'render_hyperframes_project'),
     'build_printurf_report': ('driplm', 'build_printurf_report'),
     'build_onboarding_manifest': ('driplm', 'build_onboarding_manifest'),
     'code_optimization': ('driplm', 'code_optimization'),
@@ -45,6 +49,10 @@ def __dir__():
 
 
 __all__ = [
+    'FFmpegExecutor',
+    'compile_hyperframes',
+    'write_hyperframes_project',
+    'render_hyperframes_project',
     'build_printurf_report',
     'build_onboarding_manifest',
     'code_optimization',

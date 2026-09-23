@@ -5,3 +5,9 @@
 *.onnx binary
 *.pt binary
 *.vsix binary
+
+# Keep snapshot hashes stable across Windows checkouts and Git storage.
+shipmblang/_compiler/** -text
+shipmblang/_compiler/**/*.py text eol=lf
+shipmblang/_compiler/*.py text eol=lf
+shipmblang/_compiler/BUNDLED.json text eol=lf
