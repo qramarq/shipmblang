@@ -103,3 +103,9 @@ Compiler changes are developed and pushed in the compiler repository; language
 changes are developed and pushed in this language repository. Each language
 release bundles a selected compiler snapshot so users install only ShipMBLang.
 See [the bundle update and verification workflow](docs/bundled-compiler.md).
+
+## Text apps and terminals
+
+Run saved Notepad files or pipe copied program text from Google Keep and NotebookLM
+through the same runtime as VS Code. See [text-app workflows](docs/text-apps.md)
+and the [Colab notebook](examples/text_apps_colab.ipynb).

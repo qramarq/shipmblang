@@ -159,17 +159,21 @@ def _main(*, run):
 
     parser = argparse.ArgumentParser(description="Compile English using the optional ShipMB compiler.")
     parser.add_argument("text", nargs="*")
-    parser.add_argument("--file")
+    parser.add_argument("--file", help="UTF-8 source file, or - to read pasted/piped text from stdin.")
     parser.add_argument("--root")
     parser.add_argument("--interpretation", help="Explicit clarified English for the original source (direct pipeline only).")
     parser.add_argument("--format", choices=["bytecode", "json", "core", "text"], default="json" if run else "bytecode")
     args = parser.parse_args(remaining)
+    if args.file and args.text:
+        parser.error("Use either source text or --file, not both.")
     if args.format == "core" or (args.format == "text" and not run):
         parser.error("Use --pipeline legacy for Core output; direct and ir here emit compiler bytecode or JSON.")
     if args.interpretation is not None and selected.pipeline != "direct":
         parser.error("--interpretation requires --pipeline direct.")
     try:
-        if args.file:
+        if args.file == "-":
+            source = sys.stdin.read()
+        elif args.file:
             # Preserve editor offsets, including Windows CRLF.
             with Path(args.file).open(encoding="utf-8", newline="") as source_file:
                 source = source_file.read()
@@ -201,7 +205,12 @@ def _main(*, run):
             for diagnostic in result.get("diagnostics", []):
                 if diagnostic.get("level") == "warning":
                     print(f"shipmblang: {diagnostic.get('code', 'warning')}: {diagnostic.get('message', '')}", file=sys.stderr)
-        print(json.dumps(output, indent=2))
+        if run and args.format == "text" and ready and "stdout" in result.get("runtime", {}):
+            sys.stdout.write(result["runtime"]["stdout"])
+            for diagnostic in result.get("diagnostics", []):
+                print(f"shipmblang: {diagnostic.get('code', 'diagnostic')}: {diagnostic.get('message', '')}", file=sys.stderr)
+        else:
+            print(json.dumps(output, indent=2))
         if not ready:
             raise SystemExit(1)
     except (CompilerUnavailableError, OSError, ValueError) as error:
