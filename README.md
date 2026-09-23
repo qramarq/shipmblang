@@ -1,5 +1,21 @@
 # ShipMBLang
 
+## Optional native runtime
+
+Use the [native Windows launcher](docs/native.md) with a privately supplied
+ShipMBCompiler C++17 source folder or executable. Native compilation and execution
+run without Python. This public repository and its
+[source ZIP](https://github.com/qramarq/shipmblang/archive/refs/heads/main.zip)
+include the launcher and build helper; **compiler source and binaries are supplied
+separately and privately**. Existing Python integrations below remain available.
+
+```powershell
+$env:SHIPMB_NATIVE_COMPILER = 'C:\private-tools\shipmbc_cpp.exe'
+.\shipmblang-native.cmd native/examples/general.shipmb --run
+```
+
+## Python integrations
+
 Version 0.3.0 bundles ShipMBCompiler 0.3.0 and includes the FFmpeg media and
 HyperFrames video commands documented below.
 
