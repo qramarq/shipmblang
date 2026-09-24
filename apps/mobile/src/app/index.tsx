@@ -4,6 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useNotes } from '../NotesProvider';
 import starters from '../starters.json';
 import snapshot from '../compiler-snapshot.json';
+import { titleSource } from '../media';
 import { ink, styles } from '../theme';
 
 export default function Notes() {
@@ -13,8 +14,8 @@ export default function Notes() {
       <Pressable accessibilityRole="button" accessibilityLabel="Compiler connection" onPress={() => router.push('/connection')} style={styles.iconButton}><Text style={styles.icon}>···</Text></Pressable></View>
     {loadError ? <Text accessibilityRole="alert" style={styles.error}>{loadError}</Text> : !ready ? <ActivityIndicator color={ink} /> : <>
       <FlatList data={notes} keyExtractor={note => note.id} numColumns={2} columnWrapperStyle={s.columns}
-        ListHeaderComponent={<><View style={s.intro}><Text style={s.introTitle}>What would you like to make?</Text><Text style={styles.body}>Start with a few words. Check your instructions, then Run when you’re ready.</Text><Text style={styles.label}>ShipMBLang {snapshot.version} · core programs</Text></View>
-      <View style={s.starters}>{starters.map(starter => <Pressable key={starter.title} accessibilityRole="button" onPress={() => router.push({ pathname: "/note/[id]", params: { id: add(starter.source) } })} style={s.starter}><Text style={s.starterTitle}>{starter.title}  ↗</Text><Text style={s.starterHint}>{starter.hint}</Text></Pressable>)}</View>
+        ListHeaderComponent={<><View style={s.intro}><Text style={s.introTitle}>What would you like to make?</Text><Text style={styles.body}>Start with a few words. Check your instructions, then Run when you’re ready.</Text><Text style={styles.label}>ShipMBLang {snapshot.version}</Text></View>
+      <View style={s.starters}>{starters.map(starter => <Pressable key={starter.title} accessibilityRole="button" onPress={() => router.push({ pathname: "/note/[id]", params: { id: add(starter.source) } })} style={s.starter}><Text style={s.starterTitle}>{starter.title}  ↗</Text><Text style={s.starterHint}>{starter.hint}</Text></Pressable>)}<Pressable accessibilityRole="button" onPress={() => router.push({ pathname: "/media/[id]", params: { id: add(titleSource, "composition") } })} style={s.starter}><Text style={s.starterTitle}>Make a little film  ↗</Text><Text style={s.starterHint}>Write a title card, then render and play it.</Text></Pressable></View>
       <View style={s.summary}><Pressable onPress={retry}><Text style={styles.label}>{saveState}</Text></Pressable><Text style={styles.label}>{notes.length} {notes.length === 1 ? 'note' : 'notes'}</Text></View></>}
         contentContainerStyle={s.list} keyboardShouldPersistTaps="handled"
         renderItem={({ item }) => <Pressable accessibilityRole="button" accessibilityLabel={item.text.trim() || 'Untitled note'}

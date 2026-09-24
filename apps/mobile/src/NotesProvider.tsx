@@ -5,7 +5,7 @@ import { createNote, createWriter, decodeNotes, type Note } from './model';
 
 const KEY = 'shipmb.notes.v1';
 type NotesContext = { notes: Note[]; ready: boolean; loadError: string; saveState: string;
-  add: (source?: string) => string; update: (id: string, text: string) => void; remove: (id: string) => void; retry: () => void };
+  add: (source?: string, mode?: "program" | "composition") => string; setMode: (id: string, mode: "program" | "composition") => void; update: (id: string, text: string) => void; remove: (id: string) => void; retry: () => void };
 const Context = createContext<NotesContext | null>(null);
 export function NotesProvider({ children }: { children: React.ReactNode }) {
   const [notes, setNotes] = useState<Note[]>([]);
@@ -28,7 +28,8 @@ export function NotesProvider({ children }: { children: React.ReactNode }) {
     }).catch(() => { if (turn === revision.current) setSaveState('Not saved · tap to retry'); });
   }
   return <Context.Provider value={{ notes, ready, loadError, saveState,
-    add: (source = '') => { const note = { ...createNote(randomUUID(), current.current.length), text: source }; persist([note, ...current.current]); return note.id; },
+    add: (source = '', mode = 'program') => { const note = { ...createNote(randomUUID(), current.current.length), text: source, mode }; persist([note, ...current.current]); return note.id; },
+    setMode: (id, mode) => persist(current.current.map(note => note.id === id ? { ...note, mode } : note)),
     update: (id, text) => persist(current.current.map(note => note.id === id ? { ...note, text, updatedAt: new Date().toISOString() } : note)),
     remove: id => persist(current.current.filter(note => note.id !== id)),
     retry: () => persist(current.current),

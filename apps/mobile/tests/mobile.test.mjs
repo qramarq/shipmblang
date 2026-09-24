@@ -66,3 +66,11 @@ test('Check sends source to the compile-only endpoint', async () => {
   assert.equal(called.body.source, 'Show 5.');
   assert.equal(called.body.compiler.version, '0.5.0');
 });
+
+
+test('composition mode persists while legacy notes remain readable', () => {
+  const legacy = createNote('old', 0);
+  const composition = { ...createNote('film', 1), mode: 'composition', text: 'A film' };
+  assert.deepEqual(decodeNotes(JSON.stringify([legacy, composition])), [legacy, composition]);
+  assert.throws(() => decodeNotes(JSON.stringify([{ ...composition, mode: 'unknown' }])));
+});

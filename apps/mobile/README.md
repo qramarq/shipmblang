@@ -115,5 +115,8 @@ Check. A successful check does not execute anything. Press Run to print the
 result in Terminal. The returned compiler version and commit identify the
 actual runtime. Existing notes and storage keys are unchanged.
 
-This interface currently supports core programs. Media workflows and embedded
-VLC/FFmpeg/HyperFrames controls are a separate integration plan.
+Open **Media & files** from a note for selected-file upload, conversion and
+composition starters, asynchronous Check/Run/Stop, result playback, and export.
+Execution uses your paired private service; device playback uses Expo Video.
+See [media setup and verification](../../docs/notes-media.md). Native modules
+require a new development build; JavaScript export does not establish device acceptance.

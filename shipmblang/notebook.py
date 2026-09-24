@@ -45,7 +45,7 @@ def execute_program(source, mode, *, timeout=20):
     capabilities = (result.get("target_code") or {}).get("runtime_contract", {}).get("required_capabilities", [])
     if capabilities:
         result.pop("runtime", None)
-        result["diagnostics"] = [{"level": "error", "message": "Media and host capabilities are not enabled in Notes yet. Use the standalone ShipMBLang tools for media programs."}]
+        result["diagnostics"] = [{"level": "error", "message": "Media is not enabled in Notes core mode. Open the Media panel for conversion and compositions; use Play for VLC preview."}]
         result["compiler"] = snapshot
         return 2, result
     result["compiler"] = snapshot
@@ -70,6 +70,7 @@ class NotebookApp:
         self.busy = False
         self.save_id = None
         self.results = queue.Queue()
+        self.media_panel = None
         self.terminal_visible = False
         self.status = tk.StringVar(value="Saved" if entry else "New note")
         paper, ink = "#fff0ac", "#423820"
@@ -84,8 +85,11 @@ class NotebookApp:
         header.grid(row=0, column=0, sticky="ew")
         tk.Label(header, text="Write a little program", bg=paper, fg=ink, font=("Segoe UI", 20, "bold")).pack(anchor="w")
         tk.Label(header, text="Write → Check → Run · ShipMBLang " + snapshot["version"], bg=paper, fg=ink, font=("Segoe UI", 11)).pack(anchor="w", pady=(6, 8))
-        starter_menu = tk.Menubutton(header, text="Start with an example ▾", bg="#f8e498", fg=ink, relief="flat", padx=10, pady=8, font=("Segoe UI", 11))
-        starter_menu.pack(anchor="w")
+        starter_row = tk.Frame(header, bg=paper)
+        starter_row.pack(anchor="w")
+        starter_menu = tk.Menubutton(starter_row, text="Start with an example ▾", bg="#f8e498", fg=ink, relief="flat", padx=10, pady=8, font=("Segoe UI", 11))
+        starter_menu.pack(side="left")
+        tk.Button(starter_row, text="Media…", command=self.open_media, bg="#f8e498", fg=ink, relief="flat", padx=10, pady=8).pack(side="left", padx=8)
         choices = tk.Menu(starter_menu, tearoff=False)
         for starter in STARTERS:
             choices.add_command(label=starter["title"], command=lambda item=starter: self.start_note(item))
@@ -122,6 +126,7 @@ class NotebookApp:
         self.menu = tk.Menu(root, tearoff=False)
         self.menu.add_command(label="New note", accelerator="Ctrl+N", command=self.new_note)
         self.menu.add_command(label="Open note…", accelerator="Ctrl+O", command=self.open_notes)
+        self.menu.add_command(label="Media: files, conversion and video", command=self.open_media)
         self.menu.add_separator()
         for label in ("Undo", "Cut", "Copy", "Paste"):
             self.menu.add_command(label=label, command=lambda value=label: self.program.event_generate(f"<<{value}>>"))
@@ -270,6 +275,8 @@ class NotebookApp:
         if self.save_id is not None:
             self.root.after_cancel(self.save_id)
             self.save_id = None
+        if self.media_panel is not None:
+            self.media_panel.close()
         self.entry_id = None
         self.entry_date = date.today().isoformat()
         self.legacy_journal = ""
@@ -308,7 +315,22 @@ class NotebookApp:
         self.output.insert("1.0", text)
         self.output.configure(state="disabled")
 
+    def open_media(self):
+        if self.media_panel is not None:
+            self.media_panel.window.lift()
+            return
+        from .notebook_media import MediaPanel
+        from tkinter import messagebox
+        try:
+            panel = MediaPanel(self)
+            self.media_panel = panel if hasattr(panel, "window") else None
+        except Exception as error:
+            messagebox.showerror("Media could not open", str(error), parent=self.root)
+
     def execute(self, mode="run"):
+        if self.media_panel is not None:
+            self.media_panel.run(check=mode == "compile")
+            return
         if self.busy:
             return
         if not self.terminal_visible:
@@ -355,6 +377,8 @@ class NotebookApp:
         self.poll_id = self.root.after(100, self.poll)
 
     def dispose(self):
+        if self.media_panel is not None:
+            self.media_panel.close()
         if self.save_id is not None:
             self.root.after_cancel(self.save_id)
         self.root.after_cancel(self.poll_id)
@@ -364,10 +388,14 @@ class NotebookApp:
     def close(self):
         if not self.save(notify=True):
             return
+        if self.media_panel is not None:
+            self.media_panel.close()
         if self is self.owner:
             if len(self.windows) > 1:
                 self.root.withdraw()
                 return
+            if hasattr(self, "media_jobs"):
+                self.media_jobs.close()
             self.store.close()
             self.dispose()
         else:

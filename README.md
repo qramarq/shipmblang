@@ -201,3 +201,6 @@ local saving and Run/Terminal controls. It connects to the authenticated
 ShipMBLang service using the current pinned compiler snapshot. Expo development,
 preview, and production build profiles are included; signed device builds and
 store submissions require your release accounts and a hosted HTTPS service.
+
+Executable Notes now includes optional media import, conversion, composition rendering,
+preview and export. See [Notes media setup](docs/notes-media.md).

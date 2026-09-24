@@ -24,6 +24,7 @@ export default function NoteScreen() {
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   async function run(mode: 'run' | 'check' = 'run') {
     if (running.current || !note) return;
+    if (note.mode === "composition") { router.push({ pathname: "/media/[id]", params: { id } }); return; }
     running.current = true; setBusy(true); setTerminal(true); Keyboard.dismiss();
     const source = note.text; setSourceRun(source); setOutput(mode === 'check' ? 'Checking…' : 'Running…');
     try {
@@ -42,7 +43,7 @@ export default function NoteScreen() {
       <View style={s.top}><Pressable accessibilityRole="button" accessibilityLabel="Back to notes" onPress={() => router.back()} style={styles.iconButton}><Text style={s.back}>‹</Text></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Retry saving note" onPress={retry}><Text style={styles.label}>{saveState}</Text></Pressable>
         <Pressable accessibilityRole="button" accessibilityLabel="Note menu" onPress={() => { Keyboard.dismiss(); setMenu(true); }} style={styles.iconButton}><Text style={styles.icon}>···</Text></Pressable></View>
-      {!editing && <View style={s.guide}><Text style={s.guideTitle}>Make your words do something.</Text><Text style={s.guideText}>1 Write · 2 Check · 3 Run</Text><Text style={s.guideText}>Write instructions in English. Paragraphs can go in quotes; use Show to print a result.</Text></View>}
+      {!editing && <View style={s.guide}><Text style={s.guideTitle}>Make your words do something.</Text><Text style={s.guideText}>1 Write · 2 Check · 3 Run</Text><Text style={s.guideText}>Write instructions in English. Paragraphs can go in quotes; use Show to print a result.</Text><Pressable accessibilityRole="button" onPress={() => router.push({ pathname: "/media/[id]", params: { id } })}><Text style={s.guideText}>Media & files →</Text></Pressable></View>}
       <TextInput accessibilityLabel="Note program" value={note.text} onChangeText={text => update(id, text)} onFocus={() => { setEditing(true); setTerminal(false); }} onBlur={() => setEditing(false)} multiline
         autoCorrect={false} autoCapitalize="sentences" maxLength={30000} textAlignVertical="top" selectionColor="#B59C48"
         placeholder={'Try: Present "Hello, world!".\n\nThen add your next instruction.'} placeholderTextColor="#65624E" style={s.input} />
@@ -57,6 +58,7 @@ export default function NoteScreen() {
         {confirmDelete ? <><Text style={s.sheetTitle}>Delete this note?</Text><Text style={styles.body}>This removes it from this device.</Text>
           <Pressable accessibilityRole="button" onPress={() => { remove(id); setMenu(false); router.replace('/'); }} style={s.menuItem}><Text style={s.delete}>Delete note</Text></Pressable></> : <>
           <Text style={s.sheetTitle}>This note</Text>
+          <Pressable accessibilityRole="button" onPress={() => { setMenu(false); router.push({ pathname: "/media/[id]", params: { id } }); }} style={s.menuItem}><Text style={styles.body}>Media · files, conversion and video</Text></Pressable>
           <Pressable accessibilityRole="button" onPress={() => { setMenu(false); router.push('/connection'); }} style={s.menuItem}><Text style={styles.body}>Compiler connection</Text></Pressable>
           <Pressable accessibilityRole="button" onPress={() => setConfirmDelete(true)} style={s.menuItem}><Text style={s.delete}>Delete note</Text></Pressable></>}
         <Pressable accessibilityRole="button" onPress={() => { setMenu(false); setConfirmDelete(false); }} style={s.menuItem}><Text style={styles.body}>Cancel</Text></Pressable>

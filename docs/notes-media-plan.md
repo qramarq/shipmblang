@@ -1,7 +1,9 @@
 # ShipMB Notes: media integration with ShipMBLang 0.5.0
 
-Prepared September 23, 2026. This is an implementation plan; the media controls
-described below have not been added to the app in this update.
+Prepared September 23, 2026. Implementation has now been added locally.
+See [setup and verification](notes-media.md) for delivered behavior, limits,
+and acceptance checks still requiring physical devices. The phases below retain
+the original design and acceptance criteria.
 
 Baseline: language commit `4540943ee833d56241a389cd017dbad347a1e51b`, bundling
 compiler `1d44e1d5f5feb4e1629008edc3a80c9246dcbca2` (0.5.0). The app has a Python/Tk
@@ -185,7 +187,8 @@ assets/jobs with one FFmpeg conversion, followed by Windows VLC preview, then
 HyperFrames rendering, then the mobile job workflow. Each phase should stand on
 its own and include a small reproducible end-to-end example.
 
-No media integration is claimed complete by the interface refresh. Current
+The initial interface refresh did not include media; the subsequent implementation
+is documented in [notes-media.md](notes-media.md). Current
 Windows x64 compiler validation does not establish mobile or macOS/Linux media
 runtime support. User-facing copy should describe the installed capabilities.
 
