@@ -1,9 +1,9 @@
 name: Mobile
 on:
   push:
-    paths: ['apps/mobile/**', 'shipmblang/mobile_service.py', '.github/workflows/mobile.yml']
+    paths: ['apps/mobile/**', 'shipmblang/**', '.github/workflows/mobile.yml']
   pull_request:
-    paths: ['apps/mobile/**', 'shipmblang/mobile_service.py', '.github/workflows/mobile.yml']
+    paths: ['apps/mobile/**', 'shipmblang/**', '.github/workflows/mobile.yml']
 jobs:
   mobile:
     runs-on: ubuntu-latest

@@ -48,7 +48,7 @@ class HyperFramesTests(unittest.TestCase):
             self.assertEqual(result['status'], 'written')
             self.assertEqual(result['diagnostics'], compiler.compile_hyperframes.return_value['diagnostics'])
             compiler.compile_hyperframes.assert_called_once_with('source')
-            compiler.write_hyperframes_project.assert_called_once_with(compiler.compile_hyperframes.return_value, Path('project'), asset_root=source.parent)
+            compiler.write_hyperframes_project.assert_called_once_with(compiler.compile_hyperframes.return_value, Path('project'), asset_root=source.resolve().parent)
             compiler.render_hyperframes_project.assert_not_called()
 
     def test_failed_compile_preserves_diagnostics_and_does_not_write(self):
