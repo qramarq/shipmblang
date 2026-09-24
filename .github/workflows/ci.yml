@@ -9,6 +9,7 @@ jobs:
   test:
     name: ${{ matrix.os }} / Python ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -30,7 +31,7 @@ jobs:
           python -m pip install -e .
 
       - name: Run tests
-        run: python -m unittest discover -s tests
+        run: python -c "import faulthandler, unittest; faulthandler.dump_traceback_later(120, exit=True); unittest.main(module=None, argv=['unittest', 'discover', '-s', 'tests', '-v'])"
 
   package:
     name: Package
