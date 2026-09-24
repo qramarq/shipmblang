@@ -69,7 +69,7 @@ class NotebookTests(unittest.TestCase):
     def test_quoted_starters_use_actual_050_without_check_execution(self):
         import json
         mobile = Path(__file__).resolve().parents[1] / "apps/mobile/src/starters.json"
-        self.assertEqual(json.loads(mobile.read_text()), STARTERS)
+        self.assertEqual(json.loads(mobile.read_text(encoding="utf-8")), STARTERS)
         for starter in STARTERS:
             with self.subTest(starter=starter["title"]):
                 code, checked = execute_program(starter["source"], "compile")
@@ -83,7 +83,7 @@ class NotebookTests(unittest.TestCase):
 
     def test_media_never_reaches_run_in_notes(self):
         for filename in ("ffmpeg-transcode.shipmb", "vlc-playback.shipmb"):
-            source = (Path(__file__).resolve().parents[1] / "examples" / filename).read_text()
+            source = (Path(__file__).resolve().parents[1] / "examples" / filename).read_text(encoding="utf-8")
             code, result = execute_program(source, "run")
             self.assertNotEqual(code, 0)
             self.assertNotIn("runtime", result)
