@@ -78,7 +78,7 @@ class NotebookTests(unittest.TestCase):
                 code, result = execute_program(starter["source"], "run")
                 self.assertEqual(code, 0)
                 self.assertEqual(result["compiler"]["version"], "0.5.0")
-                self.assertEqual(result["compiler"]["commit"], "1d44e1d5f5feb4e1629008edc3a80c9246dcbca2")
+                self.assertEqual(result["compiler"]["commit"], "125c12ef57973bad3d9e0270b295cf6cda8e5402")
                 self.assertEqual(result["runtime"]["stdout"], starter["output"])
 
     def test_media_never_reaches_run_in_notes(self):

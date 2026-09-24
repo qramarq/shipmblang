@@ -1,8 +1,12 @@
 # Media integration setup: ShipMBLang 0.5.0
 
 This release bundles Python compiler 0.5.0 from compiler commit
-1d44e1d5f5feb4e1629008edc3a80c9246dcbca2. Its manifest hashes every included
-source/resource. A compiler push alone never changes this language snapshot.
+125c12ef57973bad3d9e0270b295cf6cda8e5402. Its manifest hashes every included
+source/resource. That compiler revision keeps the bundled Python files unchanged
+and adds native C++ interpretation and shared-memory parity work. The public
+language package records the revision but does not embed the separate native
+compiler source or executable. A compiler push alone never changes this language
+snapshot.
 
 ## Python language path
 
@@ -37,8 +41,9 @@ Package version0.5.0 and these bytecode schema numbers serve different purposes.
 The public language repository includes its native launcher, not compiler source
 or executable/DLL binaries. Configure SHIPMB_NATIVE_COMPILER with the privately
 supplied0.5.0 executable. VLC, FFmpeg and HyperFrames now have native integration.
-Native model translation and persistent meaning memory are not part of this
-media-parity update.
+The current native compiler revision also adds explicitly configured model
+interpretation and shared persistent meaning memory; those remain features of
+the separately supplied native executable, not the bundled Python runtime.
 
 Use --ffmpeg-path and --ffmpeg-timeout for native FFmpeg programs. HyperFrames
 accepts hyperframes compile and hyperframes render; its resource directory can

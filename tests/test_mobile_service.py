@@ -25,7 +25,7 @@ class MobileServiceTests(unittest.TestCase):
         app = create_app(TOKEN)
         status, _, info = self.request(app, path="/v1/info", method="GET")
         self.assertEqual(status, "200 OK")
-        self.assertEqual(info["compiler"]["commit"], '1d44e1d5f5feb4e1629008edc3a80c9246dcbca2')
+        self.assertEqual(info["compiler"]["commit"], '125c12ef57973bad3d9e0270b295cf6cda8e5402')
         status, _, result = self.request(app, {"source": "Pls show me the total of 2 and 3.", "compiler": info["compiler"]})
         self.assertEqual(status, "200 OK")
         self.assertTrue(result["ok"])

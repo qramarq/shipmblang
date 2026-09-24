@@ -1,7 +1,7 @@
 # Media in ShipMB Notes
 
 Implemented locally September 23, 2026 against the unchanged bundled compiler
-0.5.0 (`1d44e1d5f5feb4e1629008edc3a80c9246dcbca2`).
+0.5.0 (`125c12ef57973bad3d9e0270b295cf6cda8e5402`).
 
 ## Use it
 

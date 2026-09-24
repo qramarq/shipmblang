@@ -36,12 +36,16 @@ the ignored `native/bin` folder. The launcher uses that executable when
 
 ## Contract and checks
 
-The tested native compiler version is 0.4.0. Its deterministic general grammar
-supports variables, expressions, typed lists, conditions, loops and functions.
-It emits interpreted ShipMB bytecode, not a new machine-code executable for each
-program. JSON results contain `target_code` and, after execution, `runtime.stdout`.
-General artifacts use bytecode 0.3 and VLC artifacts use 0.5. Unsupported grammar
-returns diagnostics rather than falling back to Python or a model.
+Use native compiler 0.5.0 or newer, matching the current language snapshot
+provenance (`125c12ef57973bad3d9e0270b295cf6cda8e5402`). Its deterministic general
+grammar supports variables, expressions, typed lists, conditions, loops and
+functions. It emits interpreted ShipMB bytecode, not a new machine-code executable
+for each program. JSON results contain `target_code` and, after execution,
+`runtime.stdout`. General artifacts use bytecode 0.3 and VLC artifacts use 0.5.
+Unsupported grammar returns diagnostics rather than falling back to Python or a
+model. The current native revision also supports explicitly configured model
+interpretation and shared persistent meaning memory; these are not required for
+deterministic local programs.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File native/verify.ps1

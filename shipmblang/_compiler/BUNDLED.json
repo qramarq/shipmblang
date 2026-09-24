@@ -46,7 +46,7 @@
     "vlc.py": "74dfb23c92f1cf6ec8479a1e41c63a442c73d8a10142e325f5aa2bed32136efa",
     "vlc_english.py": "6f4f24f4004091432d0bca015ef376eb00551e7a2ef1e70dd17f9ca2cf4741fb"
   },
-  "source_commit": "1d44e1d5f5feb4e1629008edc3a80c9246dcbca2",
+  "source_commit": "125c12ef57973bad3d9e0270b295cf6cda8e5402",
   "components": {
     "hyperframes": {
       "distribution": "shipmbcompiler",

@@ -71,7 +71,7 @@ Open `notebook.cmd` in this checkout, or install this checkout with
 `python -m pip install .` and run `python -m shipmblang notebook`.
 The notes runner explicitly chooses the bundled direct/general compiler,
 checks its source hashes, and displays its version and source commit.
-This release uses compiler 0.5.0 from `1d44e1d5f5feb4e1629008edc3a80c9246dcbca2`.
+This release uses compiler 0.5.0 provenance `125c12ef57973bad3d9e0270b295cf6cda8e5402`.
 Older checkout launchers continue using their own snapshots.
 
 Choose **Start with an example** to open a separate note. Existing writing
