@@ -38,7 +38,7 @@ the ignored `native/bin` folder. The launcher uses that executable when
 
 The native C++ compiler is a separate distribution and is not pinned by the
 bundled Python compiler snapshot. The current Python snapshot is 0.5.0 from
-compiler commit `ecaf807c0ffdd410067f5469c3fc3973a653f6d4`; its image-plus-English
+compiler commit `ecaf8078aa7507c2c4df44959adba6032aa65c80`; its image-plus-English
 contract is supported by the Python path. The native launcher remains available
 for deterministic compilation and execution of its supported instructions, but
 does not supply the Python multimodal image provider.

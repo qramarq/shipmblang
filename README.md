@@ -217,6 +217,30 @@ has run yet; DocVQA, MMBench, OCRBench, and held-out compiler-model evaluations
 remain unmeasured. See the [training and evaluation guide](docs/minicpmv.md)
 before preparing licensed train-only data or reporting model metrics.
 
+### MiniCPM-V training and evaluation progress
+
+Progress is reported in stages so software support is not confused with model
+quality measurements:
+
+1. **Integration complete:** ShipMBLang 0.5.0 bundles the compiler's ordered
+   image-and-prose contract. The editor can attach local images in document
+   order, and missing image context produces a clarification request.
+2. **Local verification complete:** the recorded 0.5.0 suites above cover the
+   language and compiler integration. A follow-up bundle provenance/hash fix
+   has also passed 54 focused tests locally; hosted CI still needs to verify
+   that follow-up.
+3. **Training preparation documented:** the [MiniCPM-V guide](docs/minicpmv.md)
+   describes train-only data preparation, QLoRA with CPU offload, and held-out
+   compiler evaluation. The selected first model is MiniCPM-V 4.6 at 1.3B
+   parameters, with an 8 GiB GPU as the local target.
+4. **Training and benchmark measurements pending:** no fine-tune has run and no
+   DocVQA, MMBench, OCRBench, or compiler-translation score is available yet.
+   The plan is to compare both documented training approaches, train only on
+   available training splits, and keep official evaluation splits held out.
+5. **Smaller-model follow-up pending:** after the 1.3B run is successfully
+   published, evaluate a model at or below 1B parameters against the same
+   held-out tasks. Add scores here only after reproducible evaluation runs.
+
 ## iOS and Android
 
 The [mobile app](apps/mobile/README.md) provides executable sticky notes with

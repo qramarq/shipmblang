@@ -2,7 +2,7 @@
 
 The media integration was implemented against the 0.5.0 base compiler snapshot
 `125c12ef57973bad3d9e0270b295cf6cda8e5402`. The current bundle advances to
-`ecaf807c0ffdd410067f5469c3fc3973a653f6d4` for ordered image-plus-English input;
+`ecaf8078aa7507c2c4df44959adba6032aa65c80` for ordered image-plus-English input;
 the media runtime interfaces remain covered by the ShipMBLang regression suite.
 
 ## Use it

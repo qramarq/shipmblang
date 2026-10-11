@@ -2,7 +2,7 @@
 
 The 0.5.0 media integration began from compiler commit
 `125c12ef57973bad3d9e0270b295cf6cda8e5402`. The current Python bundle then
-advances to compiler commit `ecaf807c0ffdd410067f5469c3fc3973a653f6d4` for the
+advances to compiler commit `ecaf8078aa7507c2c4df44959adba6032aa65c80` for the
 ordered image-plus-English contract. `BUNDLED.json` hashes every included source
 and resource. The public language package still does not embed the separate
 native C++ compiler source or executable. A compiler push alone never changes
