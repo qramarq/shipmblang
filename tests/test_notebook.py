@@ -238,6 +238,7 @@ class NotebookInterfaceTests(unittest.TestCase):
 
     def test_check_does_not_execute(self):
         self.app.program.insert("1.0", STARTERS[0]["source"])
+        poll_id = self.app.poll_id
 
         def run_inline(target, **kwargs):
             class InlineThread:
@@ -251,6 +252,7 @@ class NotebookInterfaceTests(unittest.TestCase):
                 patch.object(self.app.root, "after", return_value="test-poll"):
             self.app.check_button.invoke()
             self.app.poll()
+            self.app.poll_id = poll_id
         execute.assert_called_once_with(STARTERS[0]["source"], "compile")
         self.assertFalse(self.app.busy)
         self.assertIn("nothing executed", self.app.output.get("1.0", "end-1c"))
