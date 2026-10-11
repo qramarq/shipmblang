@@ -239,6 +239,8 @@ class NotebookInterfaceTests(unittest.TestCase):
     def test_check_does_not_execute(self):
         self.app.program.insert("1.0", STARTERS[0]["source"])
         self.root.update()
-        self.app.check_button.invoke()
-        self.wait_until(lambda: not self.app.busy)
+        with patch("shipmblang.notebook.execute_program", return_value=(0, {"compiler": {"version": "0.5.0", "commit": "abc123"}})) as execute:
+            self.app.check_button.invoke()
+            self.wait_until(lambda: not self.app.busy)
+        execute.assert_called_once_with(STARTERS[0]["source"], "compile")
         self.assertIn("nothing executed", self.app.output.get("1.0", "end-1c"))
