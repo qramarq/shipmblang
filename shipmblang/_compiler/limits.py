@@ -9,6 +9,9 @@ from pathlib import Path
 MAX_SOURCE_CHARS = 1_000_000
 MAX_THESAURUS_FILE_BYTES = 1_000_000
 MAX_WORDNET_FILE_BYTES = 8_000_000
+MAX_IMAGE_BYTES = 8_000_000
+MAX_TOTAL_IMAGE_BYTES = 16_000_000
+MAX_IMAGE_INPUTS = 4
 
 
 def read_text_limited(path: Path, max_bytes: int, *, errors: str = "strict", newline: str | None = None) -> str:

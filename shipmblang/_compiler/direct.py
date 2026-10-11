@@ -7,7 +7,7 @@ import os
 from copy import deepcopy
 
 from .english import CATALOG_VERSION, GRAMMAR_VERSION, parse_english, diagnostic
-from .limits import MAX_SOURCE_CHARS
+from .limits import MAX_SOURCE_CHARS, MAX_IMAGE_INPUTS
 from .memory_support import open_memory, project_context
 from .clarification import revision, apply_answers
 
@@ -73,7 +73,8 @@ def emit_direct(tree):
 
 def compile_direct_program(source, *, memory=True, memory_path=None, project=None, bindings=None,
                            clarification_answers=None, model_provider=_DEFAULT_MODEL, profile="general",
-                           accept_model_interpretation=True, ffmpeg_catalog=None):
+                           accept_model_interpretation=True, ffmpeg_catalog=None,
+                           image_inputs=None, multimodal_model_provider=None):
     """Compile known English, or return structured clarification/unsupported status.
 
 Answers use {'interpretation': '<clarified English>'}. Model callbacks propose
@@ -85,18 +86,34 @@ Confirmed paraphrases are parsed and validated again, never treated as code.
 """
     if not isinstance(source, str):
         raise TypeError("source must be a string")
+    if isinstance(image_inputs, (str, bytes, os.PathLike)):
+        raise TypeError("image_inputs must be a sequence of image paths")
+    images = [] if image_inputs is None else list(image_inputs)
+    if len(images) > MAX_IMAGE_INPUTS:
+        raise ValueError(f"At most {MAX_IMAGE_INPUTS} image inputs are supported.")
+    if any(not isinstance(path, (str, os.PathLike)) or not os.fspath(path) for path in images):
+        raise TypeError("image_inputs must contain nonempty local file paths")
+    has_image_anchors = "[[image:" in source
+    if images:
+        from .english_model import encode_image_inputs
+        encode_image_inputs(images)
     if profile not in {"roku", "general"}:
         raise ValueError("Direct profile must be roku or general.")
     if model_provider is _DEFAULT_MODEL:
         if os.environ.get("SHIPMB_MODEL_PROVIDER", "none").strip().lower() in {"", "none", "disabled"}:
             model_provider = None
         else:
-            def model_provider(source):
+            def configured_provider():
                 from .english_model import load_english_model
                 provider = load_english_model(profile, **({'ffmpeg_catalog': ffmpeg_catalog} if ffmpeg_catalog is not None else {}))
                 if provider is None:
                     raise ValueError("English model configuration is unavailable.")
-                return provider(source)
+                return provider
+            def model_provider(source):
+                return configured_provider()(source)
+            if multimodal_model_provider is None:
+                def multimodal_model_provider(source, image_paths):
+                    return configured_provider()(source, images=image_paths)
     parse = parse_english
     grammar, catalog = GRAMMAR_VERSION, CATALOG_VERSION
     if profile == "general":
@@ -111,15 +128,22 @@ Confirmed paraphrases are parsed and validated again, never treated as code.
     result = {"source": source, "source_revision": revision(source), "pipeline": "direct", "profile": profile, "status": "unsupported", "core_source": None,
               "target_code": None, "diagnostics": [], "clarifications": [],
               "tokens": [], "syntax_tree": None, "symbols": {}, "memory": {"enabled": False}}
+    if images or has_image_anchors:
+        result["memory"]["image_input_not_persisted"] = True
     store = None
     try:
-        store = open_memory(memory, memory_path)
+        store = open_memory(memory and not images and not has_image_anchors, memory_path)
         result["memory"]["enabled"] = store is not None
     except Exception as error:
         result["diagnostics"].append(diagnostic("SMBM001", f"Memory unavailable: {error}", 0, 0, level="warning"))
     try:
         if len(source) > MAX_SOURCE_CHARS:
             result["diagnostics"].append(diagnostic("SMBD107", "Source exceeds the supported input limit.", 0, len(source)))
+            return _save(store, result, context, versions)
+        if has_image_anchors and not images:
+            result["status"] = "needs_clarification"
+            result["diagnostics"].append(diagnostic("SMBD113", "Image anchors require matching --image inputs.", 0, len(source)))
+            result["clarifications"] = [{"id": "missing-image", "question": "Attach the referenced image or remove its [[image:N]] anchor, then compile again.", "choices": [], "span": {"start": 0, "end": len(source)}}]
             return _save(store, result, context, versions)
         confirmed = store.lookup_confirmed(source, context, versions, project=context["project"]) if store else []
         related = store.lookup_related(source, context, project=context["project"]) if store else []
@@ -134,6 +158,11 @@ Confirmed paraphrases are parsed and validated again, never treated as code.
             result["clarification_provenance"] = provenance
         if answer is not None and (not isinstance(answer, str) or not answer.strip() or len(answer) > MAX_SOURCE_CHARS):
             raise ValueError("The interpretation answer must be nonempty English within the source limit.")
+        if images and answer is None and multimodal_model_provider is None:
+            result["status"] = "needs_clarification"
+            result["diagnostics"].append(diagnostic("SMBD112", "Image inputs require a configured multimodal model provider.", 0, len(source)))
+            result["clarifications"] = [{"id": "image-model", "question": "Configure a multimodal image model or remove the image input.", "choices": [], "span": {"start": 0, "end": len(source)}}]
+            return _save(store, result, context, versions)
         resolved_source = answer or source
         stale = [row for row in related if row["status"] == "confirmed" and row["versions"] != versions]
         if not answer and (stale or (candidates and not confirmed and not (model_provider and accept_model_interpretation))):
@@ -179,10 +208,11 @@ Confirmed paraphrases are parsed and validated again, never treated as code.
         result.update(tokens=tokens, syntax_tree=tree, symbols=symbols, clarifications=questions)
         result["diagnostics"].extend(errors)
         result["status"] = "unsupported" if errors else "needs_clarification" if questions else "compiled"
-        if result["status"] != "compiled" and model_provider is not None and not answer:
+        if (result["status"] != "compiled" or images) and not answer and (model_provider is not None or multimodal_model_provider is not None):
             # A provider is a proposal source, not a compiler or execution authority.
             from .english_model import validate_proposal
-            proposal = validate_proposal(model_provider(resolved_source))
+            proposal = validate_proposal(multimodal_model_provider(resolved_source, images) if images
+                                         else model_provider(resolved_source))
             if "question" in proposal:
                 result["status"] = "needs_clarification"
                 result["diagnostics"] = [d for d in result["diagnostics"] if d["level"] != "error"]
@@ -226,7 +256,10 @@ Confirmed paraphrases are parsed and validated again, never treated as code.
         result["target_code"] = None
         result["status"] = "needs_clarification"
         result["diagnostics"].append(diagnostic("SMBD109", f"Interpretation could not be validated: {error}", 0, len(source)))
-        result["clarifications"] = [{"id": "interpretation", "question": "Please restate the intended program explicitly.", "choices": [], "span": {"start": 0, "end": len(source)}}]
+        from .english_model import ImageAnchorError
+        question = (f"Fix the image references and compile again: {error}" if isinstance(error, ImageAnchorError)
+                    else "Please restate the intended program explicitly.")
+        result["clarifications"] = [{"id": "interpretation", "question": question, "choices": [], "span": {"start": 0, "end": len(source)}}]
         return _save(store, result, context, versions)
 
 

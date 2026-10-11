@@ -26,21 +26,29 @@ class NotebookStore:
         with self.connection:
             self.connection.execute("""CREATE TABLE IF NOT EXISTS entries (
                 id TEXT PRIMARY KEY, title TEXT NOT NULL, entry_date TEXT NOT NULL,
-                journal TEXT NOT NULL, program TEXT NOT NULL, updated_at TEXT NOT NULL
+                journal TEXT NOT NULL, program TEXT NOT NULL, updated_at TEXT NOT NULL,
+                document TEXT NOT NULL DEFAULT ''
             )""")
+            columns = {row["name"] for row in self.connection.execute("PRAGMA table_info(entries)")}
+            if "document" not in columns:
+                self.connection.execute("ALTER TABLE entries ADD COLUMN document TEXT NOT NULL DEFAULT ''")
 
-    def save(self, *, entry_id=None, title, entry_date, journal, program):
+    def save(self, *, entry_id=None, title, entry_date, journal, program, document=None):
         date.fromisoformat(entry_date)
         if len(entry_date) != 10:
             raise ValueError("Use a date in YYYY-MM-DD format.")
         entry_id = entry_id or str(uuid.uuid4())
         stamp = datetime.now(timezone.utc).isoformat()
         with self.connection:
-            self.connection.execute("""INSERT INTO entries VALUES (?, ?, ?, ?, ?, ?)
+            self.connection.execute("""INSERT INTO entries
+                (id, title, entry_date, journal, program, updated_at, document)
+                VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, ''))
                 ON CONFLICT(id) DO UPDATE SET title=excluded.title,
                 entry_date=excluded.entry_date, journal=excluded.journal,
-                program=excluded.program, updated_at=excluded.updated_at""",
-                (entry_id, title.strip() or "Untitled entry", entry_date, journal, program, stamp))
+                program=excluded.program, updated_at=excluded.updated_at,
+                document=CASE WHEN ? IS NULL THEN entries.document ELSE ? END""",
+                (entry_id, title.strip() or "Untitled entry", entry_date, journal, program, stamp,
+                 document, document, document))
         return entry_id
 
     def get(self, entry_id):

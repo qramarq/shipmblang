@@ -1,5 +1,9 @@
 # Notes 0.5.0 verification
 
+The verification below predates the Ratatui document editor and the local
+`shipmb-image-prose-v2` compiler bundle patch. It is historical evidence for
+the 0.5.0 baseline, not a verification report for those later changes.
+
 Based on released language commit `4540943ee833d56241a389cd017dbad347a1e51b`.
 The app runs bundled compiler `0.5.0`, source
 `1d44e1d5f5feb4e1629008edc3a80c9246dcbca2`.

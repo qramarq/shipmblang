@@ -22,7 +22,7 @@ _CONFIGURED_MODEL = object()
 
 def _english_model(profile, ffmpeg_catalog=None, ffmpeg_path=None):
     """Load the configured model only if deterministic parsing needs help."""
-    def propose(source):
+    def propose(source, images=None):
         from .providers import load_chat_provider
         from shipmblang._compiler.english_model import EnglishModelFrontend
 
@@ -37,8 +37,9 @@ def _english_model(profile, ffmpeg_catalog=None, ffmpeg_path=None):
         if catalog is None and ffmpeg_path is not None:
             from shipmblang._compiler.ffmpeg_catalog import available_catalog
             catalog = available_catalog(source, ffmpeg_path)
-        return EnglishModelFrontend(provider, profile=profile,
-                                    **({"ffmpeg_catalog": catalog} if catalog is not None else {}))(source)
+        frontend = EnglishModelFrontend(provider, profile=profile,
+                                        **({"ffmpeg_catalog": catalog} if catalog is not None else {}))
+        return frontend(source) if images is None else frontend(source, images=images)
     return propose
 
 
@@ -65,7 +66,8 @@ def _memory_enabled(requested, memory_path=None):
 def compile_direct_program(source, *, memory=True, memory_path=None, project=None,
                            bindings=None, clarification_answers=None, model_provider=_CONFIGURED_MODEL,
                            profile="general", accept_model_interpretation=True,
-                           ffmpeg_catalog=None, ffmpeg_path=None):
+                           ffmpeg_catalog=None, ffmpeg_path=None, image_inputs=None,
+                           multimodal_model_provider=None):
     """Delegate to the bundled compiler without importing the legacy pipeline.
 
     Broader English translation is the default when deterministic parsing needs
@@ -77,6 +79,12 @@ def compile_direct_program(source, *, memory=True, memory_path=None, project=Non
         raise ValueError("profile must be 'roku' or 'general'")
     compile_program = _compiler().compile_direct_program
     parameters = inspect.signature(compile_program).parameters
+    supports_images = "image_inputs" in parameters or any(
+        p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values())
+    supports_multimodal_provider = "multimodal_model_provider" in parameters or any(
+        p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values())
+    if image_inputs and not supports_images:
+        raise CompilerUnavailableError("Reinstall ShipMBLang; its bundled compiler does not support image inputs.")
     supports_profile = "profile" in parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values())
     if profile != "roku" and not supports_profile:
         raise CompilerUnavailableError("Reinstall ShipMBLang; its bundled compiler does not support the general profile.")
@@ -86,6 +94,10 @@ def compile_direct_program(source, *, memory=True, memory_path=None, project=Non
     if automatic_model:
         configured = os.environ.get("SHIPMB_MODEL_PROVIDER", "none").strip().lower() not in {"", "none", "disabled"}
         model_provider = _english_model(profile, ffmpeg_catalog, ffmpeg_path) if configured else None
+    if image_inputs and multimodal_model_provider is None and automatic_model and model_provider is not None:
+        multimodal_model_provider = lambda text, paths: model_provider(text, images=paths)
+    if image_inputs and not supports_multimodal_provider:
+        raise CompilerUnavailableError("Reinstall ShipMBLang; its bundled compiler lacks the multimodal provider interface.")
     if model_provider is not None and not supports_acceptance:
         raise CompilerUnavailableError("Update ShipMBLang to a build supporting broader English translation, or pass model_provider=None.")
     result = compile_program(
@@ -93,6 +105,8 @@ def compile_direct_program(source, *, memory=True, memory_path=None, project=Non
         memory_path=memory_path or os.environ.get("SHIPMB_MEMORY_DB"), project=project,
         bindings=bindings, clarification_answers=clarification_answers,
         model_provider=model_provider,
+        **({"image_inputs": image_inputs} if supports_images else {}),
+        **({"multimodal_model_provider": multimodal_model_provider} if supports_multimodal_provider else {}),
         **({"profile": profile} if supports_profile else {}),
         **({"accept_model_interpretation": accept_model_interpretation} if supports_acceptance else {}),
         **({"ffmpeg_catalog": ffmpeg_catalog} if ffmpeg_catalog is not None else {}),
@@ -165,6 +179,7 @@ def _main(*, run):
     selector.add_argument("--headless", action="store_true", help="Disable native VLC video window creation.")
     selector.add_argument("--memory", choices=["on", "off"], default="on")
     selector.add_argument("--memory-path", "--memory-db", dest="memory_path")
+    selector.add_argument("--image", action="append", default=[], help="Local image file for inline [[image:N]] anchors; repeat for additional images.")
     selector.add_argument("--no-english-model", action="store_true", help="Use only the deterministic English grammar.")
     selector.add_argument("--review-model-interpretation", "--review-interpretation", action="store_true", help="Review validated model translations before compilation.")
     selected, remaining = selector.parse_known_args()
@@ -178,6 +193,8 @@ def _main(*, run):
         selector.error("VLC startup timeout must be between 0.001 and 2147483.647 seconds.")
     if media_options and (selected.pipeline != "direct" or selected.profile == "roku"):
         selector.error("FFmpeg options require the direct general pipeline.")
+    if selected.image and selected.pipeline != "direct":
+        selector.error("--image requires --pipeline direct.")
     if (selected.no_english_model or selected.review_model_interpretation) and selected.pipeline != "direct":
         selector.error("English model options require --pipeline direct.")
     if selected.run and selected.pipeline != "direct":
@@ -233,6 +250,7 @@ def _main(*, run):
                 model_provider=None if selected.no_english_model else _CONFIGURED_MODEL,
                 accept_model_interpretation=not selected.review_model_interpretation,
                 ffmpeg_path=selected.ffmpeg_path,
+                image_inputs=selected.image,
             )
         else:
             result = _compiler().compile_source(

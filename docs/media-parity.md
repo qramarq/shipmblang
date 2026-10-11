@@ -1,12 +1,12 @@
 # Media integration setup: ShipMBLang 0.5.0
 
-This release bundles Python compiler 0.5.0 from compiler commit
-125c12ef57973bad3d9e0270b295cf6cda8e5402. Its manifest hashes every included
-source/resource. That compiler revision keeps the bundled Python files unchanged
-and adds native C++ interpretation and shared-memory parity work. The public
-language package records the revision but does not embed the separate native
-compiler source or executable. A compiler push alone never changes this language
-snapshot.
+The 0.5.0 media integration began from compiler commit
+`125c12ef57973bad3d9e0270b295cf6cda8e5402`. The current Python bundle then
+advances to compiler commit `ecaf8078aa7507c2c4df44959adba6032aa65c80` for the
+ordered image-plus-English contract. `BUNDLED.json` hashes every included source
+and resource. The public language package still does not embed the separate
+native C++ compiler source or executable. A compiler push alone never changes
+this language snapshot.
 
 ## Python language path
 

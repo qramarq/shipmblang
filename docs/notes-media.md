@@ -1,7 +1,9 @@
 # Media in ShipMB Notes
 
-Implemented locally September 23, 2026 against the unchanged bundled compiler
-0.5.0 (`125c12ef57973bad3d9e0270b295cf6cda8e5402`).
+The media integration was implemented against the 0.5.0 base compiler snapshot
+`125c12ef57973bad3d9e0270b295cf6cda8e5402`. The current bundle advances to
+`ecaf8078aa7507c2c4df44959adba6032aa65c80` for ordered image-plus-English input;
+the media runtime interfaces remain covered by the ShipMBLang regression suite.
 
 ## Use it
 

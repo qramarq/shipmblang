@@ -62,6 +62,31 @@ class PipelineTests(unittest.TestCase):
                 self.invoke("--pipeline", "direct", "--profile", "general", "--file", str(path))
         self.assertEqual(self.compiler.compile_direct_program.call_args.args, (source,))
 
+    def test_image_cli_flags_forward_ordered_paths_and_source_markers(self):
+        compiler = types.ModuleType("shipmblang._compiler")
+        compiler.compile_direct_program = Mock(return_value=self.result)
+        with patch.dict(os.environ, {"SHIPMB_MODEL_PROVIDER": "none"}), patch.dict(sys.modules, {"shipmblang._compiler": compiler}):
+            self.invoke("--image", "first.png", "--image", "second.png",
+                        "Read [[image:1]], then [[image:2]].")
+        call = compiler.compile_direct_program.call_args
+        self.assertEqual(call.args, ("Read [[image:1]], then [[image:2]].",))
+        self.assertEqual(call.kwargs["image_inputs"], ["first.png", "second.png"])
+        self.assertTrue(call.kwargs["multimodal_model_provider"] is None)
+
+    def test_multimodal_callback_receives_image_paths_in_order(self):
+        provider = Mock(return_value={"paraphrase": "Show 9."})
+        multimodal_provider = Mock(return_value={"paraphrase": "Show 9."})
+        with patch.dict(sys.modules, {"shipmblang._compiler": self.compiler}):
+            pipelines.compile_direct_program(
+                "Read [[image:1]], then [[image:2]].", memory=False,
+                model_provider=None, image_inputs=["first.png", "second.png"],
+                multimodal_model_provider=multimodal_provider,
+            )
+        options = self.compiler.compile_direct_program.call_args.kwargs
+        self.assertEqual(options["image_inputs"], ["first.png", "second.png"])
+        self.assertIs(options["multimodal_model_provider"], multimodal_provider)
+        self.assertIsNone(options["model_provider"])
+
     def test_multiple_paragraphs_preserve_crlf_and_unicode(self):
         source = '“Show "😀".”\r\n\r\n“Show missing.”\r\n'
         with tempfile.TemporaryDirectory() as directory:
