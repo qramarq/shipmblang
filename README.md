@@ -227,9 +227,10 @@ quality measurements:
    order, and missing image context produces a clarification request.
 2. **Local verification complete:** the recorded 0.5.0 suites above cover the
    language and compiler integration. Hosted CI caught a cross-platform
-   line-ending mismatch in the bundled compiler hash manifest. The manifest
-   now uses the committed LF blob hashes, and 18 focused integrity/notebook
-   tests pass locally. This follow-up still needs a push and fresh CI run.
+   line-ending mismatch in the compiler snapshot hashes. The bundle now uses
+   committed LF blob hashes, and the mobile pin uses the canonical manifest
+   digest. Focused integrity/notebook tests passed locally; the latest hosted CI
+   caught the stale mobile pin, so this correction still needs a push and CI run.
 3. **Training preparation documented:** the [MiniCPM-V guide](docs/minicpmv.md)
    describes train-only data preparation, QLoRA with CPU offload, and held-out
    compiler evaluation. The selected first model is MiniCPM-V 4.6 at 1.3B
