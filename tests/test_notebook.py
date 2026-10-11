@@ -247,7 +247,8 @@ class NotebookInterfaceTests(unittest.TestCase):
             return InlineThread()
 
         with patch("shipmblang.notebook.execute_program", return_value=(0, {"compiler": {"version": "0.5.0", "commit": "abc123"}})) as execute, \
-                patch("shipmblang.notebook.threading.Thread", side_effect=run_inline):
+                patch("shipmblang.notebook.threading.Thread", side_effect=run_inline), \
+                patch.object(self.app.root, "after", return_value="test-poll"):
             self.app.check_button.invoke()
             self.app.poll()
         execute.assert_called_once_with(STARTERS[0]["source"], "compile")
