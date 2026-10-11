@@ -226,9 +226,10 @@ quality measurements:
    image-and-prose contract. The editor can attach local images in document
    order, and missing image context produces a clarification request.
 2. **Local verification complete:** the recorded 0.5.0 suites above cover the
-   language and compiler integration. A follow-up bundle provenance/hash fix
-   has also passed 54 focused tests locally; hosted CI still needs to verify
-   that follow-up.
+   language and compiler integration. Hosted CI caught a cross-platform
+   line-ending mismatch in the bundled compiler hash manifest. The manifest
+   now uses the committed LF blob hashes, and 18 focused integrity/notebook
+   tests pass locally. This follow-up still needs a push and fresh CI run.
 3. **Training preparation documented:** the [MiniCPM-V guide](docs/minicpmv.md)
    describes train-only data preparation, QLoRA with CPU offload, and held-out
    compiler evaluation. The selected first model is MiniCPM-V 4.6 at 1.3B
