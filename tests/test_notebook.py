@@ -128,6 +128,9 @@ class NotebookInterfaceTests(unittest.TestCase):
         if hasattr(self, "app"):
             for window in list(reversed(self.app.windows)):
                 window.dispose()
+            import gc
+            self.app = None
+            gc.collect()
             self.store.close()
             self.directory.cleanup()
 
