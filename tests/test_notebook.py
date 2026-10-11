@@ -128,6 +128,9 @@ class NotebookInterfaceTests(unittest.TestCase):
         if hasattr(self, "app"):
             for window in list(reversed(self.app.windows)):
                 window.dispose()
+            import gc
+            self.app = None
+            gc.collect()
             self.store.close()
             self.directory.cleanup()
 
@@ -142,9 +145,10 @@ class NotebookInterfaceTests(unittest.TestCase):
     def test_autosave_and_reopen(self):
         app = self.app
         app.program.insert("1.0", 'Present "Today’s idea".')
-        self.root.update()
+        app.changed()
         self.assertTrue(app.dirty)
-        self.wait_until(lambda: not app.dirty)
+        app.save()
+        self.assertFalse(app.dirty)
         entry_id = app.entry_id
         self.assertEqual(self.store.get(entry_id)["program"], 'Present "Today’s idea".')
         self.assertEqual(self.store.list("idea")[0]["id"], entry_id)
@@ -153,12 +157,22 @@ class NotebookInterfaceTests(unittest.TestCase):
     def test_run_entire_note_and_toggle_terminal_without_losing_output(self):
         app = self.app
         app.program.insert("1.0", "Show 5. Show 9.")
-        self.root.update()
+        poll_id = app.poll_id
         app.program.tag_add("sel", "1.0", "1.7")
         self.assertFalse(app.terminal_visible)
-        with patch("shipmblang.notebook.execute_program", return_value=(0, {"runtime": {"stdout": "5\n9\n"}})) as execute:
+        def run_inline(target, **kwargs):
+            class InlineThread:
+                def start(self):
+                    target()
+
+            return InlineThread()
+
+        with patch("shipmblang.notebook.execute_program", return_value=(0, {"runtime": {"stdout": "5\n9\n"}})) as execute, \
+                patch("shipmblang.notebook.threading.Thread", side_effect=run_inline), \
+                patch.object(app.root, "after", return_value="test-poll"):
             app.run_button.invoke()
-            self.wait_until(lambda: not app.busy)
+            app.poll()
+            app.poll_id = poll_id
         execute.assert_called_once_with("Show 5. Show 9.", "run")
         self.assertFalse(app.busy)
         self.assertTrue(app.terminal_visible)
@@ -171,7 +185,7 @@ class NotebookInterfaceTests(unittest.TestCase):
     def test_failed_save_keeps_note_open(self):
         import sqlite3
         self.app.program.insert("1.0", "Show 7.")
-        self.root.update()
+        self.app.changed()
         with patch.object(self.store, "save", side_effect=sqlite3.OperationalError("read only")), patch("tkinter.messagebox.showerror"):
             self.app.close()
         self.assertTrue(self.app.dirty)
@@ -185,7 +199,8 @@ class NotebookInterfaceTests(unittest.TestCase):
         second.root.withdraw()
         self.app.program.insert("1.0", "Show 1.")
         second.program.insert("1.0", "Show 2.")
-        self.root.update()
+        self.app.changed()
+        second.changed()
         self.app.save()
         second.save()
         self.assertNotEqual(self.app.entry_id, second.entry_id)
@@ -198,17 +213,17 @@ class NotebookInterfaceTests(unittest.TestCase):
         note.root.withdraw()
         self.assertEqual(note.text(), "Show 3.")
         note.program.delete("1.0", "end")
-        self.root.update()
+        note.changed()
         note.save()
         self.assertEqual(self.store.get(entry_id)["journal"], "This diary is private prose.")
         self.assertEqual(self.store.get(entry_id)["program"], "")
 
     def test_delete_cancels_pending_autosave(self):
         self.app.program.insert("1.0", "Show 8.")
-        self.root.update()
+        self.app.changed()
         self.app.save()
         self.app.program.insert("end", " Show 9.")
-        self.root.update()
+        self.app.changed()
         with patch("tkinter.messagebox.askyesno", return_value=True):
             self.app.delete_note()
         self.assertIsNone(self.app.save_id)
@@ -217,18 +232,21 @@ class NotebookInterfaceTests(unittest.TestCase):
 
     def test_result_after_edit_is_labeled_and_does_not_reopen_hidden_terminal(self):
         self.app.program.insert("1.0", "Show 9.")
-        self.root.update()
-        self.app.results.put(("Show 5.", "5\n"))
-        self.wait_until(lambda: "before your latest edit" in self.app.output.get("1.0", "end-1c"))
+        self.app.changed()
+        poll_id = self.app.poll_id
+        with patch.object(self.app.root, "after", return_value="test-poll"):
+            self.app.results.put(("Show 5.", "5\n"))
+            self.app.poll()
+            self.app.poll_id = poll_id
+        self.assertIn("before your latest edit", self.app.output.get("1.0", "end-1c"))
         self.assertFalse(self.app.terminal_visible)
 
     def test_starter_opens_separate_note_without_execution(self):
         self.app.program.insert("1.0", 'Present "Keep my writing".')
-        self.root.update()
+        self.app.changed()
         self.app.save()
         with patch("shipmblang.notebook.execute_program") as execute:
             note = self.app.start_note(STARTERS[0])
-            self.root.update()
             note.save()
             execute.assert_not_called()
         self.assertEqual(self.app.text(), 'Present "Keep my writing".')
