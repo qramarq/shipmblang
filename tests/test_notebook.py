@@ -211,7 +211,6 @@ class NotebookInterfaceTests(unittest.TestCase):
         self.root.update()
         with patch("tkinter.messagebox.askyesno", return_value=True):
             self.app.delete_note()
-        self.root.update()
         self.assertIsNone(self.app.save_id)
         self.assertFalse(self.app.dirty)
         self.assertEqual(self.store.list(), [])
