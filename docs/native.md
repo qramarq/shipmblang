@@ -36,16 +36,19 @@ the ignored `native/bin` folder. The launcher uses that executable when
 
 ## Contract and checks
 
-Use native compiler 0.5.0 or newer, matching the current language snapshot
-provenance (`125c12ef57973bad3d9e0270b295cf6cda8e5402`). Its deterministic general
-grammar supports variables, expressions, typed lists, conditions, loops and
-functions. It emits interpreted ShipMB bytecode, not a new machine-code executable
-for each program. JSON results contain `target_code` and, after execution,
-`runtime.stdout`. General artifacts use bytecode 0.3 and VLC artifacts use 0.5.
-Unsupported grammar returns diagnostics rather than falling back to Python or a
-model. The current native revision also supports explicitly configured model
-interpretation and shared persistent meaning memory; these are not required for
-deterministic local programs.
+The native C++ compiler is a separate distribution and is not pinned by the
+bundled Python compiler snapshot. The current Python snapshot is 0.5.0 from
+compiler commit `ecaf807c0ffdd410067f5469c3fc3973a653f6d4`; its image-plus-English
+contract is supported by the Python path. The native launcher remains available
+for deterministic compilation and execution of its supported instructions, but
+does not supply the Python multimodal image provider.
+
+The native compiler emits interpreted ShipMB bytecode, not a new machine-code
+executable for each program. JSON results contain `target_code` and, after
+execution, `runtime.stdout`. General artifacts use bytecode 0.3 and VLC artifacts
+use 0.5. Unsupported grammar returns diagnostics rather than falling back to
+Python or a model. Native model interpretation and persistent memory are separate
+features of the supplied native compiler build.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File native/verify.ps1

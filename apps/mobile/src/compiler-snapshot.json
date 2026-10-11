@@ -1,5 +1,6 @@
 {
   "version": "0.5.0",
-  "commit": "125c12ef57973bad3d9e0270b295cf6cda8e5402",
-  "manifest_sha256": "ca9303b63dd7e36a69f10202cd7cb8040f78eba27bc3150932165c9e0c84b6f4"
+  "commit": "ecaf807c0ffdd410067f5469c3fc3973a653f6d4",
+  "local_patches": [],
+  "manifest_sha256": "312a3b815b0557090843dc78ed9c5912d17ee3d82edbbff48931113b1b286cc6"
 }

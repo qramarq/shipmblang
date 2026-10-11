@@ -13,13 +13,13 @@ def main():
             return hyperframes_main()
         finally:
             sys.argv = previous
-    if len(sys.argv) > 1 and sys.argv[1] == "notebook":
-        from .notebook import main as notebook_main
+    if len(sys.argv) > 1 and sys.argv[1] in {"notebook", "editor"}:
+        from .editor import main as editor_main
 
         previous = sys.argv
         sys.argv = [previous[0], *previous[2:]]
         try:
-            return notebook_main()
+            return editor_main()
         finally:
             sys.argv = previous
     if len(sys.argv) > 1 and sys.argv[1] in {"compile", "ship", "run", "ship-run"}:

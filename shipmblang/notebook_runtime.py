@@ -11,4 +11,5 @@ def compiler_snapshot():
         if not path.is_relative_to(root.resolve()) or hashlib.sha256(path.read_bytes()).hexdigest() != expected:
             raise ValueError(f"Compiler snapshot integrity check failed: {filename}")
     return {"version": manifest["version"], "commit": manifest["source_commit"],
+            "local_patches": manifest.get("local_patches", []),
             "manifest_sha256": hashlib.sha256(json.dumps(manifest, sort_keys=True).encode()).hexdigest()}

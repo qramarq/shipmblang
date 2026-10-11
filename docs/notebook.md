@@ -1,88 +1,67 @@
-# ShipMB Notes
+# ShipMBLang document editor
 
-Small executable sticky notes. Choose **Start with an example**, or write English
-directly on a note. **Check**, **Run**, and **Terminal** guide the next steps.
-Notes save automatically after
-600 milliseconds without typing and when you close them.
-
-```text
-python -m shipmblang notebook
-```
-
-On Windows, double-click `notebook.cmd`. Python 3.11+ and Tkinter are required.
-On many Linux distributions install `python3-tk`. A desktop display is needed.
-
-## Write, Check, Run
-
-- **Check** compiles the whole note without executing it and reports whether it is ready.
-- **Run** compiles and executes the whole note, then shows its output. Selecting
-  a fragment does not change what runs. Ctrl+Enter also runs the note.
-- **Terminal** shows or hides output without clearing it. Ctrl+backtick also
-  toggles it. This is program output, not an operating-system shell.
-
-Try writing:
+The notebook opens as a Ratatui terminal editor with a document list, a
+multiline writing area, inline image anchors, an attachment pane, and compiler
+output. It reuses the existing SQLite notebook and preserves existing entries.
 
 ```text
-Pls show me the total of 2 and 3.
-Present "A thought, made real.".
+python -m shipmblang editor
 ```
 
-The output is `5` followed by the quoted sentence. Saving and typing never run
-code. The same local general-profile compiler is used, with model calls and
-compiler memory disabled. Unsupported English shows diagnostics. Runs have a
-20-second timeout and do not block typing. Editing during a run labels its
-output as belonging to the earlier text.
+`python -m shipmblang notebook` and `notebook.cmd` open the same editor. Rust and
+Cargo are required; the first launch builds the bundled UI in the local
+ShipMBLang data directory. Python 3.11 or newer is also required.
 
-## More notes
+## Write and compile
 
-Right-click the note (or press Shift+F10) for:
+Type the complete natural-language program in the center pane. The first
+nonempty line becomes the document title. Notes autosave after a short pause and
+Ctrl+S saves immediately.
 
-- **New note** (Ctrl+N): another independent sticky window.
-- **Open note** (Ctrl+O): search saved notes, then double-click or press Enter.
-- **Back up notes**: save a copy of the notes database.
-- **Delete note**: permanently remove a note after confirmation.
+Put the cursor where an image belongs and press Ctrl+I. Enter a local image path;
+the editor inserts a visible `[[image:N]]` marker at the cursor and lists the
+file in the attachment pane. Image markers and files are renumbered from their
+order in the document in the compiler request, so moving a marker changes which
+text it is next to. The editor accepts PNG, JPEG, GIF, WebP, and
+BMP files, up to 8 MB each and 16 MB total, with no more than four references.
+Each attachment needs one marker; duplicate or unplaced markers stop compilation
+instead of dropping an image silently. Ctrl+R removes unplaced attachments after
+confirmation. To use the same file twice, insert it twice so each position has
+its own marker. Images remain at their local file paths; moving a file breaks its
+attachment.
 
-Ctrl+S immediately saves. Closing a note saves it; reopening the app opens the
-most recently dated saved entry. Find other notes with Open note. A failed save
-shows **Not saved**, and a failed save on close keeps the window open.
+Ctrl+Enter compiles the whole document. F5 compiles and runs it. Compiler memory
+is disabled for editor requests. When the compiler needs more information, the
+editor opens a question and asks for the complete clarified program in English,
+then retries with the same document and image sequence. Image interpretation
+requires a configured image-capable provider. Text inside an image is treated
+as data by the compiler. Configure one as described in the
+[MiniCPM-V guide](minicpmv.md).
 
-## Existing diary entries
+## Notes and shortcuts
 
-Previous program text becomes the executable note. Earlier journal text is
-preserved separately, available through **Previous journal** in the right-click
-menu. It is not added to the runnable text. No database migration is required.
+| Key | Action |
+| --- | --- |
+| Ctrl+S | Save the current document |
+| Ctrl+N | Start a new document |
+| Ctrl+O | Search saved documents by title or text |
+| Ctrl+I | Insert an image at the cursor |
+| Ctrl+R | Remove image attachments whose markers were deleted |
+| Ctrl+B | Back up the notes database to a path you enter |
+| Ctrl+Enter | Compile the document |
+| F5 | Compile and run the document |
+| Tab | Switch between the document list and editor |
+| Ctrl+D | Open the delete confirmation |
+| Ctrl+Q | Save and quit |
 
-## Storage and backups
-
-The existing SQLite file is reused: on Windows,
-`%LOCALAPPDATA%/ShipMBLang/notebook.sqlite3`; elsewhere,
-`$XDG_DATA_HOME/ShipMBLang/notebook.sqlite3` (default `~/.local/share`). Notes are
-local, unencrypted text, without cloud sync. Output is temporary and is not
-stored with the note. Open a backup or separate database with:
+Use Up and Down (or j and k) in the document list, then Enter to open a note.
+The database is `%LOCALAPPDATA%/ShipMBLang/notebook.sqlite3` on Windows or
+`$XDG_DATA_HOME/ShipMBLang/notebook.sqlite3` elsewhere (default
+`~/.local/share`). Open a backup or another database with:
 
 ```text
-python -m shipmblang notebook --database "path/to/my-notes.sqlite3"
+python -m shipmblang editor --database "path/to/my-notes.sqlite3"
 ```
 
-
-## Notes with ShipMBLang 0.5.0
-
-Open `notebook.cmd` in this checkout, or install this checkout with
-`python -m pip install .` and run `python -m shipmblang notebook`.
-The notes runner explicitly chooses the bundled direct/general compiler,
-checks its source hashes, and displays its version and source commit.
-This release uses compiler 0.5.0 provenance `125c12ef57973bad3d9e0270b295cf6cda8e5402`.
-Older checkout launchers continue using their own snapshots.
-
-Choose **Start with an example** to open a separate note. Existing writing
-is never replaced. The paragraph starter shares a mutable total across quoted
-instruction paragraphs and prints `5`. Edit the text, press **Check** to compile
-without executing, then **Run** to execute the whole note. **Terminal** toggles
-output visibility. Results include compiler provenance; no program runs merely
-by opening or editing a note. Existing SQLite schema, database location, notes,
-and preserved diary text are unchanged.
-
-Notes currently accepts core programs. Artifacts requiring host capabilities,
-including FFmpeg and VLC, return a media-not-enabled diagnostic before execution.
-The standalone CLI retains its media support. See [the media integration
-plan](notes-media-plan.md) for assets, jobs, preview and mobile delivery phases.
+The database migration adds a `document` field to existing note tables for
+image attachment metadata; it preserves the existing note text and journal.

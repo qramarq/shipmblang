@@ -187,12 +187,35 @@ Run saved Notepad files or pipe copied program text from Google Keep and Noteboo
 through the same runtime as VS Code. See [text-app workflows](docs/text-apps.md)
 and the [Colab notebook](examples/text_apps_colab.ipynb).
 
-## ShipMB executable sticky notes
+## ShipMBLang document editor
 
-Run `python -m shipmblang notebook`, or double-click `notebook.cmd` on Windows.
-Write English directly on a small sticky note. **Run** executes it; **Terminal**
-shows or hides output. Notes autosave locally. Right-click for new notes, search,
-and backups. See the [notes guide](docs/notebook.md).
+Run `python -m shipmblang editor` (or `python -m shipmblang notebook`) to open
+the Ratatui terminal document editor. Write English instructions, insert local
+images inline with Ctrl+I, then compile with Ctrl+Enter or run with F5. Rust and
+Cargo are required for the bundled terminal UI. The bundled 0.5.0 compiler
+supports ordered `[[image:N]]` anchors through the v2 image prose contract. See
+the [editor guide](docs/notebook.md).
+The [MiniCPM-V 4.6 guide](docs/minicpmv.md) documents the image provider,
+train-only QLoRA/CPU-offload preflight, and held-out compiler evaluation. No
+fine-tuned weights or upstream vision-benchmark scores are included in this
+release.
+
+## 0.5.0 multimodal verification
+
+ShipMBLang Python suite: **139 passed, 1 skipped, 61 subtests passed**. The
+ShipMBCompiler Python 0.5.0 suite: **235 passed, 3 skipped**. The shipped
+language bundle uses compiler 0.5.0 and the `shipmb-image-prose-v2` contract:
+the editor inserts local images inline, the adapter sends image paths with
+numbered anchors in document order, and the compiler asks for clarification
+when attachments or visual details are missing. The editor also keeps notes in
+the existing SQLite store. This update applies to the bundled Python compiler;
+the native C++ compiler remains a separate distribution. The Ratatui crate was
+not built here because Cargo is not installed on this machine.
+
+These are software test results, not MiniCPM-V benchmark scores. No fine-tune
+has run yet; DocVQA, MMBench, OCRBench, and held-out compiler-model evaluations
+remain unmeasured. See the [training and evaluation guide](docs/minicpmv.md)
+before preparing licensed train-only data or reporting model metrics.
 
 ## iOS and Android
 

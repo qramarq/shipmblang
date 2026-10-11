@@ -405,25 +405,8 @@ class NotebookApp:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Open executable ShipMB sticky notes.")
-    parser.add_argument("--database", type=Path, default=default_database(), help="Notes SQLite file (also opens a backup).")
-    args = parser.parse_args()
-    try:
-        import tkinter as tk
-    except ImportError:
-        parser.exit(2, "ShipMB Notes needs Tkinter. Install Python's Tk support (python3-tk on many Linux systems).\n")
-    try:
-        root = tk.Tk()
-    except tk.TclError as error:
-        parser.exit(2, f"ShipMB Notes needs a desktop display: {error}\n")
-    try:
-        store = NotebookStore(args.database)
-        entries = store.list()
-    except (OSError, sqlite3.Error) as error:
-        root.destroy()
-        parser.exit(2, f"Could not open notes: {error}\n")
-    NotebookApp(root, store, entry=store.get(entries[0]["id"]) if entries else None)
-    root.mainloop()
+    from .editor import main as editor_main
+    return editor_main()
 
 
 if __name__ == "__main__":
