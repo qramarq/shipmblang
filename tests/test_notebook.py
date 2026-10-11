@@ -238,8 +238,18 @@ class NotebookInterfaceTests(unittest.TestCase):
 
     def test_check_does_not_execute(self):
         self.app.program.insert("1.0", STARTERS[0]["source"])
-        with patch("shipmblang.notebook.execute_program", return_value=(0, {"compiler": {"version": "0.5.0", "commit": "abc123"}})) as execute:
+
+        def run_inline(target, **kwargs):
+            class InlineThread:
+                def start(self):
+                    target()
+
+            return InlineThread()
+
+        with patch("shipmblang.notebook.execute_program", return_value=(0, {"compiler": {"version": "0.5.0", "commit": "abc123"}})) as execute, \
+                patch("shipmblang.notebook.threading.Thread", side_effect=run_inline):
             self.app.check_button.invoke()
-            self.wait_until(lambda: not self.app.busy)
+            self.app.poll()
         execute.assert_called_once_with(STARTERS[0]["source"], "compile")
+        self.assertFalse(self.app.busy)
         self.assertIn("nothing executed", self.app.output.get("1.0", "end-1c"))
