@@ -205,10 +205,10 @@ class NotebookInterfaceTests(unittest.TestCase):
 
     def test_delete_cancels_pending_autosave(self):
         self.app.program.insert("1.0", "Show 8.")
-        self.root.update()
+        self.app.changed()
         self.app.save()
         self.app.program.insert("end", " Show 9.")
-        self.root.update()
+        self.app.changed()
         with patch("tkinter.messagebox.askyesno", return_value=True):
             self.app.delete_note()
         self.assertIsNone(self.app.save_id)
