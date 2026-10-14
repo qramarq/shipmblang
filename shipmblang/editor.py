@@ -19,7 +19,21 @@ def _install_editor_sources(destination: Path) -> Path:
     (destination / "src").mkdir(parents=True, exist_ok=True)
     shutil.copy2(source / "Cargo.toml", destination / "Cargo.toml")
     shutil.copy2(source / "src" / "main.rs", destination / "src" / "main.rs")
+    if (source / "Cargo.lock").is_file():
+        shutil.copy2(source / "Cargo.lock", destination / "Cargo.lock")
     return destination / "Cargo.toml"
+
+
+def find_cargo() -> str | None:
+    found = shutil.which("cargo")
+    if found:
+        return found
+    home = Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo")
+    for name in ("cargo.exe", "cargo"):
+        candidate = home / "bin" / name
+        if candidate.is_file():
+            return str(candidate)
+    return None
 
 
 def main() -> None:
@@ -31,7 +45,7 @@ def main() -> None:
         compiler_snapshot()
     except (OSError, ValueError, KeyError) as error:
         parser.exit(2, f"The bundled compiler snapshot failed its integrity check: {error}\n")
-    cargo = shutil.which("cargo")
+    cargo = find_cargo()
     if cargo is None:
         parser.exit(2, "ShipMBLang Editor needs Rust and Cargo. Install Rust from https://rustup.rs, then rerun this command.\n")
 
@@ -43,6 +57,7 @@ def main() -> None:
         data_dir.mkdir(parents=True, exist_ok=True)
         env = os.environ.copy()
         env["CARGO_TARGET_DIR"] = str(target_dir)
+        env["PATH"] = str(Path(cargo).parent) + os.pathsep + env.get("PATH", "")
         command = [cargo, "run", "--release", "--quiet", "--manifest-path", str(manifest), "--",
                    "--database", str(database), "--python", sys.executable,
                    "--workdir", str(Path(__file__).resolve().parents[1]),
