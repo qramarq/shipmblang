@@ -1,0 +1,34 @@
+{
+  "schema_version": 1,
+  "name": "shipmblang",
+  "version": "0.1.0",
+  "requires_python": ">=3.10",
+  "install": {
+    "mode": "editable-source",
+    "argv_template": ["<python>", "-m", "pip", "install", "-e", "<shipmblang_root>"]
+  },
+  "verify": {
+    "argv_template": ["<python>", "-m", "shipmblang", "onboarding", "--format", "json", "--check", "--root", "<shipmb_project_root>"]
+  },
+  "commands": {
+    "compile": ["<python>", "-m", "shipmblang", "compile"],
+    "run": ["<python>", "-m", "shipmblang", "run"],
+    "printurf": ["<python>", "-m", "shipmblang", "printurf"],
+    "mcp": ["<python>", "-m", "shipmblang", "mcp"],
+    "onboarding": ["<python>", "-m", "shipmblang", "onboarding"]
+  },
+  "compiler_contract": {
+    "target": "shipmblang-bytecode",
+    "core": "ShipMBLangCore",
+    "declaration_resolution": "order-insensitive within a compilation unit",
+    "declaration_pass": "collect declarations before resolving references",
+    "effectful_action_order": "preserve source bytecode order at runtime"
+  },
+  "environment": {
+    "SHIPMBLANG_HOME": "<shipmblang_root>",
+    "SHIPMBLANG_PYTHON": "<python>",
+    "SHIPLANG_CHECKPOINT": "checkpoints/best_model.pt",
+    "SHIPLANG_TOKENIZER": "data/tokenizer.json",
+    "SHIPLANG_DEVICE": "cpu"
+  }
+}

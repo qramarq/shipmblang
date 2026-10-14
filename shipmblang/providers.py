@@ -1,15 +1,18 @@
 """Optional chat-provider boundary for ShipMB Lang.
 
-No model provider is selected by default. ShipMB identity and capabilities are
-runtime-owned, then supplied to any explicitly configured provider.
+No provider is selected by default.  The legacy DripLM adapter is available
+only when explicitly requested with ``SHIPMB_MODEL_PROVIDER=drip``.
 """
 
 from __future__ import annotations
 
-import json
 import os
+from pathlib import Path
 from typing import Protocol
+import json
 from urllib import request
+
+from .multimodal import render_text_fallback, scnd_context_to_messages
 
 
 class ChatProvider(Protocol):
@@ -53,7 +56,30 @@ def load_chat_provider() -> ChatProvider | None:
         if not base_url or not model:
             return None
         return OpenAICompatibleProvider(base_url, model, os.environ.get("SHIPMB_MODEL_API_KEY", ""))
-    raise ValueError(
-        f"unsupported ShipMB model provider {provider!r}; "
-        "set SHIPMB_MODEL_PROVIDER=openai_compatible, ollama, none, or disabled"
-    )
+    if provider != "drip":
+        raise ValueError(f"unsupported ShipMB model provider {provider!r}; configure a compatible provider adapter")
+
+    checkpoint = Path(os.environ.get("SHIPMB_MODEL_CHECKPOINT", ""))
+    tokenizer = Path(os.environ.get("SHIPMB_MODEL_TOKENIZER", ""))
+    device = os.environ.get("SHIPMB_MODEL_DEVICE", "cpu")
+    if not checkpoint.is_file() or not tokenizer.is_file():
+        return None
+    from driplm.inference import DripInference
+
+    return DripInference(str(checkpoint), str(tokenizer), device)
+
+
+def chat_messages_from_scnd(context, *, system_prompt: str | None = None, native_media: bool = True):
+    """Build provider input from SCND while retaining a text-only fallback.
+
+    Native-media providers receive their typed SCND parts.  Text-only providers
+    receive the same content as labelled untrusted text, including descriptions,
+    transcripts, and references.
+    """
+    if native_media:
+        messages = scnd_context_to_messages(context)
+    else:
+        messages = [{"role": "user", "content": render_text_fallback(context)}]
+    if system_prompt:
+        messages.insert(0, {"role": "system", "content": system_prompt})
+    return messages

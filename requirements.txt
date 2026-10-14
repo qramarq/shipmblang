@@ -1,5 +1,9 @@
-torch>=2.0.0
-tokenizers>=0.19.0
-tqdm>=4.65.0
-numpy>=1.24.0
-datasets>=2.14.0
+# ShipMBLang core has no required third-party runtime dependencies.
+# Install the package in editable mode for local development:
+#   python -m pip install -e .
+#
+# Optional model/chat dependencies:
+#   python -m pip install -e ".[model]"
+#
+# Optional training dependencies:
+#   python -m pip install -e ".[train]"

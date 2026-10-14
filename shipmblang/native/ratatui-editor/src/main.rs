@@ -20,8 +20,8 @@ use std::thread;
 use std::time::Duration;
 
 const MAX_IMAGES: usize = 4;
-const MAX_IMAGE_BYTES: u64 = 8 * 1024 * 1024;
-const MAX_TOTAL_IMAGE_BYTES: u64 = 16 * 1024 * 1024;
+const MAX_IMAGE_BYTES: u64 = 8_000_000;
+const MAX_TOTAL_IMAGE_BYTES: u64 = 16_000_000;
 
 #[derive(Clone)]
 struct NoteSummary {
@@ -67,6 +67,8 @@ enum InputKind {
     Search,
     ImagePath,
     Clarification(String),
+    UnplacedImages { operation: Option<Operation>, ids: Vec<String> },
+    BackupPath,
     Delete,
 }
 
@@ -79,12 +81,14 @@ struct Args {
     database: PathBuf,
     python: PathBuf,
     workdir: PathBuf,
+    startdir: PathBuf,
 }
 
 struct App {
     database: PathBuf,
     python: PathBuf,
     workdir: PathBuf,
+    startdir: PathBuf,
     notes: Vec<NoteSummary>,
     selected_note: usize,
     focus: Focus,
@@ -115,6 +119,7 @@ impl Args {
         let mut database = None;
         let mut python = None;
         let mut workdir = None;
+        let mut startdir = None;
         let mut values = env::args().skip(1);
         while let Some(arg) = values.next() {
             let value = values.next().ok_or_else(|| format!("Missing value after {arg}"))?;
@@ -122,13 +127,15 @@ impl Args {
                 "--database" => database = Some(PathBuf::from(value)),
                 "--python" => python = Some(PathBuf::from(value)),
                 "--workdir" => workdir = Some(PathBuf::from(value)),
+                "--startdir" => startdir = Some(PathBuf::from(value)),
                 _ => return Err(format!("Unknown editor option: {arg}")),
             }
         }
         Ok(Self {
-            database: database.ok_or("Missing --database")?,
-            python: python.ok_or("Missing --python")?,
-            workdir: workdir.ok_or("Missing --workdir")?,
+            database: database.ok_or_else(|| "Missing --database".to_string())?,
+            python: python.ok_or_else(|| "Missing --python".to_string())?,
+            workdir: workdir.ok_or_else(|| "Missing --workdir".to_string())?,
+            startdir: startdir.ok_or_else(|| "Missing --startdir".to_string())?,
         })
     }
 }
@@ -140,6 +147,7 @@ impl App {
             database: args.database,
             python: args.python,
             workdir: args.workdir,
+            startdir: args.startdir,
             notes: Vec::new(),
             selected_note: 0,
             focus: Focus::Document,
@@ -367,7 +375,8 @@ impl App {
     }
 
     fn insert_image(&mut self, raw_path: &str) -> Result<(), String> {
-        let candidate = PathBuf::from(raw_path.trim().trim_matches('"'));
+        let input = PathBuf::from(raw_path.trim().trim_matches('"'));
+        let candidate = if input.is_absolute() { input } else { self.startdir.join(input) };
         if candidate.as_os_str().is_empty() { return Err("Enter a local image path.".to_string()); }
         let path = candidate.canonicalize().map_err(|error| format!("Cannot open image path: {error}"))?;
         let metadata = fs::metadata(&path).map_err(|error| error.to_string())?;
@@ -400,37 +409,98 @@ impl App {
     }
 
     fn active_image_stats(&self) -> (usize, u64) {
-        let source = self.source();
-        let ordered = self.ordered_submission(&source);
-        let total = ordered.as_ref().map(|(_, paths)| paths.iter().filter_map(|path| fs::metadata(path).ok()).map(|metadata| metadata.len()).sum()).unwrap_or(0);
-        (ordered.map(|(_, paths)| paths.len()).unwrap_or(0), total)
+        let total = self.images.iter()
+            .filter_map(|image| fs::metadata(&image.path).ok())
+            .fold(0_u64, |sum, metadata| sum.saturating_add(metadata.len()));
+        (self.images.len(), total)
+    }
+
+    fn unplaced_image_ids(&self, source: &str) -> Vec<String> {
+        let known: HashMap<&str, ()> = self.images.iter().map(|image| (image.id.as_str(), ())).collect();
+        let chars: Vec<char> = source.chars().collect();
+        let mut used = HashMap::<String, usize>::new();
+        let mut index = 0;
+        while index + 8 <= chars.len() {
+            if chars[index..index + 8].iter().collect::<String>() == "[[image:" {
+                if let Some(end_rel) = chars[index + 8..].windows(2).position(|pair| pair == [']', ']']) {
+                    let end = index + 8 + end_rel;
+                    let id: String = chars[index + 8..end].iter().collect();
+                    if known.contains_key(id.as_str()) {
+                        *used.entry(id).or_insert(0) += 1;
+                    }
+                    index = end + 2;
+                    continue;
+                }
+            }
+            index += 1;
+        }
+        self.images.iter().filter(|image| !used.contains_key(&image.id))
+            .map(|image| image.id.clone()).collect()
     }
 
     fn ordered_submission(&self, source: &str) -> Result<(String, Vec<PathBuf>), String> {
+        if self.images.len() > MAX_IMAGES {
+            return Err(format!("A document can use at most {MAX_IMAGES} image attachments. Remove extras with Ctrl+R."));
+        }
+        let mut total_bytes = 0_u64;
+        for image in &self.images {
+            let metadata = fs::metadata(&image.path)
+                .map_err(|error| format!("Cannot read attached image {}: {error}", image.caption))?;
+            if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_IMAGE_BYTES {
+                return Err(format!("Attached image {} must be a nonempty regular image file of 8 MB or less.", image.caption));
+            }
+            total_bytes = total_bytes.saturating_add(metadata.len());
+        }
+        if total_bytes > MAX_TOTAL_IMAGE_BYTES {
+            return Err("All image attachments together must be 16 MB or smaller. Remove extras with Ctrl+R.".to_string());
+        }
         let mapping: HashMap<&str, &PathBuf> = self.images.iter().map(|image| (image.id.as_str(), &image.path)).collect();
+        if mapping.len() != self.images.len() {
+            return Err("The saved image attachment list contains duplicate IDs. Remove and reinsert the affected images.".to_string());
+        }
         let chars: Vec<char> = source.chars().collect();
         let mut output = String::new();
         let mut paths = Vec::new();
+        let mut used = HashMap::<String, usize>::new();
         let mut index = 0;
         while index < chars.len() {
             if index + 8 <= chars.len() && chars[index..index + 8].iter().collect::<String>() == "[[image:" {
-                if let Some(end_rel) = chars[index + 8..].windows(2).position(|pair| pair == [']', ']']) {
-                    let end = index + 8 + end_rel;
-                    let id = chars[index + 8..end].iter().collect::<String>();
-                    if let Some(path) = mapping.get(id.as_str()) {
-                        paths.push((*path).clone());
-                        output.push_str(&format!("[[image:{}]]", paths.len()));
-                        index = end + 2;
-                        continue;
-                    }
+                let Some(end_rel) = chars[index + 8..].windows(2).position(|pair| pair == [']', ']']) else {
+                    return Err("An image marker is incomplete. Restore its closing `]]` or remove the marker.".to_string());
+                };
+                let end = index + 8 + end_rel;
+                let id = chars[index + 8..end].iter().collect::<String>();
+                let Some(path) = mapping.get(id.as_str()) else {
                     return Err(format!("Image marker [[image:{id}]] has no attached file. Add the image again with Ctrl+I."));
+                };
+                let uses = used.entry(id.clone()).or_insert(0);
+                *uses += 1;
+                if *uses > 1 {
+                    return Err(format!("Image attachment {} is referenced more than once. Keep one marker or insert a separate attachment with Ctrl+I.", id));
                 }
+                paths.push((*path).clone());
+                output.push_str(&format!("[[image:{}]]", paths.len()));
+                index = end + 2;
+                continue;
             }
             output.push(chars[index]);
             index += 1;
         }
-        if paths.len() > MAX_IMAGES { return Err(format!("A document can use at most {MAX_IMAGES} images.")); }
+        if let Some(image) = self.images.iter().find(|image| !used.contains_key(&image.id)) {
+            return Err(format!("Attached image {} has no marker in the document. Restore [[image:{}]] or remove unplaced images with Ctrl+R.", image.caption, image.id));
+        }
         Ok((output, paths))
+    }
+
+    fn prompt_remove_unplaced(&mut self, operation: Option<Operation>) {
+        let ids = self.unplaced_image_ids(&self.source());
+        if ids.is_empty() {
+            if operation.is_none() {
+                self.status = "No unplaced images".to_string();
+            }
+            return;
+        }
+        self.modal = Some(Modal { kind: InputKind::UnplacedImages { operation, ids }, value: String::new() });
     }
 
     fn ordered_image_ids(&self) -> Vec<String> {
@@ -470,7 +540,12 @@ impl App {
         }
         let (source, images) = match self.ordered_submission(&source) {
             Ok(result) => result,
-            Err(error) => { self.output = vec![error]; self.status = "Image reference needs attention".to_string(); return; }
+            Err(error) => {
+                self.output = vec![error];
+                self.status = "Image reference needs attention".to_string();
+                self.prompt_remove_unplaced(Some(operation));
+                return;
+            }
         };
         self.start_worker(CompileContext { operation, source, images, interpretation: None, clarification_rounds: 0 });
     }
@@ -543,8 +618,19 @@ impl App {
                 KeyCode::Char('n') => self.new_note(),
                 KeyCode::Char('o') => self.modal = Some(Modal { kind: InputKind::Search, value: String::new() }),
                 KeyCode::Char('i') => self.modal = Some(Modal { kind: InputKind::ImagePath, value: String::new() }),
+                KeyCode::Char('b') => self.modal = Some(Modal { kind: InputKind::BackupPath, value: String::new() }),
+                KeyCode::Char('r') => self.prompt_remove_unplaced(None),
                 KeyCode::Enter => self.begin_compile(Operation::Compile),
-                KeyCode::Char('q') => self.quitting = true,
+                KeyCode::Char('q') => {
+                    if self.dirty {
+                        if let Err(error) = self.save() {
+                            self.output = vec![format!("Could not save before quitting: {error}")];
+                            self.status = "Not saved".to_string();
+                            return;
+                        }
+                    }
+                    self.quitting = true;
+                }
                 KeyCode::Char('d') => self.modal = Some(Modal { kind: InputKind::Delete, value: String::new() }),
                 _ => {}
             }
@@ -596,6 +682,28 @@ impl App {
                         context.interpretation = Some(answer);
                         context.clarification_rounds += 1;
                         self.start_worker(context);
+                    }
+                }
+                InputKind::UnplacedImages { operation, ids } => {
+                    if modal.value.trim().eq_ignore_ascii_case("remove") {
+                        let before = self.images.len();
+                        self.images.retain(|image| !ids.contains(&image.id));
+                        let removed = before - self.images.len();
+                        self.mark_dirty();
+                        self.output = vec![format!("Removed {removed} unplaced image attachment(s).")];
+                        if let Some(operation) = operation {
+                            self.begin_compile(operation);
+                        }
+                    } else {
+                        self.status = "Image removal cancelled".to_string();
+                    }
+                }
+                InputKind::BackupPath => {
+                    let input = PathBuf::from(modal.value.trim().trim_matches('"'));
+                    let destination = if input.is_absolute() { input } else { self.startdir.join(input) };
+                    match self.bridge(json!({"action":"backup", "destination":destination})) {
+                        Ok(_) => { self.status = "Backup saved".to_string(); self.output = vec![format!("Notes backed up to {}", destination.display())]; }
+                        Err(error) => { self.status = "Backup failed".to_string(); self.output = vec![error]; }
                     }
                 }
                 InputKind::Delete => {
@@ -790,7 +898,7 @@ fn draw(frame: &mut Frame, app: &mut App) {
         Span::styled("  Documents  /  ", Style::default().fg(Color::Gray)),
         Span::styled(app.title(), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
         Span::styled("    ", Style::default()),
-        Span::styled(if app.dirty { "Unsaved" } else { &app.status }, Style::default().fg(if app.dirty { Color::Yellow } else { Color::Green })),
+        Span::styled(if app.dirty { "Unsaved" } else { app.status.as_str() }, Style::default().fg(if app.dirty { Color::Yellow } else { Color::Green })),
     ]);
     frame.render_widget(Paragraph::new(header).block(Block::default().borders(Borders::BOTTOM).border_style(Style::default().fg(Color::DarkGray))), outer[0]);
     let middle = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Percentage(24), Constraint::Percentage(76)]).split(outer[1]);
@@ -806,16 +914,24 @@ fn draw(frame: &mut Frame, app: &mut App) {
     editor_area(frame, middle[1], app);
 
     let lower = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Percentage(24), Constraint::Percentage(76)]).split(outer[2]);
-    let active = app.ordered_submission(&app.source()).map(|(_, paths)| paths).unwrap_or_default();
     let mut image_lines = vec![Line::from(Span::styled("Inline image cards", Style::default().fg(Color::Gray)))];
-    let source = app.source();
+    let mut seen = HashMap::<String, usize>::new();
     for (order, id) in app.ordered_image_ids().iter().enumerate() {
         if let Some(attachment) = app.images.iter().find(|image| &image.id == id) {
-            image_lines.push(Line::from(Span::styled(format!("{}. {}", order + 1, truncate(&attachment.caption, lower[0].width.saturating_sub(5) as usize)), Style::default().fg(Color::LightCyan))));
+            let references = seen.entry(id.clone()).or_insert(0);
+            *references += 1;
+            let duplicate = if *references > 1 { " · duplicate marker" } else { "" };
+            image_lines.push(Line::from(Span::styled(format!("{}. {}{}", order + 1, truncate(&attachment.caption, lower[0].width.saturating_sub(5) as usize), duplicate), Style::default().fg(if *references > 1 { Color::Yellow } else { Color::LightCyan }))));
             image_lines.push(Line::from(Span::styled(truncate(&attachment.path.to_string_lossy(), lower[0].width.saturating_sub(5) as usize), Style::default().fg(Color::DarkGray))));
         }
     }
-    if active.is_empty() { image_lines.push(Line::from(Span::styled("Ctrl+I to insert an image", Style::default().fg(Color::DarkGray)))); }
+    for attachment in &app.images {
+        if !seen.contains_key(&attachment.id) {
+            image_lines.push(Line::from(Span::styled(format!("Unplaced · {}", truncate(&attachment.caption, lower[0].width.saturating_sub(5) as usize)), Style::default().fg(Color::Yellow))));
+            image_lines.push(Line::from(Span::styled(format!("{} · Ctrl+R to remove", truncate(&attachment.path.to_string_lossy(), lower[0].width.saturating_sub(5) as usize)), Style::default().fg(Color::DarkGray))));
+        }
+    }
+    if app.images.is_empty() { image_lines.push(Line::from(Span::styled("Ctrl+I to insert an image", Style::default().fg(Color::DarkGray)))); }
     frame.render_widget(Paragraph::new(image_lines).wrap(Wrap { trim: true }).block(Block::default().title(" Images ").borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray))), lower[0]);
     let output_lines = app.output.iter().map(|line| Line::from(line.as_str())).collect::<Vec<_>>();
     frame.render_widget(Paragraph::new(output_lines).wrap(Wrap { trim: false }).block(Block::default().title(" Compiler / Output ").borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray))), lower[1]);
@@ -824,6 +940,8 @@ fn draw(frame: &mut Frame, app: &mut App) {
         Span::styled("Ctrl+N ", Style::default().fg(Color::Cyan)), Span::raw("New  "),
         Span::styled("Ctrl+O ", Style::default().fg(Color::Cyan)), Span::raw("Search  "),
         Span::styled("Ctrl+I ", Style::default().fg(Color::Cyan)), Span::raw("Image  "),
+        Span::styled("Ctrl+R ", Style::default().fg(Color::Cyan)), Span::raw("Remove unplaced  "),
+        Span::styled("Ctrl+B ", Style::default().fg(Color::Cyan)), Span::raw("Backup  "),
         Span::styled("Ctrl+Enter ", Style::default().fg(Color::Cyan)), Span::raw("Compile  "),
         Span::styled("F5 ", Style::default().fg(Color::Cyan)), Span::raw("Run  "),
         Span::styled("Tab ", Style::default().fg(Color::Cyan)), Span::raw("Switch panel  "),
@@ -840,6 +958,8 @@ fn draw_modal(frame: &mut Frame, modal: &Modal) {
         InputKind::Search => ("Find a document", "Search title or text; Enter to filter, Esc to cancel".to_string()),
         InputKind::ImagePath => ("Insert image", "Enter a local PNG, JPEG, GIF, WebP or BMP path".to_string()),
         InputKind::Clarification(question) => ("Compiler clarification", format!("{question}\nEnter the complete clarified program in English.")),
+        InputKind::UnplacedImages { ids, .. } => ("Remove unplaced images", format!("Attachments without markers: {}. Type REMOVE to detach them; Esc cancels.", ids.join(", "))),
+        InputKind::BackupPath => ("Back up notes", "Enter a destination path for a SQLite backup".to_string()),
         InputKind::Delete => ("Delete document", "Type DELETE and press Enter to permanently delete this note".to_string()),
     };
     let content = vec![Line::from(prompt), Line::from(""), Line::from(Span::styled(format!("› {}", modal.value), Style::default().fg(Color::Yellow)))];

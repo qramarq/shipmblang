@@ -1,4 +1,4 @@
-"""Generate the GuppyLM Colab training notebook."""
+"""Generate the DripLM Colab training notebook."""
 
 import json
 import os
@@ -39,11 +39,11 @@ def code(text):
 
 # Source files to embed in the notebook
 FILES = [
-    ("config.py",    "guppylm/config.py"),
-    ("model.py",     "guppylm/model.py"),
-    ("dataset.py",   "guppylm/dataset.py"),
-    ("train.py",     "guppylm/train.py"),
-    ("inference.py", "guppylm/inference.py"),
+    ("config.py",    "driplm/config.py"),
+    ("model.py",     "driplm/model.py"),
+    ("dataset.py",   "driplm/dataset.py"),
+    ("train.py",     "driplm/train.py"),
+    ("inference.py", "driplm/inference.py"),
 ]
 
 
@@ -55,7 +55,7 @@ def build():
     # ══════════════════════════════════════════════════════════════════
 
     cells.append(md(
-        "# GuppyLM — Your Friendly Fish\n"
+        "# DripLM — Your Friendly Fish\n"
         "\n"
         "Train a ~9M parameter LLM that talks like a small fish.\n"
         "\n"
@@ -96,10 +96,10 @@ def build():
         "import os, shutil\n"
         "\n"
         "# Start fresh — removes stale files from previous runs\n"
-        "if os.path.exists('/content/guppy'):\n"
-        "    shutil.rmtree('/content/guppy')\n"
-        "os.makedirs('/content/guppy')\n"
-        "os.chdir('/content/guppy')\n"
+        "if os.path.exists('/content/drip'):\n"
+        "    shutil.rmtree('/content/drip')\n"
+        "os.makedirs('/content/drip')\n"
+        "os.chdir('/content/drip')\n"
         "print(f'Working dir: {os.getcwd()}')"
     ))
 
@@ -138,7 +138,7 @@ def build():
         "Each sample is formatted as ChatML:\n"
         "```\n"
         "<|im_start|>user\n"
-        "hi guppy<|im_end|>\n"
+        "hi drip<|im_end|>\n"
         "<|im_start|>assistant\n"
         "hello. the water is nice today.<|im_end|>\n"
         "```"
@@ -150,7 +150,7 @@ def build():
         "from tokenizers import Tokenizer, models, trainers, pre_tokenizers, decoders, processors\n"
         "\n"
         "# ── Download from HuggingFace ──\n"
-        "HF_DATASET = 'arman-bd/guppylm-60k-generic'\n"
+        "HF_DATASET = 'arman-bd/driplm-60k-generic'\n"
         "ds = load_dataset(HF_DATASET)\n"
         "print(f'Downloaded: {len(ds[\"train\"]):,} train, {len(ds[\"test\"]):,} test samples')\n"
         "\n"
@@ -202,12 +202,12 @@ def build():
     ))
 
     cells.append(code(
-        "from config import GuppyConfig\n"
-        "from model import GuppyLM\n"
+        "from config import DripConfig\n"
+        "from model import DripLM\n"
         "import torch\n"
         "\n"
-        "config = GuppyConfig()\n"
-        "model = GuppyLM(config)\n"
+        "config = DripConfig()\n"
+        "model = DripLM(config)\n"
         "print(model.param_summary())\n"
         "print(f'  Layers: {config.n_layers}, Heads: {config.n_heads}, FFN: {config.ffn_hidden}')\n"
         "print(f'  Vocab: {config.vocab_size}, Max seq: {config.max_seq_len}')\n"
@@ -248,10 +248,10 @@ def build():
     ))
 
     cells.append(code(
-        "from inference import GuppyInference\n"
+        "from inference import DripInference\n"
         "import torch\n"
         "\n"
-        "engine = GuppyInference(\n"
+        "engine = DripInference(\n"
         "    'checkpoints/best_model.pt', 'data/tokenizer.json',\n"
         "    device='cuda' if torch.cuda.is_available() else 'cpu'\n"
         ")\n"
@@ -262,7 +262,7 @@ def build():
         "\n"
         "# Test across different topics\n"
         "tests = [\n"
-        "    ('hi guppy',                      'greeting'),\n"
+        "    ('hi drip',                      'greeting'),\n"
         "    ('are you hungry',                'food'),\n"
         "    ('it is really hot today',        'temperature'),\n"
         "    ('how is the water',              'water'),\n"
@@ -276,10 +276,10 @@ def build():
         "    ('what is the meaning of life',   'meaning'),\n"
         "    ('sorry i tapped the glass',      'glass_tap'),\n"
         "    ('it is raining outside',         'rain'),\n"
-        "    ('goodnight guppy',               'night'),\n"
+        "    ('goodnight drip',               'night'),\n"
         "]\n"
         "\n"
-        "print(f'{\"Topic\":<12s}  {\"You\":<35s}  Guppy')\n"
+        "print(f'{\"Topic\":<12s}  {\"You\":<35s}  Drip')\n"
         "print('=' * 100)\n"
         "for prompt, topic in tests:\n"
         "    reply = chat(prompt)\n"
@@ -304,11 +304,11 @@ def build():
         "\n"
         "from huggingface_hub import HfApi, login\n"
         "import torch, json, os, shutil\n"
-        "from config import GuppyConfig\n"
-        "from model import GuppyLM\n"
+        "from config import DripConfig\n"
+        "from model import DripLM\n"
         "\n"
         "HF_TOKEN = os.environ.get('HF_TOKEN', '')  # Or paste your token here\n"
-        "HF_REPO = os.environ.get('HF_REPO', 'arman-bd/guppylm-9M')  # Or change this\n"
+        "HF_REPO = os.environ.get('HF_REPO', 'arman-bd/driplm-9M')  # Or change this\n"
         "\n"
         "# Load checkpoint\n"
         "ckpt = torch.load('checkpoints/best_model.pt', map_location='cpu', weights_only=False)\n"
@@ -320,8 +320,8 @@ def build():
         "\n"
         "with open('hf_export/config.json', 'w') as f:\n"
         "    json.dump({\n"
-        "        'model_type': 'guppylm',\n"
-        "        'architectures': ['GuppyLM'],\n"
+        "        'model_type': 'driplm',\n"
+        "        'architectures': ['DripLM'],\n"
         "        'vocab_size': cfg['vocab_size'],\n"
         "        'max_position_embeddings': cfg['max_seq_len'],\n"
         "        'hidden_size': cfg['d_model'],\n"
@@ -338,9 +338,9 @@ def build():
         "print(f'pytorch_model.bin: {os.path.getsize(\"hf_export/pytorch_model.bin\")/1e6:.1f} MB')\n"
         "\n"
         "# ── ONNX format (quantized uint8) ──\n"
-        "valid_fields = {f.name for f in GuppyConfig.__dataclass_fields__.values()}\n"
-        "config = GuppyConfig(**{k: v for k, v in cfg.items() if k in valid_fields})\n"
-        "model = GuppyLM(config)\n"
+        "valid_fields = {f.name for f in DripConfig.__dataclass_fields__.values()}\n"
+        "config = DripConfig(**{k: v for k, v in cfg.items() if k in valid_fields})\n"
+        "model = DripLM(config)\n"
         "model.load_state_dict(ckpt['model_state_dict'])\n"
         "model.eval()\n"
         "\n"
@@ -383,21 +383,21 @@ def build():
     cells.append(code(
         "import os\n"
         "\n"
-        "!cd /content && tar czf guppylm.tar.gz \\\n"
-        "    guppy/checkpoints/best_model.pt \\\n"
-        "    guppy/checkpoints/config.json \\\n"
-        "    guppy/data/tokenizer.json \\\n"
-        "    guppy/model.py \\\n"
-        "    guppy/config.py \\\n"
-        "    guppy/inference.py \\\n"
-        "    guppy/hf_export/model.onnx\n"
+        "!cd /content && tar czf driplm.tar.gz \\\n"
+        "    drip/checkpoints/best_model.pt \\\n"
+        "    drip/checkpoints/config.json \\\n"
+        "    drip/data/tokenizer.json \\\n"
+        "    drip/model.py \\\n"
+        "    drip/config.py \\\n"
+        "    drip/inference.py \\\n"
+        "    drip/hf_export/model.onnx\n"
         "\n"
-        "sz = os.path.getsize('/content/guppylm.tar.gz') / 1e6\n"
-        "print(f'Package: /content/guppylm.tar.gz ({sz:.1f} MB)')\n"
+        "sz = os.path.getsize('/content/driplm.tar.gz') / 1e6\n"
+        "print(f'Package: /content/driplm.tar.gz ({sz:.1f} MB)')\n"
         "\n"
         "try:\n"
         "    from google.colab import files\n"
-        "    files.download('/content/guppylm.tar.gz')\n"
+        "    files.download('/content/driplm.tar.gz')\n"
         "except ImportError:\n"
         "    print('Not in Colab — download manually from the file browser.')"
     ))
@@ -407,7 +407,7 @@ def build():
     return {
         "nbformat": 4, "nbformat_minor": 0,
         "metadata": {
-            "colab": {"provenance": [], "gpuType": "T4", "name": "GuppyLM — Train"},
+            "colab": {"provenance": [], "gpuType": "T4", "name": "DripLM — Train"},
             "kernelspec": {"name": "python3", "display_name": "Python 3"},
             "language_info": {"name": "python"},
             "accelerator": "GPU",
@@ -417,35 +417,35 @@ def build():
 
 
 def build_use():
-    """Build the use_guppylm notebook — download model from HF and chat."""
+    """Build the use_driplm notebook — download model from HF and chat."""
     cells = []
 
     cells.append(md(
-        "# GuppyLM — Chat with a Fish\n"
+        "# DripLM — Chat with a Fish\n"
         "\n"
         "Download a pre-trained 9M parameter fish LLM and chat with it. Just run all cells.\n"
         "\n"
-        "**Model:** [arman-bd/guppylm-9M](https://huggingface.co/arman-bd/guppylm-9M)"
+        "**Model:** [arman-bd/driplm-9M](https://huggingface.co/arman-bd/driplm-9M)"
     ))
 
     cells.append(code(
         "# Setup + Download\n"
         "!pip install -q torch tokenizers huggingface_hub\n"
         "import os, shutil\n"
-        "if os.path.exists('/content/guppy'): shutil.rmtree('/content/guppy')\n"
-        "os.makedirs('/content/guppy'); os.chdir('/content/guppy')\n"
+        "if os.path.exists('/content/drip'): shutil.rmtree('/content/drip')\n"
+        "os.makedirs('/content/drip'); os.chdir('/content/drip')\n"
         "\n"
         "from huggingface_hub import snapshot_download\n"
-        "snapshot_download(repo_id='arman-bd/guppylm-9M', local_dir='.')\n"
+        "snapshot_download(repo_id='arman-bd/driplm-9M', local_dir='.')\n"
         "print('Model downloaded.')"
     ))
 
     cells.append(code(
         "# Load model\n"
-        "from inference import GuppyInference\n"
+        "from inference import DripInference\n"
         "import torch\n"
         "\n"
-        "engine = GuppyInference('pytorch_model.bin', 'tokenizer.json',\n"
+        "engine = DripInference('pytorch_model.bin', 'tokenizer.json',\n"
         "                        device='cuda' if torch.cuda.is_available() else 'cpu')\n"
         "\n"
         "def chat(prompt):\n"
@@ -454,8 +454,8 @@ def build_use():
         "    )['choices'][0]['message'].get('content', '').strip()\n"
         "\n"
         "# Quick test\n"
-        "for p in ['hi guppy', 'are you hungry', 'tell me a joke', 'what is the internet', 'goodnight guppy']:\n"
-        "    print(f'You> {p}\\nGuppy> {chat(p)}\\n')"
+        "for p in ['hi drip', 'are you hungry', 'tell me a joke', 'what is the internet', 'goodnight drip']:\n"
+        "    print(f'You> {p}\\nDrip> {chat(p)}\\n')"
     ))
 
     cells.append(code(
@@ -466,14 +466,14 @@ def build_use():
         "    except (KeyboardInterrupt, EOFError):\n"
         "        break\n"
         "    if not p or p.lower() in ('quit', 'exit', 'q'):\n"
-        "        print('Guppy> bye. i will continue being a fish.'); break\n"
-        "    print(f'Guppy> {chat(p)}\\n')"
+        "        print('Drip> bye. i will continue being a fish.'); break\n"
+        "    print(f'Drip> {chat(p)}\\n')"
     ))
 
     return {
         "nbformat": 4, "nbformat_minor": 0,
         "metadata": {
-            "colab": {"provenance": [], "name": "GuppyLM — Chat"},
+            "colab": {"provenance": [], "name": "DripLM — Chat"},
             "kernelspec": {"name": "python3", "display_name": "Python 3"},
             "language_info": {"name": "python"},
         },
@@ -491,5 +491,5 @@ def write_notebook(nb, filename):
 
 
 if __name__ == "__main__":
-    write_notebook(build(), "train_guppylm.ipynb")
-    write_notebook(build_use(), "use_guppylm.ipynb")
+    write_notebook(build(), "train_driplm.ipynb")
+    write_notebook(build_use(), "use_driplm.ipynb")

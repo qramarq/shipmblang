@@ -1,12 +1,12 @@
 """
-Export GuppyLM training data to HuggingFace.
+Export DripLM training data to HuggingFace.
 
 Usage:
     # Set up .env with HF_TOKEN and HF_REPO
     python tools/export_dataset.py
 
     # Or pass directly
-    python tools/export_dataset.py --repo your-username/guppylm-60k-generic --token hf_xxx
+    python tools/export_dataset.py --repo your-username/driplm-60k-generic --token hf_xxx
 """
 
 import argparse
@@ -35,7 +35,7 @@ def generate_data(n_samples=60000, eval_ratio=0.05):
     import random
     random.seed(42)
 
-    from guppylm.generate_data import (
+    from driplm.generate_data import (
         gen_greeting, gen_feeling, gen_temp_hot, gen_temp_cold, gen_food,
         gen_light, gen_water, gen_about, gen_confused, gen_tank, gen_noise,
         gen_night, gen_lonely, gen_misc, gen_bye,
@@ -130,8 +130,8 @@ def save_local(train_data, test_data, output_dir="dataset"):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Export GuppyLM dataset to HuggingFace")
-    parser.add_argument("--repo", default=None, help="HuggingFace repo (e.g. your-username/guppylm-60k-generic)")
+    parser = argparse.ArgumentParser(description="Export DripLM dataset to HuggingFace")
+    parser.add_argument("--repo", default=None, help="HuggingFace repo (e.g. your-username/driplm-60k-generic)")
     parser.add_argument("--token", default=None, help="HuggingFace token")
     parser.add_argument("--samples", type=int, default=60000, help="Number of samples to generate")
     parser.add_argument("--local-only", action="store_true", help="Save locally without pushing to HF")

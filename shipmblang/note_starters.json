@@ -1,0 +1,20 @@
+[
+  {
+    "title": "Say something",
+    "hint": "Print your own words. Keep the quotation marks.",
+    "source": "Present \"Hello, world!\".\n\nPresent \"One small idea can become a program.\".",
+    "output": "Hello, world!\nOne small idea can become a program.\n"
+  },
+  {
+    "title": "Write in paragraphs",
+    "hint": "Quoted instructions can share a value across paragraphs.",
+    "source": "“Let total be a mutable integer with value 2.\nSet total to the sum of total and 3.”\n\n“Show total.”",
+    "output": "5\n"
+  },
+  {
+    "title": "A moment from today",
+    "hint": "Turn a diary thought into printed lines.",
+    "source": "Present \"Today, I made time to learn.\".\n\nPresent \"Tomorrow, I will try another small idea.\".",
+    "output": "Today, I made time to learn.\nTomorrow, I will try another small idea.\n"
+  }
+]

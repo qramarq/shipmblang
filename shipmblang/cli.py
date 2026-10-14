@@ -1,37 +1,40 @@
-"""ShipMB Lang public CLI, independent of any default language model."""
-
-from __future__ import annotations
+"""ShipMBLang CLI preserving legacy commands with lazy compiler dispatch."""
 
 import sys
 
 
-def main() -> None:
-    if len(sys.argv) < 2:
-        print("ShipMB Lang - model-neutral programming and orchestration layer for ShipMB")
-        print("Commands: context, chat")
-        return
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "hyperframes":
+        from .hyperframes import main as hyperframes_main
 
-    command = sys.argv[1]
-    if command == "context":
-        from .runtime_context import build_system_prompt
+        previous = sys.argv
+        sys.argv = [previous[0], *previous[2:]]
+        try:
+            return hyperframes_main()
+        finally:
+            sys.argv = previous
+    if len(sys.argv) > 1 and sys.argv[1] in {"notebook", "editor"}:
+        from .editor import main as editor_main
 
-        task = " ".join(sys.argv[2:]).strip()
-        print(build_system_prompt(task=task))
-        return
-    if command == "chat":
-        from .providers import load_chat_provider
-        from .runtime_context import build_system_prompt
+        previous = sys.argv
+        sys.argv = [previous[0], *previous[2:]]
+        try:
+            return editor_main()
+        finally:
+            sys.argv = previous
+    if len(sys.argv) > 1 and sys.argv[1] in {"compile", "ship", "run", "ship-run"}:
+        from . import pipelines
 
-        provider = load_chat_provider()
-        if provider is None:
-            print("No model provider is configured. ShipMB Lang remains available without a model default.")
-            print("Configure SHIPMB_MODEL_PROVIDER=openai_compatible with SHIPMB_MODEL_BASE_URL and SHIPMB_MODEL_NAME to enable optional chat.")
-            return
-        prompt = " ".join(sys.argv[2:]).strip() or input("You> ").strip()
-        response = provider.chat_completion([
-            {"role": "system", "content": build_system_prompt(task=prompt)},
-            {"role": "user", "content": prompt},
-        ])
-        print(response["choices"][0]["message"]["content"].strip())
-        return
-    print(f"Unknown command: {command}")
+        command = sys.argv[1]
+        previous = sys.argv
+        sys.argv = previous[1:]
+        try:
+            return (pipelines.run_main if command in {"run", "ship-run"} else pipelines.main)()
+        finally:
+            sys.argv = previous
+    from driplm.__main__ import main as legacy_main
+
+    return legacy_main()
+
+
+__all__ = ["main"]
