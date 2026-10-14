@@ -403,7 +403,7 @@ impl App {
         let caption = path.file_name().and_then(|name| name.to_str()).unwrap_or("Image").to_string();
         let marker = format!("[[image:{id}]]");
         for ch in marker.chars() { self.insert_char(ch); }
-        self.images.push(ImageAttachment { id, path, caption });
+        self.images.push(ImageAttachment { id, path, caption: caption.clone() });
         self.output = vec![format!("Inserted {caption} at the cursor."), "The numbered image reference follows the document order.".to_string()];
         Ok(())
     }
@@ -585,7 +585,7 @@ impl App {
                     if id == "image-model" {
                         self.status = "Image-capable model required".to_string();
                     } else if !text.is_empty() {
-                        let mut context = message.context;
+                        let context = message.context;
                         if context.clarification_rounds < 4 {
                             self.modal = Some(Modal { kind: InputKind::Clarification(text.to_string()), value: String::new() });
                             self.pending = Some(context);
@@ -675,7 +675,7 @@ impl App {
                     Ok(()) => { self.focus = Focus::Document; }
                     Err(error) => { self.output = vec![error]; self.status = "Image not added".to_string(); }
                 },
-                InputKind::Clarification(question) => {
+                InputKind::Clarification(_question) => {
                     let answer = modal.value.trim().to_string();
                     if answer.is_empty() { self.status = "Clarification skipped".to_string(); return; }
                     if let Some(mut context) = self.pending.take() {
