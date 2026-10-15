@@ -430,7 +430,7 @@ def _load_engine():
         return None
 
     try:
-        from .inference import DripInference
+        from shiplm.inference import DripInference
 
         with redirect_stdout(io.StringIO()):
             _engine = DripInference(checkpoint, tokenizer, device)

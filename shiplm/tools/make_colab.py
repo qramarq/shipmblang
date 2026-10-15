@@ -39,11 +39,11 @@ def code(text):
 
 # Source files to embed in the notebook
 FILES = [
-    ("config.py",    "driplm/config.py"),
-    ("model.py",     "driplm/model.py"),
-    ("dataset.py",   "driplm/dataset.py"),
-    ("train.py",     "driplm/train.py"),
-    ("inference.py", "driplm/inference.py"),
+    ("config.py",    "shiplm/config.py"),
+    ("model.py",     "shiplm/model.py"),
+    ("torch_dataset.py", "shiplm/torch_dataset.py"),
+    ("train.py",     "shiplm/train.py"),
+    ("inference.py", "shiplm/inference.py"),
 ]
 
 
@@ -491,5 +491,5 @@ def write_notebook(nb, filename):
 
 
 if __name__ == "__main__":
-    write_notebook(build(), "train_driplm.ipynb")
-    write_notebook(build_use(), "use_driplm.ipynb")
+    write_notebook(build(), "notebooks/train_driplm.ipynb")
+    write_notebook(build_use(), "notebooks/use_driplm.ipynb")

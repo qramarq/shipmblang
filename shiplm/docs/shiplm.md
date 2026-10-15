@@ -4,9 +4,9 @@ ShipLM is the planned ShipMBLang-native, task-specific model. This milestone add
 stdlib-only tooling in `shipmblang/shiplm/`; the compiler is the oracle.
 
 ```sh
-python -m shipmblang.shiplm.dataset --out shiplm.jsonl   # verified JSONL, splits disjoint by template
-python -m shipmblang.shiplm.evaluate --split test        # identity baseline
-SHIPMB_MODEL_PROVIDER=... python -m shipmblang.shiplm.evaluate --provider   # score any provider
+python -m shiplm.verified_data --out shiplm.jsonl   # verified JSONL, splits disjoint by template
+python -m shiplm.evaluate --split test        # identity baseline
+SHIPMB_MODEL_PROVIDER=... python -m shiplm.evaluate --provider   # score any provider
 ```
 
 Metrics: `compile_success`, `exact_match` (bytecode equals the deterministic

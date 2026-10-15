@@ -1,7 +1,8 @@
 """Optional chat-provider boundary for ShipMB Lang.
 
-No provider is selected by default.  The legacy DripLM adapter is available
-only when explicitly requested with ``SHIPMB_MODEL_PROVIDER=drip``.
+No provider is selected by default.  The ShipLM model (a separate, optional
+``shiplm`` package) is available only when explicitly requested with
+``SHIPMB_MODEL_PROVIDER=shiplm`` (``drip`` is kept as a legacy alias).
 """
 
 from __future__ import annotations
@@ -56,7 +57,7 @@ def load_chat_provider() -> ChatProvider | None:
         if not base_url or not model:
             return None
         return OpenAICompatibleProvider(base_url, model, os.environ.get("SHIPMB_MODEL_API_KEY", ""))
-    if provider != "drip":
+    if provider not in {"shiplm", "drip"}:
         raise ValueError(f"unsupported ShipMB model provider {provider!r}; configure a compatible provider adapter")
 
     checkpoint = Path(os.environ.get("SHIPMB_MODEL_CHECKPOINT", ""))
@@ -64,7 +65,12 @@ def load_chat_provider() -> ChatProvider | None:
     device = os.environ.get("SHIPMB_MODEL_DEVICE", "cpu")
     if not checkpoint.is_file() or not tokenizer.is_file():
         return None
-    from driplm.inference import DripInference
+    try:
+        from shiplm.inference import DripInference
+    except ImportError as error:
+        raise ValueError(
+            "SHIPMB_MODEL_PROVIDER=shiplm needs the optional ShipLM package: pip install 'shiplm[train]'"
+        ) from error
 
     return DripInference(str(checkpoint), str(tokenizer), device)
 

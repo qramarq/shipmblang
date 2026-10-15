@@ -284,3 +284,10 @@ store submissions require your release accounts and a hosted HTTPS service.
 
 Executable Notes now includes optional media import, conversion, composition rendering,
 preview and export. See [Notes media setup](docs/notes-media.md).
+
+## ShipLM model
+
+The optional ShipMBLang-native model, its training code, dataset tooling, and
+evaluation harness live in `shiplm/`, a self-contained project intended to be
+published as its own repository (`pip install shiplm`). ShipMBLang never depends
+on it; enable it with `SHIPMB_MODEL_PROVIDER=shiplm`.

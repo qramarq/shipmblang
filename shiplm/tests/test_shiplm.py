@@ -1,5 +1,5 @@
-from shipmblang.shiplm.dataset import generate
-from shipmblang.shiplm.evaluate import evaluate, identity_baseline, passes
+from shiplm.verified_data import generate
+from shiplm.evaluate import evaluate, identity_baseline, passes
 
 
 def test_splits_are_template_disjoint():
@@ -11,7 +11,7 @@ def test_splits_are_template_disjoint():
 
 
 def test_every_positive_example_compiles_and_unsafe_is_rejected():
-    from shipmblang.shiplm.dataset import _compile
+    from shiplm.verified_data import _compile
     for e in generate(per_template=2):
         status = _compile(e["prose"]).get("status")
         assert (status == "compiled") == (e["kind"] == "positive")

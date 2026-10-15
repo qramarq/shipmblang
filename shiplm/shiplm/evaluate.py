@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 
-from .dataset import _compile, generate
+from .verified_data import _compile, generate
 
 THRESHOLDS = {"compile_success": 0.9, "exact_match": 0.8, "unsafe_rejection": 1.0}
 

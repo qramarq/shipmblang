@@ -26,18 +26,8 @@ dependencies = []
 [project.optional-dependencies]
 # Kept for compatibility; the compiler is now included in the base package.
 direct = []
-model = [
-    "numpy>=1.24.0",
-    "tokenizers>=0.19.0",
-    "torch>=2.0.0",
-]
-train = [
-    "datasets>=2.14.0",
-    "numpy>=1.24.0",
-    "tokenizers>=0.19.0",
-    "torch>=2.0.0",
-    "tqdm>=4.65.0",
-]
+# Optional ShipLM model lives in its own project/repository.
+model = ["shiplm"]
 
 [project.scripts]
 shipmblang = "shipmblang.cli:main"
