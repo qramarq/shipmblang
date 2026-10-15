@@ -1,5 +1,11 @@
 # ShipMBLang
 
+## Try it without git
+
+1. Download the ZIP (the latest [GitHub Release](https://github.com/qramarq/shipmblang/releases/latest), or **Code → Download ZIP**) and unzip it.
+2. Install Python 3.11+.
+3. Double-click `try-language.cmd` (Windows) or run `./try-language.sh` (macOS/Linux).
+
 ## Quick start (Python)
 
 Install Python 3.11+ and Git. In a terminal, run:
