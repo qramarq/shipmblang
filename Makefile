@@ -1,4 +1,4 @@
 .PHONY: notebook
 
 notebook:
-	python3 tools/make_colab.py
+	cd shiplm && python3 tools/make_colab.py

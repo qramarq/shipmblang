@@ -322,7 +322,7 @@ def _load_engine_or_none(checkpoint: str, tokenizer: str, device: str) -> ChatEn
     if not Path(checkpoint).exists() or not Path(tokenizer).exists():
         return None
     try:
-        from .inference import DripInference
+        from shiplm.inference import DripInference
 
         return DripInference(checkpoint, tokenizer, device)
     except Exception:
