@@ -1,5 +1,30 @@
 # ShipMBLang
 
+## Quick start (Python)
+
+Install Python 3.11+ and Git. In a terminal, run:
+
+```sh
+git clone https://github.com/qramarq/shipmblang.git
+cd shipmblang
+python -m pip install .
+```
+
+Create `hello.shipmb` in the `shipmblang` folder with this text:
+
+```text
+"Start with total at 4, then add 8 to total and show total."
+```
+
+Run it:
+
+```sh
+python -m shipmblang run --file hello.shipmb --memory off
+```
+
+The result includes `runtime.stdout` with `"12\n"`. No separate compiler, model, or
+API key is needed for this example.
+
 ## Optional native runtime
 
 Use the [native Windows launcher](docs/native.md) with a privately supplied
@@ -37,35 +62,6 @@ Computation programs retain their existing bytecode format; media programs use t
 No model or API key is required for the deterministic grammar. Broader wording
 requires a configured local or hosted model; unsupported operations and missing
 information produce diagnostics or clarification questions, never placeholder code.
-
-## Install
-
-You need Python 3.11+ and Git. The language includes its compiler and runtime
-internally; no separate compiler installation or compiler command is needed:
-
-```sh
-git clone https://github.com/qramarq/shipmblang.git
-cd shipmblang
-python -m pip install .
-```
-
-## Run a program
-
-Save this as `hello.shipmb`:
-
-```text
-"Start with total at 4, then add 8 to total and show total."
-```
-
-Run it:
-
-```sh
-python -m shipmblang run --file hello.shipmb --memory off
-```
-
-The JSON result contains `runtime.stdout` with the value `"12\n"`.
-`--memory off` disables saving your program to local compiler memory.
-If an instruction is unsupported or needs clarification, revise it and run again.
 
 ## FFmpeg media jobs
 
