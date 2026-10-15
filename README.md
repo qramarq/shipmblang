@@ -25,6 +25,32 @@ python -m shipmblang run --file hello.shipmb --memory off
 The result includes `runtime.stdout` with `"12\n"`. No separate compiler, model, or
 API key is needed for this example.
 
+## Notebook and editor
+
+After installing ShipMBLang, run either command to open the same terminal notebook:
+
+```sh
+python -m shipmblang notebook
+# or
+python -m shipmblang editor
+```
+
+Rust and Cargo are needed for the first launch. See the [editor guide](docs/notebook.md)
+for writing, saving, and running notes.
+
+## VS Code
+
+To try the included extension, install ShipMBLang from this checkout as above, then:
+
+1. Open `extensions/vscode-shipmblang` in VS Code 1.92 or newer.
+2. Press **F5** to open the Extension Development Host.
+3. In that window, open the Command Palette, choose **ShipMBLang: New Prose Program**,
+   then choose **ShipMBLang: Run Natural Program**.
+
+The extension uses the same Python environment where ShipMBLang is installed. See
+the [VS Code guide](extensions/vscode-shipmblang/README.md) if you need to select a
+different interpreter.
+
 ## Optional native runtime
 
 Use the [native Windows launcher](docs/native.md) with a privately supplied
