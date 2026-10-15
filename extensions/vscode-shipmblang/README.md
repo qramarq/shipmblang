@@ -11,7 +11,7 @@ you do not need another compiler checkout or package.
    want VS Code to use:
 
    ```sh
-   python -m pip install .
+   python -m pip install --editable .
    ```
 
 2. Open `extensions/vscode-shipmblang` in VS Code and press **F5**. The included
@@ -36,6 +36,11 @@ Existing explicit settings take precedence.
   "shipmblang.memory": false
 }
 ```
+
+If the output reports unrecognized `--pipeline`, `--memory`, or `--profile`
+arguments, VS Code is using an older installed ShipMBLang package. Install this
+checkout with the same Python executable selected by `shipmblang.pythonPath`, then
+reload VS Code. The extension and package must use the same Python environment.
 
 Use `shipmblang.projectRoot` only to select a source checkout when the package is not installed. Workspace configuration is resolved for the active document, including multi-root workspaces. An installed environment works from unrelated project folders. In SSH/WSL/container sessions, install Python packages on the workspace host and configure its interpreter path.
 

@@ -14,6 +14,9 @@ test('nonzero structured diagnostics retained', () => {
  const value={status:'needs_clarification',diagnostics:[],clarifications:[{question:'Which value?'}]};
  assert.deepEqual(parseResult({code:1,stdout:JSON.stringify(value),stderr:''}),value);
 });
+test('stale Python CLI gives actionable upgrade guidance', () => {
+ assert.throws(() => parseResult({code:2,stdout:'',stderr:'error: unrecognized arguments: --pipeline direct --memory off --profile general'}), /older ShipMBLang CLI.*shipmblang\.pythonPath.*reload VS Code/);
+});
 test('missing interpreter is actionable', async () => { await assert.rejects(runProcess('shipmblang-nonexistent-python',[]),/pythonPath/); });
 test('Unicode and shell characters remain literal', async () => {
  const text='caf\u00e9 \ud83d\ude00; $(not-a-command)';
