@@ -51,6 +51,9 @@ The extension uses the same Python environment where ShipMBLang is installed. Se
 the [VS Code guide](extensions/vscode-shipmblang/README.md) if you need to select a
 different interpreter.
 
+On Windows, run `vscode-workspace.cmd [folder]` to create `hello.shipmb`, `hello.smb`
+and `hello.shiplang` in a `workspace` folder and open them in VS Code.
+
 ## Optional native runtime
 
 Use the [native Windows launcher](docs/native.md) with a privately supplied
