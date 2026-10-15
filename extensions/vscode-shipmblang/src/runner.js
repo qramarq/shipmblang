@@ -42,6 +42,9 @@ function runProcess(command, args, { cwd, token, timeoutMs = 30000, maxBytes = 4
 function parseResult(result) {
   let program;
   try { program = JSON.parse(result.stdout); } catch (_) {
+    if (/unrecognized arguments?:.*--(?:pipeline|memory|profile)/s.test(result.stderr)) {
+      throw new Error('The configured Python environment has an older ShipMBLang CLI that does not support this VS Code extension. From the ShipMBLang repository root, run `python -m pip install --upgrade .` using the same Python configured in shipmblang.pythonPath, then reload VS Code. Details: ' + result.stderr.trim());
+    }
     throw new Error(result.stderr.trim() || result.stdout.trim() || `ShipMBLang exited with code ${result.code}.`);
   }
   if (!program || typeof program !== 'object' || Array.isArray(program)) throw new Error('ShipMBLang returned an invalid result.');

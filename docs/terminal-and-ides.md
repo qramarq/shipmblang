@@ -1,6 +1,35 @@
 # Terminals and IDEs
 
-The supported command boundary is the installed Python package. Use the same interpreter in your terminal and editor. Legacy compilation supports Python 3.10+; direct/general requires Python 3.11+ and the separately installed shipmbcompiler >=0.2.3,<0.3 package. Install from the two private checkouts, preserving their package roots and licenses; neither requires the Core repository at compilation time.
+The supported command boundary is the installed ShipMBLang Python package. Python 3.11 or newer is required, and the package includes its compiler; no separate compiler checkout or package is needed. Use the same Python environment in your terminal, VS Code, and notebook.
+
+## Install and run locally
+
+From the repository root, install the checkout into the Python environment you
+will use:
+
+```sh
+python -m pip install --editable .
+python -m shipmblang run --file examples/quoted_paragraph.shipmb --pipeline direct --profile general --memory off
+```
+
+The example prints `12`. For the VS Code extension, set
+`shipmblang.pythonPath` to this same environment's Python executable, open
+`extensions/vscode-shipmblang` in VS Code, and press **F5** to launch the
+Extension Development Host. If it reports unrecognized `--pipeline`, `--memory`,
+or `--profile` arguments, install this checkout into the configured environment
+and reload VS Code.
+
+Run the local editor or notebook from the same environment:
+
+```sh
+python -m shipmblang editor
+# or
+python -m shipmblang notebook
+```
+
+The editor and notebook open the same local document store. Rust and Cargo are
+required for the first launch, which builds the bundled terminal UI. See the
+[notebook guide](notebook.md) for controls and database location.
 
 ## Terminal
 
@@ -33,11 +62,10 @@ See [extension setup](../extensions/vscode-shipmblang/README.md). The extension 
 
 Python regression tests: `python -m unittest discover -s tests`. Extension process tests: `node --test extensions/vscode-shipmblang/test/runner.test.js`. `tools/check_compiler_coinstall.py <compiler-package-root>` verifies installed distributions from unrelated directories, aliases, Unicode source, paths with spaces and general/function execution. Set `SHIPMB_CODE_EXE` to an installed VS Code executable to include the real extension-host test in a temporary editor profile. CI covers Windows, Linux and macOS; a configured CI matrix is not evidence that every platform has already run.
 
-Quoted paragraphs are supported by compiler 0.2.2+ in the direct/general pipeline.
 Use `examples/quoted_paragraph.shipmb` for the sum-to-12 example. Keep outer
-quotes in the source file; shell quoting alone is not part of a file. VS Code
-extension 0.3.0 defaults to direct/general and includes New Prose Program and
-Clarify and Run commands. CLI defaults remain unchanged.
+quotes in the source file; shell quoting alone is not part of a file. The VS Code
+extension defaults to direct/general and includes New Prose Program and Clarify
+and Run commands. CLI defaults remain unchanged.
 
 ## Multi-paragraph programs
 
