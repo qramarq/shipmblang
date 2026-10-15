@@ -2,13 +2,31 @@
 
 Compile/run `.shipmb`, `.shiplang`, and `.smb` prose from the active editor, including unsaved text or a selection. Compiler errors and clarification questions appear in Problems. General programs print captured output in the ShipMBLang output channel. Existing printurf explanations and command aliases remain available.
 
-## Setup
+## Setup and verify
 
-1. Install ShipMBLang with `python -m pip install .` from the repository root. The compiler and runtime are bundled; no private checkout or separate compiler installation is needed. Direct compilation requires Python 3.11+.
-2. Install the local VSIX through **Extensions: Install from VSIX**, or launch this folder with an Extension Development Host.
-3. Set `shipmblang.pythonPath` to that environment's Python executable (not a command with arguments). Use a full path when necessary.
-4. For general programs, set `shipmblang.pipeline` to `direct` and `shipmblang.profile` to `general`. Extension 0.3.0 defaults to `direct`/`general`; existing explicit settings take precedence. The profile setting only applies to `direct`.
-5. Open `examples/general_functions.shipmb`, then run **ShipMBLang: Run Natural Program**. The output should be `720`.
+Requirements: VS Code 1.92+ and Python 3.11+. ShipMBLang includes its compiler;
+you do not need another compiler checkout or package.
+
+1. From the repository root, install ShipMBLang into the Python environment you
+   want VS Code to use:
+
+   ```sh
+   python -m pip install .
+   ```
+
+2. Open `extensions/vscode-shipmblang` in VS Code and press **F5**. The included
+   launch configuration opens an Extension Development Host with this extension
+   enabled.
+3. In the new host window, open the Command Palette, run
+   **ShipMBLang: New Prose Program**, then run **ShipMBLang: Run Natural Program**.
+   The ShipMBLang output channel should show `12`.
+
+If the command fails to start Python, set `shipmblang.pythonPath` to the full path
+of the same environment's Python executable (not a command with arguments). For
+example, use `C:/path/to/venv/Scripts/python.exe` on Windows or
+`/path/to/venv/bin/python` on macOS/Linux. The example `settings.json` below is
+optional; the extension defaults to the `direct` pipeline and `general` profile.
+Existing explicit settings take precedence.
 
 ```json
 {
@@ -31,14 +49,17 @@ A clarification or unsupported program is shown as feedback, not treated as runn
 
 Basic highlighting and bracket/string pairing are included. This extension does not yet provide completion, rename, debugging, or a language server. Other IDEs can use the same CLI documented in `docs/terminal-and-ides.md`.
 
-## Development and verification
+## Development checks
 
 ```text
 npm test
 npm run lint
 ```
 
-`test/host/index.js` is an actual VS Code extension-host test. The repository's `tools/check_compiler_coinstall.py` can run it using an installed VS Code executable specified by `SHIPMB_CODE_EXE`; it builds both distributions in temporary folders and uses a disposable VS Code profile. It does not modify normal editor settings. Packaging is local only; publishing is a separate action.
+These checks cover the extension process helpers. For an end-to-end check in a
+real VS Code host, use the F5 setup above. `test/host/index.js` contains additional
+extension-host regression coverage. Packaging is local only; publishing is a
+separate action.
 
 ## Write a quoted English paragraph
 
