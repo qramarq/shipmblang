@@ -38,6 +38,8 @@ def clauses(source):
     """Sentence/block delimiters outside quoted data, retaining original offsets."""
     # Program wrappers may enclose the whole document or separate paragraphs.
     # Mask delimiters, never trim/rebuild prose: spans index the original source.
+    # U+FEFF is not whitespace. A same-length space keeps those spans aligned.
+    source = source.replace("\ufeff", " ")
     stripped = source.lstrip()
     if stripped and stripped[0] in {'"', '\u201c'}:
         chars = list(source)
@@ -121,7 +123,7 @@ def clauses(source):
 
 class Expressions:
     def __init__(self, text, offset, owner):
-        self.tokens = [(m.group(), offset + m.start(), offset + m.end()) for m in TOKEN.finditer(text)]
+        self.tokens = [(m.group(), offset + m.start(), offset + m.end()) for m in TOKEN.finditer(text) if m.group() != "\ufeff"]
         self.at, self.owner = 0, owner
         self.span = {"start": offset, "end": offset + len(text)}
 
@@ -552,7 +554,7 @@ class Parser:
 
 
 def parse_general(source, bindings=None):
-    tokens = [{"text": m.group(), "span": {"start": m.start(), "end": m.end()}} for m in TOKEN.finditer(source)]
+    tokens = [{"text": m.group(), "span": {"start": m.start(), "end": m.end()}} for m in TOKEN.finditer(source) if m.group() != "\ufeff"]
     tree = node("Program", {"start": 0, "end": len(source)}, body=[])
     errors, questions, symbols = [], [], []
     try:

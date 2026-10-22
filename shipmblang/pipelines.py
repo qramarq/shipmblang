@@ -236,8 +236,8 @@ def _main(*, run):
         if args.file == "-":
             source = sys.stdin.read()
         elif args.file:
-            # Preserve editor offsets, including Windows CRLF.
-            with Path(args.file).open(encoding="utf-8", newline="") as source_file:
+            # Preserve editor offsets, including Windows CRLF. utf-8-sig drops a leading BOM only.
+            with Path(args.file).open(encoding="utf-8-sig", newline="") as source_file:
                 source = source_file.read()
         else:
             source = " ".join(args.text)
