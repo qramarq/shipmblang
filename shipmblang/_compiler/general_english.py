@@ -34,6 +34,29 @@ def node(kind, span, **fields):
     return {"kind": kind, "span": dict(span), **fields}
 
 
+def _has_word_since_terminator(source, index, word):
+    """True when `word` occurs after the previous clause terminator and before index."""
+    quoted = escape = False
+    start = 0
+    i = 0
+    while i < index:
+        char = source[i]
+        if quoted:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+        elif char in ".;:\n?":
+            if not (char == "." and i and i + 1 < len(source) and source[i - 1].isdigit() and source[i + 1].isdigit()):
+                start = i + 1
+        i += 1
+    return re.search(rf"\b{re.escape(word)}\b", source[start:index], re.I) is not None
+
+
 def clauses(source):
     """Sentence/block delimiters outside quoted data, retaining original offsets."""
     # Program wrappers may enclose the whole document or separate paragraphs.
@@ -84,6 +107,9 @@ def clauses(source):
             tail = source[match.start():]
             link = re.match(r'(?:and\s+then|and|then)\s+(?=(?:(?:please|pls)\s+)?(?:show|print|display|let|set|change|start|add|subtract|multiply|divide)\b)', tail, re.I)
             if link:
+                # "Probe ... and show the duration" is one instruction. Other "and show" splits stay.
+                if token.lower() == "and" and re.match(r"and\s+show\s+the\s+duration\b", tail, re.I) and _has_word_since_terminator(source, match.start(), "probe"):
+                    continue
                 start_link = match.start()
                 if start_link and source[start_link-1] == ',': start_link -= 1
                 elif source[:start_link].rstrip().endswith(','):
@@ -209,9 +235,14 @@ class Expressions:
                 self.fail("Negative requires an integer.")
             return node("Unary", self.range(begin), operator="negate", operand=operand, type="integer")
         self.take("the")
+        if self.at < len(self.tokens) and self.tokens[self.at][0].lower() in {"duration", "position", "width", "height"}:
+            from .vlc_english import parse_player_property
+            player_property = parse_player_property(self, begin)
+            if player_property is not None:
+                return player_property
         if self.take("vlc"):
             from .vlc_english import parse_query
-            return parse_query(self,begin)
+            return parse_query(self, begin)
         if self.take("result", "of"):
             for name, signature in sorted(self.owner.functions.items(), key=lambda pair: -len(pair[0])):
                 if not self.take(*name.split()):
@@ -376,7 +407,7 @@ class Parser:
             if polite:
                 text = text[polite.end():]
                 span = {"start": span["start"] + polite.end(), "end": span["end"]}
-            if re.match(r'(?:run ffmpeg\b|convert\b|transcode\b|extract audio\b|resize\b|trim\b)', text, re.I):
+            if re.match(r'(?:run ffmpeg\b|convert\b|transcode\b|extract audio\b|resize\b|trim\b|probe\b)', text, re.I):
                 from .media_english import parse_media
                 media = parse_media(self, text, span)
                 if media is not None:

@@ -48,6 +48,20 @@ def parse_vlc(parser,text,span):
         return operation_node(op,args,span)
     return None
 
+def parse_player_property(expr, begin):
+    # Alternate order: duration/position/width/height of vlc player ALIAS. Metadata stays in parse_query.
+    if expr.at >= len(expr.tokens):
+        return None
+    op = expr.tokens[expr.at][0].lower()
+    if op not in ('duration', 'position', 'width', 'height'):
+        return None
+    saved = expr.at
+    expr.at += 1
+    if not expr.take('of', 'vlc', 'player'):
+        expr.at = saved
+        return None
+    return operation_node(op, [expr.atom()], expr.range(begin), query=True)
+
 def parse_query(expr,begin):
     if expr.at>=len(expr.tokens): expr.fail('Name a VLC query.')
     op=expr.tokens[expr.at][0].lower();expr.at+=1

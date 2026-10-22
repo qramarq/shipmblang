@@ -4,6 +4,15 @@ import re
 
 def parse_media(parser, text, span):
     from .general_english import EnglishError, node
+
+    masked = re.sub(r'"(?:\\.|[^"\\])*"', lambda m: 'x' * len(m[0]), text)
+    probe = re.fullmatch(r'probe (.+?) and show the duration', masked, re.I)
+    if probe:
+        value = parser.expr(text[probe.start(1):probe.end(1)], span['start'] + probe.start(1))
+        if value['type'] != 'text':
+            raise EnglishError('FFmpeg operands require text.', span)
+        return node('FFmpegProbe', span, arguments=[value])
+
     from .ffmpeg import validate_job, resolve_job
 
     def expression(value, offset, kind=None):
@@ -21,7 +30,6 @@ def parse_media(parser, text, span):
         return {'operand': len(values) - 1}
 
     # These shortcuts lower to exactly the same job as an explicit block.
-    masked = re.sub(r'"(?:\\.|[^"\\])*"', lambda m: 'x' * len(m[0]), text)
     match = re.fullmatch(r'(?:convert|transcode) (.+?) to (.+)', masked, re.I)
     audio = re.fullmatch(r'extract audio from (.+?) to (.+)', masked, re.I)
     resize = re.fullmatch(r'resize (.+?) to (\d+) by (\d+) and save as (.+)', masked, re.I)
