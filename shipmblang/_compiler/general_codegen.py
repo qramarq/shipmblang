@@ -111,6 +111,14 @@ def emit_general(tree, symbols, *, function=False):
                     expression(argument)
                 emit('ffmpeg_execute', {'job': deepcopy(statement['job']),
                      'argument_types': [a['type'] for a in statement['arguments']]}, statement)
+            elif kind == "FFmpegProbe":
+                capabilities.add("ffmpeg")
+                effects.add("host_media")
+                effects.add("captured_output")
+                for argument in statement['arguments']:
+                    expression(argument)
+                emit('ffmpeg_probe', {'argument_types': [a['type'] for a in statement['arguments']]}, statement)
+                emit('show', {}, statement)
             elif kind == "If":
                 expression(statement["condition"])
                 otherwise = emit("jump_if_false", {"target": 0}, statement)

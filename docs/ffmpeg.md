@@ -65,8 +65,9 @@ executed = run_direct_program(
 Media programs emit bytecode 0.4; computation-only programs retain bytecode 0.3.
 Python callers must explicitly pass an executor for media execution; omitting it
 produces a runtime diagnostic before the program executes. `executor.probe(path)`
-is an explicit Python operation returning ffprobe JSON. There is currently no
-probe instruction in the English grammar.
+is an explicit Python operation returning ffprobe JSON. English can request the
+same metadata with `Probe "clip.mp4" and show the duration.`; compilation does
+not run ffprobe, and the shown duration is the text `format.duration`.
 
 General English translation includes the compiler's reference FFmpeg command
 knowledge. `compile_direct_program(..., ffmpeg_catalog=catalog)` can also forward
