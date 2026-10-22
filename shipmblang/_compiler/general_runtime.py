@@ -10,7 +10,7 @@ TYPES = SCALARS | {f'list[{kind}]' for kind in SCALARS}
 BINARY = {'add', 'subtract', 'multiply', 'divide', 'modulo', 'equal', 'not_equal', 'greater', 'less', 'greater_equal', 'less_equal', 'and', 'or'}
 FIELDS = {'const': {'value','type'}, 'load': {'slot'}, 'store': {'slot'}, 'clear': {'slot'},
           'binary': {'operator'}, 'unary': {'operator'}, 'make_list': {'count','element_type'},
-          'length': set(), 'index': set(), 'jump': {'target'}, 'jump_if_false': {'target'},
+          'length': set(), 'index': set(), 'append': set(), 'jump': {'target'}, 'jump_if_false': {'target'},
           'show': set(), 'halt': set(), 'return': set(),
           'call': {'function','argument_types','return_type'},
           'ffmpeg_execute': {'job', 'argument_types'},
@@ -175,6 +175,10 @@ def _validate_unit(code,slots,capabilities,effects,signatures,parameters=(),retu
             pop('integer'); kind=pop()
             if not kind.startswith('list['): raise VMError('Index requires a list.',pc)
             stack.append(kind[5:-1])
+        elif op=='append':
+            item=pop(); kind=pop()
+            if not kind.startswith('list[') or item!=kind[5:-1]: raise VMError('Append requires a list and a matching element.',pc)
+            stack.append(kind)
         elif op=='jump_if_false': pop('boolean')
         elif op=='show': pop()
         elif op in ('vlc_execute','vlc_query'):
@@ -257,6 +261,12 @@ def run_general_artifact(artifact, *, max_steps=100000, host=None, ffmpeg_execut
                 index=stack.pop(); sequence=stack.pop()
                 if not 0<=index<len(sequence): raise VMError('List index out of bounds.',pc)
                 stack.append(sequence[index])
+            elif op=='append':
+                item=stack.pop(); sequence=stack.pop()
+                if len(sequence)>=MAX_ITEMS: raise VMError('List exceeds the 10000-item limit.',pc)
+                allocated_items+=1
+                if allocated_items>1000000: raise VMError('Collection allocation limit exceeded.',pc)
+                stack.append([*sequence, item])
             elif op=='jump': next_pc=args['target']
             elif op=='jump_if_false':
                 if not stack.pop(): next_pc=args['target']
