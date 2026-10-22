@@ -13,7 +13,7 @@
     "ffmpeg.py": "ce2c78aba490cccbcf42c1f6e46dbd11fdaa329188c465ed11dab2f691c3fa7c",
     "ffmpeg_catalog.py": "2b18d08f6b3ca2a3c8b0b4021ed8c7e4c8f7b5ce8621ca297d946ab0523ebbd5",
     "general_codegen.py": "15eae4deb7a02dd85f479f0f3800a05d40721f3f596bf6406c1517656e6a68b5",
-    "general_english.py": "bf02970f5a3743178a1e54970bff4561a53e1f92c699cb24c4295b7cd16bad2d",
+    "general_english.py": "3b116107e9d79e4a35ea5b68e9b0a84ce20061c855432f37258d8a58620c35ce",
     "general_runtime.py": "7cff60ab60f385a269ce1fad188ec05186c9c0d6a1279e2268796e9698779fe0",
     "general_vocabulary.py": "36540d3b4f01ecf616a605143238d1f8f7527bf734ce14f530005297a5daf9cd",
     "hyperframes/__init__.py": "c5a1860f74de124426deb10b315dd7f8e7bde731fe997f7ac937a5c193c32208",
