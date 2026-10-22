@@ -18,7 +18,7 @@
     "general_vocabulary.py": "36540d3b4f01ecf616a605143238d1f8f7527bf734ce14f530005297a5daf9cd",
     "hyperframes/__init__.py": "c5a1860f74de124426deb10b315dd7f8e7bde731fe997f7ac937a5c193c32208",
     "hyperframes/cli.py": "a46a027852fc10136242e7c42d63b710f81d932b0d1e7a70ba11518da1f7ea77",
-    "hyperframes/compiler.py": "efa07787e4c487b9817835bc60a75b41eb76d0a2d5120b64dd9a845f2c3543e7",
+    "hyperframes/compiler.py": "fa33e9517416c4904a9cf62b83cbcd05f29211d74af44cf9d580d3bc0574087d",
     "hyperframes/node/bridge.mjs": "fa838be8e927b7dbad92678649dc8942565fc8f7e6470259951e170119d5bf3d",
     "hyperframes/node/package-lock.json": "65587cdb8d1d07979545059c4aefe1805faa27146a372f252f154d2b2afa8b19",
     "hyperframes/node/package.json": "82577ec15ffe10e6d3b427275f156a9e4730621b841c75158d701a3dc0ad0820",
