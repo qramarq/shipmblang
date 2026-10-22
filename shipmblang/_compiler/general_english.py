@@ -9,12 +9,25 @@ import re
 
 from .general_vocabulary import OUTPUT_PATTERN, SUM_NOUNS
 
-GRAMMAR_VERSION = "general-english-0.8"
+GRAMMAR_VERSION = "general-english-0.9"
 CATALOG_VERSION = "general-media-0.2"
 TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|\d+|[A-Za-z_][A-Za-z_0-9]*|[^\s]')
 TYPES = {"integer", "boolean", "text"}
-RESERVED = {"it", "them", "true", "false", "and", "or", "not", "the", "a", "an", "if", "then", "otherwise", "end", "let", "set", "show", "for", "each", "while", "be", "to", "in", "of"}
+RESERVED = {"it", "them", "true", "false", "and", "or", "not", "if", "then", "otherwise", "end", "let", "set", "show", "for", "each", "while", "be", "to", "in", "of"}
+ARTICLES = {"the", "a", "an"}
 FUNCTION = re.compile(r"define (?:a )?function (.+?)(?: with (.+?))? returning (integer|boolean|text|list of integers|list of booleans|list of text)", re.I)
+
+
+def strip_leading_article(name):
+    """Drop one leading the/a/an unless the remaining name would be empty."""
+    parts = name.split()
+    if len(parts) > 1 and parts[0] in ARTICLES:
+        return " ".join(parts[1:])
+    return name
+
+
+def reserved_word(name):
+    return next((word for word in name.split() if word in RESERVED), None)
 
 
 def type_name(value):
@@ -327,10 +340,16 @@ class Expressions:
             self.at += 1
             return node("Literal", self.range(begin), value=text.lower() == "true", type="boolean")
         # Longest declared multiword name wins; there is no global word replacement.
-        for name, symbol in sorted(self.owner.visible().items(), key=lambda pair: -len(pair[0])):
-            words = name.split()
-            if self.take(*words):
-                return node("Name", self.range(begin), slot=symbol["id"], name=name, type=symbol["type"])
+        # a/an is an article only when the words after it are a declared name.
+        saved = self.at
+        if self.take("a") or self.take("an"):
+            named = self.match_declared_name(begin)
+            if named is not None:
+                return named
+            self.at = saved
+        named = self.match_declared_name(begin)
+        if named is not None:
+            return named
         if text.lower() in {"it", "them"}:
             candidates = list(self.owner.visible().values())
             if text.lower() == "them":
@@ -341,6 +360,12 @@ class Expressions:
                 return node("Name", self.range(begin), slot=symbol["id"], name=symbol["name"], type=symbol["type"])
             self.fail("Which declared value does this reference mean? Use its name.", question=True)
         self.fail(f"'{text}' is not a declared value. Declare it or clarify the intended value.", question=True)
+
+    def match_declared_name(self, begin):
+        for name, symbol in sorted(self.owner.visible().items(), key=lambda pair: -len(pair[0])):
+            if self.take(*name.split()):
+                return node("Name", self.range(begin), slot=symbol["id"], name=name, type=symbol["type"])
+        return None
 
     def element_type(self):
         for word, kind in (("integers", "integer"), ("booleans", "boolean"), ("texts", "text"), ("text", "text")):
@@ -364,7 +389,10 @@ class Parser:
                 continue
             name, params, result_type = match.groups()
             name = name.lower()
-            if name in self.functions or not re.fullmatch(r"[a-z_][a-z_0-9]*(?: [a-z_][a-z_0-9]*)*", name) or any(w in RESERVED for w in name.split()):
+            reserved = reserved_word(name)
+            if reserved is not None:
+                raise EnglishError(f"Function names must be distinct explicit names without reserved words. '{reserved}' is reserved.", span)
+            if name in self.functions or not re.fullmatch(r"[a-z_][a-z_0-9]*(?: [a-z_][a-z_0-9]*)*", name):
                 raise EnglishError("Function names must be distinct explicit names without reserved words.", span)
             parameters = []
             for definition in re.split(r"\s+and\s+", params, flags=re.I) if params else []:
@@ -377,9 +405,23 @@ class Parser:
     def visible(self):
         return {key: value for scope in self.scopes for key, value in scope.items()}
 
+    def resolve_reference(self, name, span):
+        name = strip_leading_article(name.lower())
+        if name in {"it", "them"}:
+            candidates = list(self.visible().values())
+            if name == "them":
+                candidates = [item for item in candidates if item["type"].startswith("list[")]
+            if len(candidates) != 1:
+                raise EnglishError("Which declared value does this reference mean? Use its name.", span, question=True)
+            return candidates[0]
+        return self.visible().get(name)
+
     def declare(self, name, kind, mutable, span):
-        name = name.lower()
-        if not re.fullmatch(r"[a-z_][a-z_0-9]*(?: [a-z_][a-z_0-9]*)*", name) or any(w in RESERVED for w in name.split()):
+        name = strip_leading_article(name.lower())
+        reserved = reserved_word(name)
+        if reserved is not None or not re.fullmatch(r"[a-z_][a-z_0-9]*(?: [a-z_][a-z_0-9]*)*", name):
+            if reserved is not None:
+                raise EnglishError(f"Use an explicit name without reserved grammar words. '{reserved}' is reserved.", span)
             raise EnglishError("Use an explicit name without reserved grammar words.", span)
         if name in self.visible():
             raise EnglishError(f"'{name}' is already declared; shadowing is not permitted.", span)
@@ -440,14 +482,32 @@ class Parser:
             implicit = re.fullmatch(r"(add|subtract) (.+)", text, re.I)
             match = re.fullmatch(r"(add|subtract) (.+?) (to|from) (.+)|(multiply|divide) (.+?) by (.+)", text, re.I)
             if implicit and not match:
+                parsed = None
+                parse_error = None
+                try:
+                    parsed = self.expr(implicit[2], span['start'] + implicit.start(2))
+                except EnglishError as error:
+                    parse_error = error
+                integer_operand = parse_error is None and parsed is not None and parsed['type'] == 'integer'
                 candidates = [s for s in self.visible().values() if s['mutable'] and s['type'] == 'integer']
+                if not integer_operand:
+                    # A prose operand is not a missing integer target; keep asking.
+                    if len(candidates) == 1:
+                        if parse_error is not None:
+                            raise parse_error
+                        raise EnglishError('Arithmetic updates require an integer.', span)
+                    raise EnglishError(
+                        "This is not an integer update. To filter a list, use for each: "
+                        "Let values be the list of integers 2, 5, 8, 11. "
+                        "For each value in values: If (the remainder of value and 2) equals 1 then: "
+                        "Add value to total. End the condition. End the loop.",
+                        span,
+                        question=True,
+                    )
                 if len(candidates) != 1:
                     raise EnglishError('Name the arithmetic target explicitly.', span, question=True)
                 symbol = candidates[0]
-                right = self.expr(implicit[2], span['start'] + implicit.start(2))
-                if right['type'] != 'integer':
-                    raise EnglishError('Arithmetic updates require an integer.', span)
-                value = node('Binary', span, operator=implicit[1].lower(), left=node('Name', span, slot=symbol['id'], type='integer'), right=right, type='integer')
+                value = node('Binary', span, operator=implicit[1].lower(), left=node('Name', span, slot=symbol['id'], type='integer'), right=parsed, type='integer')
                 body.append(node('Assign', span, slot=symbol['id'], value=value))
                 continue
             if match:
@@ -459,7 +519,7 @@ class Parser:
                 else:
                     verb, name, rhs = match.group(5, 6, 7)
                     offset = span['start'] + match.start(7)
-                symbol = self.visible().get(name.lower())
+                symbol = self.resolve_reference(name, span)
                 if not symbol:
                     raise EnglishError('Declare the arithmetic target first.', span, question=True)
                 if not symbol['mutable']:
@@ -518,7 +578,7 @@ class Parser:
                 continue
             match = re.fullmatch(r"(?:set|change) (.+?) to (.+)", text, re.I)
             if match:
-                symbol = self.visible().get(match[1].lower())
+                symbol = self.resolve_reference(match[1], span)
                 if not symbol:
                     raise EnglishError("Declare the assignment target first.", span, question=True)
                 if not symbol["mutable"]:
