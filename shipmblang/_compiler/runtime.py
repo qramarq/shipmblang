@@ -162,6 +162,14 @@ def run_bytecode(program: BytecodeProgram, *, ability_checker: AbilityChecker | 
                     "executed": False,
                 }
             )
+        elif opcode == "core_declare":
+            state["events"].append(
+                {
+                    "event": "core.declared",
+                    "form": operands.get("form"),
+                    "text": operands.get("text"),
+                }
+            )
 
     return state, diagnostics
 

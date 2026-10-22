@@ -287,6 +287,15 @@ def _analyze_statement(model: SemanticModel, statement: SyntaxNode) -> None:
                 "Use it while debugging; remove it when you only want runtime bytecode.",
             )
         )
+    elif statement.kind == "CoreDeclaration":
+        model.ops.append(
+            SemanticOp(
+                "core.declare",
+                {"form": statement.roles["form"], "text": statement.roles["text"]},
+                statement.span,
+                "Declaration",
+            )
+        )
     elif statement.kind == "UnsupportedStatement":
         model.diagnostics.extend(statement.diagnostics)
 
