@@ -26,7 +26,7 @@ use. Model output still requires parsing and validation, which cannot prove
 semantic fidelity. Broader prose and unresolved references may still require
 model translation or clarification. No new runtime operations are introduced.
 
-Grammar identity is `general-english-0.6`; vocabulary identity is
+Grammar identity is `general-english-0.8`; vocabulary identity is
 `contextual-general-2`, invalidating older interpretation/cache entries.
 Regression tests cover conversational, abbreviated, formal, and technical forms,
 ambiguity, constraints, quoted data, and relevant model vocabulary selection.
