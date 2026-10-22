@@ -1,8 +1,8 @@
 # Multi-paragraph programs
 
-Requires shipmblang 0.2.1+, shipmbcompiler 0.2.3+ (below 0.3), Python 3.11+,
-and the direct/general pipeline. VS Code extension 0.3.1 includes the matching
-integration tests. Core is not required.
+Requires shipmblang 0.5.0 and the bundled compiler snapshot that ships with it,
+Python 3.11+, and the direct/general pipeline. VS Code extension 0.3.1 includes
+the matching integration tests. Core is not required.
 
 ## Structure and scope
 
