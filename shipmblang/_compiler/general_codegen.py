@@ -94,6 +94,11 @@ def emit_general(tree, symbols, *, function=False):
             if kind in {"Declare", "Assign"}:
                 expression(statement["value"])
                 emit("store", {"slot": statement["slot"]}, statement)
+            elif kind == "Append":
+                emit("load", {"slot": statement["slot"]}, statement)
+                expression(statement["value"])
+                emit("append", {}, statement)
+                emit("store", {"slot": statement["slot"]}, statement)
             elif kind == "Return":
                 expression(statement["value"])
                 emit("return", {}, statement)
