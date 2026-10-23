@@ -31,6 +31,35 @@ python -m shipmblang run --file hello.shipmb --memory off
 The result includes `runtime.stdout` with `"12\n"`. No separate compiler, model, or
 API key is needed for this example.
 
+## Standalone executable
+
+Compile and run without installing Python. Download the executable for your
+system from the
+[Standalone executable workflow](https://github.com/qramarq/shipmblang/actions/workflows/standalone.yml)
+(Actions artifacts; this repository does not publish the executable as a GitHub
+Release), or build it from this checkout:
+
+```sh
+python -m pip install pyinstaller
+python tools/build_standalone.py --require-editor
+```
+
+On Windows: `powershell -ExecutionPolicy Bypass -File tools\build_standalone.ps1 --require-editor`
+
+The build writes `dist/shipmblang` (`dist/shipmblang.exe` on Windows). It accepts
+the same commands as `python -m shipmblang`:
+
+```sh
+./dist/shipmblang run --file examples/quoted_paragraph.shipmb --pipeline direct --profile general --memory off
+./dist/shipmblang examples/quoted_paragraph.shipmb
+```
+
+`shipmblang program.shipmb` runs that file with the direct pipeline, the general
+profile, and memory off. The same shorthand works after `pip install`. The
+Ratatui editor is packed into the executable, so `shipmblang editor` does not
+need Rust or Cargo. Optional model extras such as PyTorch are not included; see
+[the standalone guide](docs/standalone.md).
+
 ## Notebook and editor
 
 After installing ShipMBLang, run either command to open the same terminal notebook:
@@ -41,7 +70,8 @@ python -m shipmblang notebook
 python -m shipmblang editor
 ```
 
-Rust and Cargo are needed for the first launch. See the [editor guide](docs/notebook.md)
+A source install needs Rust and Cargo for the first launch. The standalone
+executable already contains the editor. See the [editor guide](docs/notebook.md)
 for writing, saving, and running notes.
 
 ## VS Code

@@ -12,7 +12,17 @@ python -m pip install --editable .
 python -m shipmblang run --file examples/quoted_paragraph.shipmb --pipeline direct --profile general --memory off
 ```
 
-The example prints `12`. For the VS Code extension, set
+The example prints `12`. A `.shipmb` file can also be run directly:
+
+```sh
+python -m shipmblang examples/quoted_paragraph.shipmb
+```
+
+That shorthand uses the direct pipeline, the general profile, and memory off.
+Explicit `compile` and `run` commands, including their defaults, are unchanged.
+
+To run the same commands without installing Python, use the self-contained
+executable from [standalone builds](standalone.md). For the VS Code extension, set
 `shipmblang.pythonPath` to this same environment's Python executable, open
 `extensions/vscode-shipmblang` in VS Code, and press **F5** to launch the
 Extension Development Host. If it reports unrecognized `--pipeline`, `--memory`,

@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import sys
 from typing import Protocol
 import json
 from urllib import request
 
 from .multimodal import render_text_fallback, scnd_context_to_messages
+from .standalone import model_extras_message
 
 
 class ChatProvider(Protocol):
@@ -58,6 +60,8 @@ def load_chat_provider() -> ChatProvider | None:
         return OpenAICompatibleProvider(base_url, model, os.environ.get("SHIPMB_MODEL_API_KEY", ""))
     if provider != "drip":
         raise ValueError(f"unsupported ShipMB model provider {provider!r}; configure a compatible provider adapter")
+    if getattr(sys, "frozen", False):
+        raise ValueError(model_extras_message())
 
     checkpoint = Path(os.environ.get("SHIPMB_MODEL_CHECKPOINT", ""))
     tokenizer = Path(os.environ.get("SHIPMB_MODEL_TOKENIZER", ""))

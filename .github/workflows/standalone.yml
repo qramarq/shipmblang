@@ -1,0 +1,54 @@
+name: Standalone executable
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Builds an artifact only. This workflow does not create a GitHub Release.
+jobs:
+  executable:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "pyinstaller==6.22.3"
+          python -m pip install -e .
+
+      - name: Build standalone executable
+        run: python tools/build_standalone.py --require-editor
+
+      - name: Record executable size
+        shell: bash
+        run: ls -lh dist/shipmblang dist/shipmblang.exe 2>/dev/null || true
+
+      - name: Smoke test without Python on PATH
+        shell: bash
+        run: bash tools/smoke_standalone.sh
+
+      - name: Upload standalone executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: shipmblang-${{ runner.os }}-${{ runner.arch }}
+          path: dist/shipmblang*
+          if-no-files-found: error

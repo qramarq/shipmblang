@@ -9,8 +9,10 @@ python -m shipmblang editor
 ```
 
 `python -m shipmblang notebook` and `notebook.cmd` open the same editor. Rust and
-Cargo are required; the first launch builds the bundled UI in the local
-ShipMBLang data directory. Python 3.11 or newer is also required.
+Cargo are required for a source install; the first launch builds the bundled UI
+in the local ShipMBLang data directory. Python 3.11 or newer is also required.
+The [standalone executable](standalone.md) includes a prebuilt editor, so that
+build does not need Rust, Cargo, or Python at launch.
 
 ## Write and compile
 
