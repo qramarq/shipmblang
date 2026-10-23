@@ -11,7 +11,7 @@ jobs:
   executable:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -46,9 +46,26 @@ jobs:
         shell: bash
         run: bash tools/smoke_standalone.sh
 
+      - name: Verify setup check, dry-run, and install
+        shell: bash
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_ANALYTICS: "1"
+        run: bash tools/verify_setup.sh
+
+      - name: Stage executable and installers
+        shell: bash
+        run: |
+          mkdir -p dist/package
+          if [ -f dist/shipmblang.exe ]; then cp -f dist/shipmblang.exe dist/package/shipmblang.exe; fi
+          if [ -f dist/shipmblang ] && [ ! -f dist/shipmblang.exe ]; then cp -f dist/shipmblang dist/package/shipmblang; fi
+          cp -f tools/install.sh tools/install.ps1 dist/package/
+          chmod 755 dist/package/install.sh
+          ls -lh dist/package
+
       - name: Upload standalone executable
         uses: actions/upload-artifact@v4
         with:
           name: shipmblang-${{ runner.os }}-${{ runner.arch }}
-          path: dist/shipmblang*
+          path: dist/package/*
           if-no-files-found: error

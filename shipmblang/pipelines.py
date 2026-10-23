@@ -344,4 +344,9 @@ def _main(*, run):
             raise SystemExit(1)
     except (CompilerUnavailableError, OSError, ValueError) as error:
         print(f"shipmblang: {error}", file=sys.stderr)
+        from .setup_tools import missing_tool_hint
+
+        hint = missing_tool_hint(str(error))
+        if hint:
+            print(f"shipmblang: {hint}", file=sys.stderr)
         raise SystemExit(2) from error

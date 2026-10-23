@@ -146,6 +146,9 @@ def _peel_frozen_python_args(argv):
 
 def main():
     _configure_frozen_stdio()
+    from .setup_tools import apply_recorded_tool_env
+
+    apply_recorded_tool_env()
     argv = _peel_frozen_python_args(sys.argv[1:])
     argv = bare_file_argv(argv)
     sys.argv = [sys.argv[0], *argv]
@@ -179,6 +182,10 @@ def main():
             return (pipelines.run_main if command in {"run", "ship-run"} else pipelines.main)()
         finally:
             sys.argv = previous
+    if len(sys.argv) > 1 and sys.argv[1] == "setup":
+        from .setup_tools import main as setup_main
+
+        raise SystemExit(setup_main(sys.argv[2:]))
     from driplm.__main__ import main as legacy_main
 
     return legacy_main()
