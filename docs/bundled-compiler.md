@@ -207,3 +207,12 @@ files are normalized to LF before hashing. When refreshing the snapshot, update
 of `json.dumps(manifest, sort_keys=True)`. The authenticated mobile service
 verifies these pins before execution. Keep the mobile client and service on the
 same snapshot.
+
+## Keeping the compiler repository in sync
+
+[Compiler sync](compiler-sync.md) opens a pull request in `shipmblang-compiler`
+when this snapshot changes, and a pull request here when that repository's
+default branch moves. The workflows do not push to `main`. Until an outbound
+sync lands, files that differ from `source_commit` by more than line endings
+are listed in `local_patches`. Non-Python HyperFrames resources keep the bytes
+already stored here when the text matches, so their hashes do not flap.
