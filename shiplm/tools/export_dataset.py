@@ -35,7 +35,7 @@ def generate_data(n_samples=60000, eval_ratio=0.05):
     import random
     random.seed(42)
 
-    from driplm.generate_data import (
+    from shiplm.generate_data import (
         gen_greeting, gen_feeling, gen_temp_hot, gen_temp_cold, gen_food,
         gen_light, gen_water, gen_about, gen_confused, gen_tank, gen_noise,
         gen_night, gen_lonely, gen_misc, gen_bye,

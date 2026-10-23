@@ -28,11 +28,19 @@ def test_openai_compatible_provider_is_not_model_specific(monkeypatch):
     assert provider.model == "any-instruct-model"
 
 
-def test_driplm_is_not_an_implicit_or_supported_default(monkeypatch):
-    monkeypatch.setenv("SHIPMB_MODEL_PROVIDER", "drip")
+def test_shiplm_is_opt_in_and_needs_explicit_checkpoint(monkeypatch):
+    monkeypatch.delenv("SHIPMB_MODEL_CHECKPOINT", raising=False)
+    monkeypatch.delenv("SHIPMB_MODEL_TOKENIZER", raising=False)
+    for name in ("shiplm", "drip"):
+        monkeypatch.setenv("SHIPMB_MODEL_PROVIDER", name)
+        assert load_chat_provider() is None
+
+
+def test_unknown_provider_is_unsupported(monkeypatch):
+    monkeypatch.setenv("SHIPMB_MODEL_PROVIDER", "nonsense")
     try:
         load_chat_provider()
     except ValueError as exc:
         assert "unsupported ShipMB model provider" in str(exc)
     else:
-        raise AssertionError("DripLM should not load as an implicit default provider")
+        raise AssertionError("unknown providers must be rejected")

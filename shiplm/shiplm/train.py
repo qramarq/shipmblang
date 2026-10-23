@@ -8,7 +8,7 @@ import time
 import torch
 
 from .config import DripConfig, TrainConfig
-from .dataset import get_dataloader
+from .torch_dataset import get_dataloader
 from .model import DripLM
 
 

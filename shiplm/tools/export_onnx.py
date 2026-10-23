@@ -20,7 +20,7 @@ import sys
 
 import torch
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "driplm"))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "shiplm"))
 from config import DripConfig
 from model import DripLM
 
