@@ -1,13 +1,54 @@
 # ShipMBLang
 
+Natural-language programs in a `.shipmb` file, compiled and run on your machine.
+
+## Standalone executable
+
+Download `shipmblang` for Linux or macOS, or `shipmblang.exe` for Windows, from the
+[Standalone executable workflow](https://github.com/qramarq/shipmblang/actions/workflows/standalone.yml).
+Open a successful run and save the artifact for your system. These are Actions
+artifacts, not a GitHub Release. No Python install is required.
+
+Run a program by passing the file:
+
+```sh
+shipmblang examples/quoted_paragraph.shipmb
+```
+
+`shipmblang program.shipmb` uses the direct pipeline, the general profile, and
+memory off. The quoted paragraph prints `12` in the runtime output. The same
+explicit command also works:
+
+```sh
+shipmblang run --file examples/quoted_paragraph.shipmb --pipeline direct --profile general --memory off
+```
+
+The Ratatui editor is packed into the executable, so `shipmblang editor` does not
+need Rust or Cargo. Optional model extras such as PyTorch are not included. See
+[the standalone guide](docs/standalone.md).
+
+### Build it yourself
+
+From a checkout of this repository, on the machine where you want to build:
+
+```sh
+python -m pip install pyinstaller
+python tools/build_standalone.py --require-editor
+```
+
+On Windows: `powershell -ExecutionPolicy Bypass -File tools\build_standalone.ps1 --require-editor`
+
+The build writes `dist/shipmblang` (`dist/shipmblang.exe` on Windows).
+
 ## Try it without git
 
 1. Download the ZIP (the latest [GitHub Release](https://github.com/qramarq/shipmblang/releases/latest), or **Code → Download ZIP**) and unzip it.
 2. Install Python 3.11+.
 3. Double-click `try-language.cmd` (Windows) or run `./try-language.sh` (macOS/Linux).
 
-## Quick start (Python)
+## Install with Python
 
+Use this path for development, model extras, and integrations such as VS Code.
 Install Python 3.11+ and Git. In a terminal, run:
 
 ```sh
@@ -29,36 +70,8 @@ python -m shipmblang run --file hello.shipmb --memory off
 ```
 
 The result includes `runtime.stdout` with `"12\n"`. No separate compiler, model, or
-API key is needed for this example.
-
-## Standalone executable
-
-Compile and run without installing Python. Download the executable for your
-system from the
-[Standalone executable workflow](https://github.com/qramarq/shipmblang/actions/workflows/standalone.yml)
-(Actions artifacts; this repository does not publish the executable as a GitHub
-Release), or build it from this checkout:
-
-```sh
-python -m pip install pyinstaller
-python tools/build_standalone.py --require-editor
-```
-
-On Windows: `powershell -ExecutionPolicy Bypass -File tools\build_standalone.ps1 --require-editor`
-
-The build writes `dist/shipmblang` (`dist/shipmblang.exe` on Windows). It accepts
-the same commands as `python -m shipmblang`:
-
-```sh
-./dist/shipmblang run --file examples/quoted_paragraph.shipmb --pipeline direct --profile general --memory off
-./dist/shipmblang examples/quoted_paragraph.shipmb
-```
-
-`shipmblang program.shipmb` runs that file with the direct pipeline, the general
-profile, and memory off. The same shorthand works after `pip install`. The
-Ratatui editor is packed into the executable, so `shipmblang editor` does not
-need Rust or Cargo. Optional model extras such as PyTorch are not included; see
-[the standalone guide](docs/standalone.md).
+API key is needed for this example. `python -m shipmblang program.shipmb` is the
+same shorthand as the executable.
 
 ## Notebook and editor
 
