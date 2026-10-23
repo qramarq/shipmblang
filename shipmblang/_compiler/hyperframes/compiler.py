@@ -141,7 +141,8 @@ def compile_hyperframes(source):
         element = {"id": f"element-{len(elements)}", "name": name, "kind": kind, "value": value, "scene": scene_name,
                    "start": scene["start"] + local_start, "duration": length, "x": spec["width"] / 2,
                    "y": spec["height"] / 2, "width": spec["width"], "height": spec["height"],
-                   "color": "#ffffff", "font_size": 72, "volume": 1, "fades": {}, "span": node["span"]}
+                   "color": "#ffffff", "font_size": 72, "volume": 1, "fades": {}, "positioned": False,
+                   "sized": False, "span": node["span"]}
         elements[name] = element
         spec["elements"].append(element)
 
@@ -173,6 +174,7 @@ def compile_hyperframes(source):
                 error("Visual coordinates must be within +/-7680 and sizes must be positive.", node)
             else:
                 obj.update(zip(("x", "y") if kind == "position" else ("width", "height"), values))
+                obj["positioned" if kind == "position" else "sized"] = True
         elif kind == "font":
             size = float(args[1])
             if obj["kind"] != "text" or not 1 <= size <= 1000:
@@ -194,11 +196,26 @@ def compile_hyperframes(source):
     for element in spec["elements"]:
         if sum(element["fades"].values()) > element["duration"]:
             diagnostics.append(diagnostic("Fade-in and fade-out may not overlap.", element["span"]))
+        # Font size is often set after Place, so fit the box only after every property.
+        if element["kind"] == "text" and element["positioned"] and not element["sized"]:
+            element["width"] = element["font_size"] * 0.62 * max(len(element["value"]), 1)
+            element["height"] = element["font_size"] * 1.25
+            element["anchor"] = "top-left"
+        if element["kind"] == "text":
+            left, top = element_origin(element)
+            if left < 0 or top < 0 or left + element["width"] > spec["width"] or top + element["height"] > spec["height"]:
+                diagnostics.append(diagnostic("Text box extends outside the frame.", element["span"], level="warning", code="SMBHF003"))
     failed = any(d["level"] == "error" for d in diagnostics)
     artifact = None if failed else {"producer": "shipmbcompiler", "target": "hyperframes", "version": VERSION, "source": source,
                                    "composition": spec, "files": {"index.html": emit_html(spec)}}
     return {"status": "error" if failed else "compiled", "syntax_tree": {"kind": "VideoProgram", "children": nodes},
             "diagnostics": diagnostics, "target_code": artifact}
+
+
+def element_origin(element):
+    if element.get("anchor") == "top-left":
+        return element["x"], element["y"]
+    return element["x"] - element["width"] / 2, element["y"] - element["height"] / 2
 
 
 def media_path(element):
@@ -222,7 +239,8 @@ def emit_html(spec):
     animations = []
     for track, e in enumerate(spec["elements"], 1):
         attrs = f'id="{e["id"]}" class="clip{ " text" if e["kind"] == "text" else ""}" data-start="{sec(e["start"])}" data-duration="{sec(e["duration"])}" data-track-index="{track}"'
-        style = f'left:{e["x"] - e["width"] / 2}px;top:{e["y"] - e["height"] / 2}px;width:{e["width"]}px;height:{e["height"]}px;object-fit:contain'
+        left, top = element_origin(e)
+        style = f'left:{left}px;top:{top}px;width:{e["width"]}px;height:{e["height"]}px;object-fit:contain'
         if e["kind"] == "text":
             lines.append(f'<div {attrs} style="{style};color:{e["color"]};font-size:{e["font_size"]}px">{html.escape(e["value"])}</div>')
         elif e["kind"] == "image":

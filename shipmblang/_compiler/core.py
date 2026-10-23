@@ -100,6 +100,84 @@ def _needs_shipmb_prelude(node: SyntaxNode) -> bool:
     return any(_needs_shipmb_prelude(child) for child in node.children)
 
 
+# Specific forms first. The generic pipeline is last so Roku lines that already
+# matched above are not reclassified, and so `project = open` / `device = family`
+# are not treated as plain assignments.
+_CORE_DECLARATION_PATTERNS: list[tuple[str | None, re.Pattern[str]]] = [
+    ("target_language", re.compile(r'^target language "(?P<language>[^"]+)"$')),
+    ("import", re.compile(r'^import "(?P<module>[^"]+)"(?: as (?P<alias>[A-Za-z_][A-Za-z0-9_]*))?$')),
+    ("from_import", re.compile(r'^from "(?P<module>[^"]+)" import (?P<symbols>\S.*)$')),
+    ("open_project", re.compile(r'^project = open "(?P<target>(?:\\.|[^"\\])*)"$')),
+    ("device_family", re.compile(r'^device = family "(?P<family>[^"]+)"$')),
+    ("write", re.compile(r'^write (?P<value>[A-Za-z_][A-Za-z0-9_.]*) to "(?P<path>[^"]+)"$')),
+    (
+        None,
+        re.compile(
+            r'^(?P<form>let|const) (?P<name>[A-Za-z_][A-Za-z0-9_]*)'
+            r'(?:\s*:\s*(?P<type>\S+))?(?:\s*=\s*(?P<value>.+))?$'
+        ),
+    ),
+    ("function", re.compile(r'^fn (?P<name>[A-Za-z_][A-Za-z0-9_]*)\((?P<params>[^)]*)\)(?:\s*->\s*(?P<returns>\S+))?\s*:$')),
+    (
+        "class",
+        re.compile(
+            r'^class (?P<name>[A-Za-z_][A-Za-z0-9_]*)'
+            r'(?:\s+extends\s+(?P<extends>[A-Za-z_][A-Za-z0-9_]*))?'
+            r'(?:\s+implements\s+(?P<implements>[A-Za-z_][A-Za-z0-9_]*(?:\s*,\s*[A-Za-z_][A-Za-z0-9_]*)*))?\s*:$'
+        ),
+    ),
+    ("property", re.compile(r'^property (?P<name>[A-Za-z_][A-Za-z0-9_.]*)(?:\s*:\s*(?P<type>\S+))?(?:\s*=\s*(?P<value>.+))?$')),
+    ("method", re.compile(r'^method (?P<name>[A-Za-z_][A-Za-z0-9_.]*)\((?P<params>[^)]*)\)(?:\s*->\s*(?P<returns>\S+))?\s*:$')),
+    ("call", re.compile(r'^call (?P<name>[A-Za-z_][A-Za-z0-9_.]*)\((?P<args>[^)]*)\)$')),
+    ("call", re.compile(r'^call (?P<name>[A-Za-z_][A-Za-z0-9_.]*) with (?P<args>.+)$')),
+    ("if", re.compile(r'^if (?P<condition>.+):\s*$')),
+    ("for", re.compile(r'^for (?P<name>[A-Za-z_][A-Za-z0-9_]*) in (?P<source>.+):\s*$')),
+    ("device_target", re.compile(r'^(?:device_target|device\s+target)\s*=\s*(?P<body>\S.*)$')),
+    ("bridge", re.compile(r'^bridge (?P<left>[A-Za-z_][A-Za-z0-9_.]*) <-> (?P<right>[A-Za-z_][A-Za-z0-9_.]*) using "(?P<protocol>[^"]+)"$')),
+    ("capability", re.compile(r'^(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s+\|>\s+capability\s+"(?P<name>[^"]+)"\s+native$')),
+    ("resource", re.compile(r'^(?P<target>[A-Za-z_][A-Za-z0-9_]*)\s+\|>\s+resource\s+"(?P<name>[^"]+)"$')),
+    ("type", re.compile(r'^type (?P<name>[A-Za-z_][A-Za-z0-9_]*):\s*$')),
+    ("field", re.compile(r'^field (?P<name>[A-Za-z_][A-Za-z0-9_]*)\s*:\s*(?P<type>\S+)\s*$')),
+    ("interface", re.compile(r'^interface (?P<name>[A-Za-z_][A-Za-z0-9_]*):\s*$')),
+    ("mode", re.compile(r'^mode "(?P<mode>[^"]+)"$')),
+    ("notify_user", re.compile(r'^notify_user (?P<value>true|false)$')),
+    ("privacy", re.compile(r'^privacy "(?P<value>[^"]+)"$')),
+    ("device", re.compile(r'^device (?P<name>[A-Za-z_][A-Za-z0-9_]*):\s*$')),
+    ("interlock", re.compile(r'^interlock (?P<body>.+)$')),
+    ("policy", re.compile(r'^policy (?P<body>.+)$')),
+    ("capability", re.compile(r'^capability (?P<name>[A-Za-z_][A-Za-z0-9_]*):\s*$')),
+    ("provider", re.compile(r'^provider (?P<name>[A-Za-z_][A-Za-z0-9_]*) priority (?P<priority>\d+)(?: native)?$')),
+    ("append", re.compile(r'^(?P<name>[A-Za-z_][A-Za-z0-9_.]*) append (?P<value>.+)$')),
+    ("assignment", re.compile(r'^(?P<name>[A-Za-z_][A-Za-z0-9_.]*) = (?P<value>.+)$')),
+    ("pass", re.compile(r'^pass$')),
+    ("return", re.compile(r'^return(?: (?P<value>.+))?$')),
+    ("print", re.compile(r'^print (?P<value>.+)$')),
+    ("library", re.compile(r'^library "(?P<name>[^"]+)"(?: from "(?P<source>[^"]+)")?(?: for "(?P<purpose>[^"]+)")?$')),
+]
+
+_GENERIC_PIPELINE = re.compile(
+    r'^(?P<steps>[A-Za-z_][A-Za-z0-9_]*(?:\s+\|>\s+[A-Za-z_][A-Za-z0-9_]*)+)$'
+)
+# Not a total swallow: prose and junk such as "???" stay unsupported.
+_DECLARATION_SHAPED = re.compile(
+    r'^[A-Za-z_][A-Za-z0-9_.]*\s*(?:=|\|>|append)\s*\S.*$'
+)
+
+
+def _parse_core_declaration(line: str, span: Span) -> SyntaxNode | None:
+    for form, pattern in _CORE_DECLARATION_PATTERNS:
+        match = pattern.match(line)
+        if match is None:
+            continue
+        resolved = match.group("form") if form is None else form
+        return SyntaxNode("CoreDeclaration", span, line, roles={"form": resolved, "text": line})
+    if _GENERIC_PIPELINE.match(line):
+        return SyntaxNode("CoreDeclaration", span, line, roles={"form": "pipeline", "text": line})
+    if "?" not in line and _DECLARATION_SHAPED.match(line):
+        return SyntaxNode("CoreDeclaration", span, line, roles={"form": "declaration", "text": line})
+    return None
+
+
 def _parse_core_line(line: str, span: Span) -> SyntaxNode:
     if line == "use shipmb":
         return SyntaxNode("UsePrelude", span, line, roles={"name": "shipmb"})
@@ -248,6 +326,10 @@ def _parse_core_line(line: str, span: Span) -> SyntaxNode:
                 "execute_at_compile_time": False,
             },
         )
+
+    declared = _parse_core_declaration(line, span)
+    if declared is not None:
+        return declared
 
     return SyntaxNode(
         "UnsupportedStatement",

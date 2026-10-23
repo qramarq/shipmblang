@@ -147,6 +147,48 @@ def run_direct_program(source, *, host=None, ffmpeg_executor=None, vlc_executor=
                               host=host, ffmpeg_executor=ffmpeg_executor, vlc_executor=vlc_executor)
 
 
+def _legacy_core_has_statement(core):
+    """True when Core has a line other than ``use shipmb`` or a ``#`` comment.
+
+    Unrecognized sentences stay ``# intent:`` plus ``use shipmb`` and must not hint.
+    """
+    if not isinstance(core, str):
+        return False
+    for line in core.splitlines():
+        text = line.strip()
+        if not text or text.startswith("#") or text.lower() == "use shipmb":
+            continue
+        return True
+    return False
+
+
+def _with_legacy_pipeline_hint(source, result):
+    """Append SMBL002 when unsupported general English still lowers to Core."""
+    if result.get("status") != "unsupported":
+        return result
+    try:
+        from driplm.natural_syntax import compile_natural_program
+
+        program = compile_natural_program(source, memory=False)
+    except Exception:
+        return result
+    core = program.get("core") if isinstance(program, dict) else None
+    if not _legacy_core_has_statement(core):
+        return result
+    diagnostics = result.get("diagnostics")
+    if not isinstance(diagnostics, list):
+        diagnostics = []
+    hint = {
+        "level": "hint",
+        "code": "SMBL002",
+        "message": (
+            "This sentence is outside the general computation grammar. "
+            "It compiles as Core with --pipeline legacy."
+        ),
+    }
+    return {**result, "diagnostics": [*diagnostics, hint]}
+
+
 def _positive_timeout(value):
     try:
         timeout = float(value)
@@ -236,8 +278,8 @@ def _main(*, run):
         if args.file == "-":
             source = sys.stdin.read()
         elif args.file:
-            # Preserve editor offsets, including Windows CRLF.
-            with Path(args.file).open(encoding="utf-8", newline="") as source_file:
+            # Preserve editor offsets, including Windows CRLF. utf-8-sig drops a leading BOM only.
+            with Path(args.file).open(encoding="utf-8-sig", newline="") as source_file:
                 source = source_file.read()
         else:
             source = " ".join(args.text)
@@ -282,6 +324,8 @@ def _main(*, run):
                     ))
                 result = _run_direct_result(result, ffmpeg_executor=executor, vlc_executor=vlc_executor)
             ready = _ready(result)
+        if selected.pipeline == "direct" and not ready and (selected.profile or "general") == "general":
+            result = _with_legacy_pipeline_hint(source, result)
         # Never hide clarification questions or unsupported explanations behind null bytecode.
         output = result if run or args.format == "json" or not ready else result["target_code"]
         if output is result.get("target_code"):

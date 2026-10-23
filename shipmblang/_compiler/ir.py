@@ -14,6 +14,7 @@ OPCODE_MAP = {
     "interface.declare": "DECLARE_INTERFACE",
     "runtime.run": "RUN",
     "mcp.tool.call": "MCP_TOOL_CALL",
+    "core.declare": "CORE_DECLARE",
 }
 
 

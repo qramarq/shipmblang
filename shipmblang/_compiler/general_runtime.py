@@ -10,10 +10,11 @@ TYPES = SCALARS | {f'list[{kind}]' for kind in SCALARS}
 BINARY = {'add', 'subtract', 'multiply', 'divide', 'modulo', 'equal', 'not_equal', 'greater', 'less', 'greater_equal', 'less_equal', 'and', 'or'}
 FIELDS = {'const': {'value','type'}, 'load': {'slot'}, 'store': {'slot'}, 'clear': {'slot'},
           'binary': {'operator'}, 'unary': {'operator'}, 'make_list': {'count','element_type'},
-          'length': set(), 'index': set(), 'jump': {'target'}, 'jump_if_false': {'target'},
+          'length': set(), 'index': set(), 'append': set(), 'jump': {'target'}, 'jump_if_false': {'target'},
           'show': set(), 'halt': set(), 'return': set(),
           'call': {'function','argument_types','return_type'},
           'ffmpeg_execute': {'job', 'argument_types'},
+          'ffmpeg_probe': {'argument_types'},
           'vlc_execute': {'operation','argument_types'},
           'vlc_query': {'operation','argument_types','return_type'}}
 
@@ -128,6 +129,11 @@ def _validate_unit(code,slots,capabilities,effects,signatures,parameters=(),retu
                 validate_job(args['job'], args['argument_types'])
             except (ValueError, TypeError, UnicodeError) as error:
                 raise VMError(str(error), pc) from error
+        if op=='ffmpeg_probe':
+            if 'ffmpeg' not in capabilities or 'host_media' not in effects:
+                raise VMError('FFmpeg capability and host media effect must be declared.', pc)
+            if args['argument_types'] != ['text']:
+                raise VMError('Probe requires one text operand.', pc)
     states={0:((),frozenset(parameters),frozenset(parameters))}; pending=deque([0]); visits=0
     while pending:
         visits+=1
@@ -175,6 +181,10 @@ def _validate_unit(code,slots,capabilities,effects,signatures,parameters=(),retu
             pop('integer'); kind=pop()
             if not kind.startswith('list['): raise VMError('Index requires a list.',pc)
             stack.append(kind[5:-1])
+        elif op=='append':
+            item=pop(); kind=pop()
+            if not kind.startswith('list[') or item!=kind[5:-1]: raise VMError('Append requires a list and a matching element.',pc)
+            stack.append(kind)
         elif op=='jump_if_false': pop('boolean')
         elif op=='show': pop()
         elif op in ('vlc_execute','vlc_query'):
@@ -182,6 +192,9 @@ def _validate_unit(code,slots,capabilities,effects,signatures,parameters=(),retu
             if op=='vlc_query': stack.append(args['return_type'])
         elif op=='ffmpeg_execute':
             for kind in reversed(args['argument_types']): pop(kind)
+        elif op=='ffmpeg_probe':
+            for kind in reversed(args['argument_types']): pop(kind)
+            stack.append('text')
         elif op=='call':
             for kind in reversed(args['argument_types']): pop(kind)
             stack.append(args['return_type'])
@@ -257,6 +270,12 @@ def run_general_artifact(artifact, *, max_steps=100000, host=None, ffmpeg_execut
                 index=stack.pop(); sequence=stack.pop()
                 if not 0<=index<len(sequence): raise VMError('List index out of bounds.',pc)
                 stack.append(sequence[index])
+            elif op=='append':
+                item=stack.pop(); sequence=stack.pop()
+                if len(sequence)>=MAX_ITEMS: raise VMError('List exceeds the 10000-item limit.',pc)
+                allocated_items+=1
+                if allocated_items>1000000: raise VMError('Collection allocation limit exceeded.',pc)
+                stack.append([*sequence, item])
             elif op=='jump': next_pc=args['target']
             elif op=='jump_if_false':
                 if not stack.pop(): next_pc=args['target']
@@ -294,6 +313,19 @@ def run_general_artifact(artifact, *, max_steps=100000, host=None, ffmpeg_execut
                     raise VMError(str(error), pc) from error
                 except (ValueError, OSError) as error:
                     raise VMError(str(error), pc) from error
+            elif op=='ffmpeg_probe':
+                path=stack.pop()
+                if not callable(getattr(ffmpeg_executor, 'probe', None)):
+                    raise VMError('Media execution requires an explicit FFmpeg executor.', pc)
+                try:
+                    probed=ffmpeg_executor.probe(path)
+                except (ValueError, OSError) as error:
+                    raise VMError(str(error), pc) from error
+                info=probed.get('format') if isinstance(probed, dict) else None
+                duration=info.get('duration') if isinstance(info, dict) else None
+                if type(duration) is not str or not _value(duration, 'text'):
+                    raise VMError('Probe duration is missing or not text.', pc)
+                stack.append(duration)
             elif op=='call':
                 if len(frames)>=63: raise VMError('Call depth limit exceeded.',pc)
                 function=functions[args['function']]

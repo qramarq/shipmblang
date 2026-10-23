@@ -9,12 +9,25 @@ import re
 
 from .general_vocabulary import OUTPUT_PATTERN, SUM_NOUNS
 
-GRAMMAR_VERSION = "general-english-0.8"
+GRAMMAR_VERSION = "general-english-0.10"
 CATALOG_VERSION = "general-media-0.2"
-TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|\d+|[A-Za-z_][A-Za-z_0-9]*|[^\s]')
+TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|\d+\.\d+|\d+|[A-Za-z_][A-Za-z_0-9]*|[^\s]')
 TYPES = {"integer", "boolean", "text"}
-RESERVED = {"it", "them", "true", "false", "and", "or", "not", "the", "a", "an", "if", "then", "otherwise", "end", "let", "set", "show", "for", "each", "while", "be", "to", "in", "of"}
+RESERVED = {"it", "them", "true", "false", "and", "or", "not", "if", "then", "otherwise", "end", "let", "set", "show", "for", "each", "while", "be", "to", "in", "of"}
+ARTICLES = {"the", "a", "an"}
 FUNCTION = re.compile(r"define (?:a )?function (.+?)(?: with (.+?))? returning (integer|boolean|text|list of integers|list of booleans|list of text)", re.I)
+
+
+def strip_leading_article(name):
+    """Drop one leading the/a/an unless the remaining name would be empty."""
+    parts = name.split()
+    if len(parts) > 1 and parts[0] in ARTICLES:
+        return " ".join(parts[1:])
+    return name
+
+
+def reserved_word(name):
+    return next((word for word in name.split() if word in RESERVED), None)
 
 
 def type_name(value):
@@ -34,10 +47,62 @@ def node(kind, span, **fields):
     return {"kind": kind, "span": dict(span), **fields}
 
 
+def _mask_comments(source):
+    """Replace # comments with spaces outside quotes, preserving offsets."""
+    chars = list(source)
+    quoted = escape = False
+    index = 0
+    while index < len(chars):
+        char = chars[index]
+        if quoted:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+        elif char == "#":
+            while index < len(chars) and chars[index] != "\n":
+                chars[index] = " "
+                index += 1
+            continue
+        index += 1
+    return "".join(chars)
+
+
+def _has_word_since_terminator(source, index, word):
+    """True when `word` occurs after the previous clause terminator and before index."""
+    quoted = escape = False
+    start = 0
+    i = 0
+    while i < index:
+        char = source[i]
+        if quoted:
+            if escape:
+                escape = False
+            elif char == "\\":
+                escape = True
+            elif char == '"':
+                quoted = False
+        elif char == '"':
+            quoted = True
+        elif char in ".;:\n?":
+            if not (char == "." and i and i + 1 < len(source) and source[i - 1].isdigit() and source[i + 1].isdigit()):
+                start = i + 1
+        i += 1
+    return re.search(rf"\b{re.escape(word)}\b", source[start:index], re.I) is not None
+
+
 def clauses(source):
     """Sentence/block delimiters outside quoted data, retaining original offsets."""
+    # Comments are masked before any split so a hash cannot open or close a clause.
+    source = _mask_comments(source)
     # Program wrappers may enclose the whole document or separate paragraphs.
     # Mask delimiters, never trim/rebuild prose: spans index the original source.
+    # U+FEFF is not whitespace. A same-length space keeps those spans aligned.
+    source = source.replace("\ufeff", " ")
     stripped = source.lstrip()
     if stripped and stripped[0] in {'"', '\u201c'}:
         chars = list(source)
@@ -84,6 +149,9 @@ def clauses(source):
             tail = source[match.start():]
             link = re.match(r'(?:and\s+then|and|then)\s+(?=(?:(?:please|pls)\s+)?(?:show|print|display|let|set|change|start|add|subtract|multiply|divide)\b)', tail, re.I)
             if link:
+                # "Probe ... and show the duration" is one instruction. Other "and show" splits stay.
+                if token.lower() == "and" and re.match(r"and\s+show\s+the\s+duration\b", tail, re.I) and _has_word_since_terminator(source, match.start(), "probe"):
+                    continue
                 start_link = match.start()
                 if start_link and source[start_link-1] == ',': start_link -= 1
                 elif source[:start_link].rstrip().endswith(','):
@@ -121,7 +189,7 @@ def clauses(source):
 
 class Expressions:
     def __init__(self, text, offset, owner):
-        self.tokens = [(m.group(), offset + m.start(), offset + m.end()) for m in TOKEN.finditer(text)]
+        self.tokens = [(m.group(), offset + m.start(), offset + m.end()) for m in TOKEN.finditer(text) if m.group() != "\ufeff"]
         self.at, self.owner = 0, owner
         self.span = {"start": offset, "end": offset + len(text)}
 
@@ -155,7 +223,7 @@ class Expressions:
             (("is", "at", "most"), "less_equal", 3),
             (("equals",), "equal", 3),
             (("plus",), "add", 4), (("minus",), "subtract", 4),
-            (("times",), "multiply", 5),
+            (("times",), "multiply", 5), (("divided", "by"), "divide", 5),
             (("and",), "and", 2), (("or",), "or", 1),
         ]
         while True:
@@ -163,10 +231,14 @@ class Expressions:
             for words, operator, priority in operators:
                 if priority >= minimum and self.take(*words):
                     right = self.expression(priority + 1)
-                    if priority >= 4:
+                    # Text concatenation chains; integer, times, and divide still need grouping.
+                    text_plus = operator == "add" and left["type"] == "text" and right["type"] == "text"
+                    if priority >= 4 and not text_plus:
                         if infix_arithmetic or (right["kind"] == "Binary" and right["operator"] in {"add", "subtract", "multiply", "divide", "modulo"} and not right.get("explicit_group")):
                             self.fail("State arithmetic grouping explicitly using parentheses or 'the sum/product of'.", question=True)
                         infix_arithmetic = True
+                    elif text_plus and infix_arithmetic:
+                        self.fail("State arithmetic grouping explicitly using parentheses or 'the sum/product of'.", question=True)
                     left = self.binary(operator, left, right)
                     found = True
                     break
@@ -209,9 +281,14 @@ class Expressions:
                 self.fail("Negative requires an integer.")
             return node("Unary", self.range(begin), operator="negate", operand=operand, type="integer")
         self.take("the")
+        if self.at < len(self.tokens) and self.tokens[self.at][0].lower() in {"duration", "position", "width", "height"}:
+            from .vlc_english import parse_player_property
+            player_property = parse_player_property(self, begin)
+            if player_property is not None:
+                return player_property
         if self.take("vlc"):
             from .vlc_english import parse_query
-            return parse_query(self,begin)
+            return parse_query(self, begin)
         if self.take("result", "of"):
             for name, signature in sorted(self.owner.functions.items(), key=lambda pair: -len(pair[0])):
                 if not self.take(*name.split()):
@@ -239,11 +316,39 @@ class Expressions:
                 value = self.binary(operator, left, right)
                 value["explicit_group"] = True
                 return value
-        if self.take("length", "of") or self.take("number", "of", "items", "in"):
+        if self.take("number", "of", "items", "in"):
             value = self.atom()
             if not value["type"].startswith("list["):
                 self.fail("Length requires a list.")
             return node("Length", self.range(begin), value=value, type="integer")
+        if self.take("length", "of"):
+            value = self.atom()
+            if value["type"] != "text" and not value["type"].startswith("list["):
+                self.fail("Length requires text or a list.")
+            return node("Length", self.range(begin), value=value, type="integer")
+        if self.take("first", "item", "in") or self.take("last", "item", "in"):
+            phrase = [token[0].lower() for token in self.tokens[begin:self.at]]
+            last = "last" in phrase
+            value = self.atom()
+            if not value["type"].startswith("list["):
+                self.fail("List indexing requires a list.")
+            if last:
+                length = node("Length", {"start": value["span"]["start"], "end": value["span"]["end"]}, value=value, type="integer")
+                index = node("Binary", self.range(begin), operator="subtract", type="integer", explicit_group=True,
+                             left=length, right=node("Literal", self.range(begin), value=1, type="integer"))
+            else:
+                index = node("Literal", self.range(begin), value=0, type="integer")
+            return node("Index", self.range(begin), value=value, index=index, type=value["type"][5:-1])
+        if self.take("item", "number"):
+            number = self.expression(3)
+            if not self.take("in"):
+                self.fail("Specify the list after 'in'.", question=True)
+            value = self.atom()
+            if number["type"] != "integer" or not value["type"].startswith("list["):
+                self.fail("List indexing requires an integer item number and a list.")
+            index = node("Binary", self.range(begin), operator="subtract", type="integer", explicit_group=True,
+                         left=number, right=node("Literal", self.range(begin), value=1, type="integer"))
+            return node("Index", self.range(begin), value=value, index=index, type=value["type"][5:-1])
         if self.take("item", "at", "index"):
             index = self.expression(3)
             if not self.take("in"):
@@ -282,6 +387,8 @@ class Expressions:
                 self.fail("Use a complete double-quoted text value.")
             self.at += 1
             return node("Literal", self.range(begin), value=value, type="text")
+        if re.fullmatch(r"\d+\.\d+", text):
+            self.fail("Decimals are unsupported; use integers.", question=True)
         if text.isdecimal():
             if len(text) > 1233:
                 self.fail("Integer literal exceeds the 4096-bit limit.")
@@ -294,10 +401,16 @@ class Expressions:
             self.at += 1
             return node("Literal", self.range(begin), value=text.lower() == "true", type="boolean")
         # Longest declared multiword name wins; there is no global word replacement.
-        for name, symbol in sorted(self.owner.visible().items(), key=lambda pair: -len(pair[0])):
-            words = name.split()
-            if self.take(*words):
-                return node("Name", self.range(begin), slot=symbol["id"], name=name, type=symbol["type"])
+        # a/an is an article only when the words after it are a declared name.
+        saved = self.at
+        if self.take("a") or self.take("an"):
+            named = self.match_declared_name(begin)
+            if named is not None:
+                return named
+            self.at = saved
+        named = self.match_declared_name(begin)
+        if named is not None:
+            return named
         if text.lower() in {"it", "them"}:
             candidates = list(self.owner.visible().values())
             if text.lower() == "them":
@@ -308,6 +421,12 @@ class Expressions:
                 return node("Name", self.range(begin), slot=symbol["id"], name=symbol["name"], type=symbol["type"])
             self.fail("Which declared value does this reference mean? Use its name.", question=True)
         self.fail(f"'{text}' is not a declared value. Declare it or clarify the intended value.", question=True)
+
+    def match_declared_name(self, begin):
+        for name, symbol in sorted(self.owner.visible().items(), key=lambda pair: -len(pair[0])):
+            if self.take(*name.split()):
+                return node("Name", self.range(begin), slot=symbol["id"], name=name, type=symbol["type"])
+        return None
 
     def element_type(self):
         for word, kind in (("integers", "integer"), ("booleans", "boolean"), ("texts", "text"), ("text", "text")):
@@ -331,7 +450,10 @@ class Parser:
                 continue
             name, params, result_type = match.groups()
             name = name.lower()
-            if name in self.functions or not re.fullmatch(r"[a-z_][a-z_0-9]*(?: [a-z_][a-z_0-9]*)*", name) or any(w in RESERVED for w in name.split()):
+            reserved = reserved_word(name)
+            if reserved is not None:
+                raise EnglishError(f"Function names must be distinct explicit names without reserved words. '{reserved}' is reserved.", span)
+            if name in self.functions or not re.fullmatch(r"[a-z_][a-z_0-9]*(?: [a-z_][a-z_0-9]*)*", name):
                 raise EnglishError("Function names must be distinct explicit names without reserved words.", span)
             parameters = []
             for definition in re.split(r"\s+and\s+", params, flags=re.I) if params else []:
@@ -344,9 +466,23 @@ class Parser:
     def visible(self):
         return {key: value for scope in self.scopes for key, value in scope.items()}
 
+    def resolve_reference(self, name, span):
+        name = strip_leading_article(name.lower())
+        if name in {"it", "them"}:
+            candidates = list(self.visible().values())
+            if name == "them":
+                candidates = [item for item in candidates if item["type"].startswith("list[")]
+            if len(candidates) != 1:
+                raise EnglishError("Which declared value does this reference mean? Use its name.", span, question=True)
+            return candidates[0]
+        return self.visible().get(name)
+
     def declare(self, name, kind, mutable, span):
-        name = name.lower()
-        if not re.fullmatch(r"[a-z_][a-z_0-9]*(?: [a-z_][a-z_0-9]*)*", name) or any(w in RESERVED for w in name.split()):
+        name = strip_leading_article(name.lower())
+        reserved = reserved_word(name)
+        if reserved is not None or not re.fullmatch(r"[a-z_][a-z_0-9]*(?: [a-z_][a-z_0-9]*)*", name):
+            if reserved is not None:
+                raise EnglishError(f"Use an explicit name without reserved grammar words. '{reserved}' is reserved.", span)
             raise EnglishError("Use an explicit name without reserved grammar words.", span)
         if name in self.visible():
             raise EnglishError(f"'{name}' is already declared; shadowing is not permitted.", span)
@@ -358,6 +494,35 @@ class Parser:
     def expr(self, text, offset):
         return Expressions(text, offset, self).parse()
 
+    def hidden_integer(self, prefix):
+        slot = len(self.symbols)
+        symbol = {"id": slot, "name": f"${prefix}{slot}", "type": "integer", "mutable": True}
+        self.symbols.append(symbol)
+        return symbol
+
+    def conditional(self, condition, span, depth, *, close):
+        self.scopes.append({})
+        yes = self.block("condition", depth + 1)
+        yes_slots = [symbol["id"] for symbol in self.scopes.pop().values()]
+        no, no_slots = [], []
+        if self.at < len(self.clauses):
+            text, branch_span = self.clauses[self.at]
+            nested = re.fullmatch(r"otherwise if (.+?) then", text, re.I)
+            if nested:
+                self.at += 1
+                branch = self.expr(nested[1], branch_span["start"] + nested.start(1))
+                if branch["type"] != "boolean":
+                    raise EnglishError("If requires a boolean condition.", branch_span)
+                no = [self.conditional(branch, branch_span, depth + 1, close=False)]
+            elif text.lower() in {"otherwise", "else"}:
+                self.at += 1
+                self.scopes.append({})
+                no = self.block("condition", depth + 1)
+                no_slots = [symbol["id"] for symbol in self.scopes.pop().values()]
+        if close:
+            self.finish({"end the condition", "end if"}, span)
+        return node("If", span, condition=condition, yes=yes, no=no, yes_slots=yes_slots, no_slots=no_slots)
+
     def block(self, end=None, depth=0):
         if depth > 64:
             raise EnglishError("Block nesting exceeds 64 levels.", {"start": 0, "end": len(self.source)})
@@ -365,7 +530,7 @@ class Parser:
         while self.at < len(self.clauses):
             text, span = self.clauses[self.at]
             lower = text.lower()
-            if lower in {"otherwise", "else", "end the condition", "end if", "end the loop", "end loop", "end the function", "end function"}:
+            if lower in {"otherwise", "else", "end the condition", "end if", "end the loop", "end loop", "end the function", "end function"} or re.fullmatch(r"otherwise if .+ then", lower):
                 if end is None:
                     raise EnglishError("This block ending has no matching opening.", span, question=True)
                 return body
@@ -376,7 +541,7 @@ class Parser:
             if polite:
                 text = text[polite.end():]
                 span = {"start": span["start"] + polite.end(), "end": span["end"]}
-            if re.match(r'(?:run ffmpeg\b|convert\b|transcode\b|extract audio\b|resize\b|trim\b)', text, re.I):
+            if re.match(r'(?:run ffmpeg\b|convert\b|transcode\b|extract audio\b|resize\b|trim\b|probe\b)', text, re.I):
                 from .media_english import parse_media
                 media = parse_media(self, text, span)
                 if media is not None:
@@ -407,14 +572,32 @@ class Parser:
             implicit = re.fullmatch(r"(add|subtract) (.+)", text, re.I)
             match = re.fullmatch(r"(add|subtract) (.+?) (to|from) (.+)|(multiply|divide) (.+?) by (.+)", text, re.I)
             if implicit and not match:
+                parsed = None
+                parse_error = None
+                try:
+                    parsed = self.expr(implicit[2], span['start'] + implicit.start(2))
+                except EnglishError as error:
+                    parse_error = error
+                integer_operand = parse_error is None and parsed is not None and parsed['type'] == 'integer'
                 candidates = [s for s in self.visible().values() if s['mutable'] and s['type'] == 'integer']
+                if not integer_operand:
+                    # A prose operand is not a missing integer target; keep asking.
+                    if len(candidates) == 1:
+                        if parse_error is not None:
+                            raise parse_error
+                        raise EnglishError('Arithmetic updates require an integer.', span)
+                    raise EnglishError(
+                        "This is not an integer update. To filter a list, use for each: "
+                        "Let values be the list of integers 2, 5, 8, 11. "
+                        "For each value in values: If (the remainder of value and 2) equals 1 then: "
+                        "Add value to total. End the condition. End the loop.",
+                        span,
+                        question=True,
+                    )
                 if len(candidates) != 1:
                     raise EnglishError('Name the arithmetic target explicitly.', span, question=True)
                 symbol = candidates[0]
-                right = self.expr(implicit[2], span['start'] + implicit.start(2))
-                if right['type'] != 'integer':
-                    raise EnglishError('Arithmetic updates require an integer.', span)
-                value = node('Binary', span, operator=implicit[1].lower(), left=node('Name', span, slot=symbol['id'], type='integer'), right=right, type='integer')
+                value = node('Binary', span, operator=implicit[1].lower(), left=node('Name', span, slot=symbol['id'], type='integer'), right=parsed, type='integer')
                 body.append(node('Assign', span, slot=symbol['id'], value=value))
                 continue
             if match:
@@ -426,7 +609,7 @@ class Parser:
                 else:
                     verb, name, rhs = match.group(5, 6, 7)
                     offset = span['start'] + match.start(7)
-                symbol = self.visible().get(name.lower())
+                symbol = self.resolve_reference(name, span)
                 if not symbol:
                     raise EnglishError('Declare the arithmetic target first.', span, question=True)
                 if not symbol['mutable']:
@@ -471,9 +654,22 @@ class Parser:
                 name, rhs = match.groups()
                 mutable, declared_type = False, None
                 prefix = re.match(r"(?:a |an )?(mutable )?(integer|boolean|text)(?: with value| equal to) (.+)", rhs, re.I)
+                list_form = None if prefix else re.fullmatch(
+                    r"(?:a |an )?(mutable )?(list of integers|list of booleans|list of texts|list of text)(?: (?:with value|equal to) (.+))?",
+                    rhs, re.I)
                 if prefix:
                     mutable = bool(prefix[1])
                     declared_type, rhs = prefix[2].lower(), prefix[3]
+                elif list_form:
+                    mutable = bool(list_form[1])
+                    kind = list_form[2].lower()
+                    declared_type = type_name("list of text" if kind == "list of texts" else kind)
+                    if list_form[3] is None:
+                        value = node("List", span, values=[], type=declared_type)
+                        symbol = self.declare(name, value["type"], mutable, span)
+                        body.append(node("Declare", span, slot=symbol["id"], value=value))
+                        continue
+                    rhs = list_form[3]
                 elif re.match(r"(?:a )?mutable\b", rhs, re.I):
                     raise EnglishError("Declare a mutable type and its initial value explicitly.", span, question=True)
                 offset = span["end"] - len(rhs)
@@ -485,7 +681,7 @@ class Parser:
                 continue
             match = re.fullmatch(r"(?:set|change) (.+?) to (.+)", text, re.I)
             if match:
-                symbol = self.visible().get(match[1].lower())
+                symbol = self.resolve_reference(match[1], span)
                 if not symbol:
                     raise EnglishError("Declare the assignment target first.", span, question=True)
                 if not symbol["mutable"]:
@@ -495,6 +691,26 @@ class Parser:
                     raise EnglishError("Assignment cannot change a variable's type.", span)
                 body.append(node("Assign", span, slot=symbol["id"], value=value))
                 continue
+            match = re.fullmatch(r"append (.+?) to (.+)", text, re.I)
+            if match:
+                # Articles and it/them follow the same name rules as assignment.
+                symbol = self.resolve_reference(match[2], span)
+                if not symbol:
+                    raise EnglishError("Declare the list before appending to it.", span, question=True)
+                if not symbol["type"].startswith("list["):
+                    raise EnglishError("Append requires a list.", span)
+                if not symbol["mutable"]:
+                    raise EnglishError(f"'{symbol['name']}' is immutable; declare it mutable to append to it.", span)
+                item = self.expr(match[1], span["start"] + match.start(1))
+                element = symbol["type"][5:-1]
+                if item["type"] != element:
+                    raise EnglishError(f"Append requires {element}, not {item['type']}.", span)
+                body.append(node("Append", span, slot=symbol["id"], value=item))
+                continue
+            match = re.fullmatch(r"what is (.+)", text, re.I)
+            if match:
+                body.append(node("Show", span, value=self.expr(match[1], span["start"] + match.start(1))))
+                continue
             match = re.fullmatch(rf"{OUTPUT_PATTERN} (?:me )?(.+)|(?:compute|calculate) ((?:the )?(?:sum|total|aggregate|difference|product|quotient|remainder) of .+)", text, re.I)
             if match:
                 group = 1 if match[1] is not None else 2
@@ -502,20 +718,32 @@ class Parser:
                 continue
             match = re.fullmatch(r"if (.+?) then", text, re.I)
             if match:
-                condition = self.expr(match[1], span["start"] + 3)
+                condition = self.expr(match[1], span["start"] + match.start(1))
                 if condition["type"] != "boolean":
                     raise EnglishError("If requires a boolean condition.", span)
+                body.append(self.conditional(condition, span, depth, close=True))
+                continue
+            match = re.fullmatch(r"for each (.+?) from (.+?) to (.+)", text, re.I)
+            if match and not re.search(r"\bin\b", match[1], re.I):
+                start = self.expr(match[2], span["start"] + match.start(2))
+                limit = self.expr(match[3], span["start"] + match.start(3))
+                if start["type"] != "integer" or limit["type"] != "integer":
+                    raise EnglishError("Counted loops require integer bounds.", span)
+                # Declared outside the while: each iteration clears only scoped slots.
+                counter = self.declare(match[1], "integer", True, span)
+                body.append(node("Declare", span, slot=counter["id"], value=start))
+                condition = node("Binary", span, operator="less_equal", type="boolean",
+                                 left=node("Name", span, slot=counter["id"], name=counter["name"], type="integer"),
+                                 right=limit)
                 self.scopes.append({})
-                yes = self.block("condition", depth+1)
-                yes_slots = [s["id"] for s in self.scopes.pop().values()]
-                no, no_slots = [], []
-                if self.at < len(self.clauses) and self.clauses[self.at][0].lower() in {"otherwise", "else"}:
-                    self.at += 1
-                    self.scopes.append({})
-                    no = self.block("condition", depth+1)
-                    no_slots = [s["id"] for s in self.scopes.pop().values()]
-                self.finish({"end the condition", "end if"}, span)
-                body.append(node("If", span, condition=condition, yes=yes, no=no, yes_slots=yes_slots, no_slots=no_slots))
+                loop = self.block("loop", depth + 1)
+                slots = [symbol["id"] for symbol in self.scopes.pop().values()]
+                self.finish({"end the loop", "end loop"}, span)
+                loop.append(node("Assign", span, slot=counter["id"], value=node(
+                    "Binary", span, operator="add", type="integer",
+                    left=node("Name", span, slot=counter["id"], name=counter["name"], type="integer"),
+                    right=node("Literal", span, value=1, type="integer"))))
+                body.append(node("While", span, condition=condition, body=loop, scoped_slots=slots))
                 continue
             match = re.fullmatch(r"for each (.+?) in (.+)", text, re.I)
             if match:
@@ -528,6 +756,29 @@ class Parser:
                 slots = [s["id"] for s in self.scopes.pop().values()]
                 self.finish({"end the loop", "end loop"}, span)
                 body.append(node("For", span, value=value, slot=item["id"], body=loop, scoped_slots=slots))
+                continue
+            match = re.fullmatch(r"repeat (.+) times", text, re.I)
+            if match:
+                count = self.expr(match[1], span["start"] + match.start(1))
+                if count["type"] != "integer":
+                    raise EnglishError("Repeat requires an integer count.", span)
+                # Count is fixed at entry. The hidden counter is outside the while scope.
+                limit = self.hidden_integer("limit")
+                counter = self.hidden_integer("repeat")
+                body.append(node("Declare", span, slot=limit["id"], value=count))
+                body.append(node("Declare", span, slot=counter["id"], value=node("Literal", span, value=0, type="integer")))
+                condition = node("Binary", span, operator="less", type="boolean",
+                                 left=node("Name", span, slot=counter["id"], name=counter["name"], type="integer"),
+                                 right=node("Name", span, slot=limit["id"], name=limit["name"], type="integer"))
+                self.scopes.append({})
+                loop = self.block("loop", depth + 1)
+                slots = [symbol["id"] for symbol in self.scopes.pop().values()]
+                self.finish({"end the loop", "end loop"}, span)
+                loop.append(node("Assign", span, slot=counter["id"], value=node(
+                    "Binary", span, operator="add", type="integer",
+                    left=node("Name", span, slot=counter["id"], name=counter["name"], type="integer"),
+                    right=node("Literal", span, value=1, type="integer"))))
+                body.append(node("While", span, condition=condition, body=loop, scoped_slots=slots))
                 continue
             match = re.fullmatch(r"while (.+?)(?: do)?", text, re.I)
             if match:
@@ -552,7 +803,7 @@ class Parser:
 
 
 def parse_general(source, bindings=None):
-    tokens = [{"text": m.group(), "span": {"start": m.start(), "end": m.end()}} for m in TOKEN.finditer(source)]
+    tokens = [{"text": m.group(), "span": {"start": m.start(), "end": m.end()}} for m in TOKEN.finditer(source) if m.group() != "\ufeff"]
     tree = node("Program", {"start": 0, "end": len(source)}, body=[])
     errors, questions, symbols = [], [], []
     try:

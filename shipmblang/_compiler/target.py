@@ -16,6 +16,7 @@ BYTECODE_OPCODE_BY_IR = {
     "DECLARE_INTERFACE": "declare_interface",
     "RUN": "run",
     "MCP_TOOL_CALL": "mcp_tool_call",
+    "CORE_DECLARE": "core_declare",
 }
 
 

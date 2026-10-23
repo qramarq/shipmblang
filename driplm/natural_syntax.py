@@ -1367,9 +1367,20 @@ def _extract_library_use(text: str) -> dict[str, Any] | None:
     }
 
 
+def _is_resource_display(normalized: str) -> bool:
+    """True when the sentence only shows or displays resources."""
+    return re.fullmatch(
+        r"(?:please )?(?:show|display) (?:the )?(?:device )?resources?",
+        normalized,
+    ) is not None
+
+
 def _extract_target_device(text: str) -> dict[str, Any] | None:
     normalized = _normalize_text(text)
     if normalized.startswith("install "):
+        return None
+    # "device family" and a bare resource display are not device targets.
+    if "device family" in normalized or _is_resource_display(normalized):
         return None
     platform = None
     kind = None
@@ -1393,10 +1404,15 @@ def _extract_capabilities(text: str) -> list[dict[str, Any]]:
         target = "remote"
     capabilities: list[tuple[str, bool]] = []
     agentic = "agentic" in normalized or "agentically" in normalized
+    # Named resources and bare resource displays are not list_resources.
+    # "use the resources a roku remote would have" is neither, so it still lists them.
+    list_resources = ("resource" in normalized or "resources" in normalized) and not (
+        _extract_device_resource(text) is not None or _is_resource_display(normalized)
+    )
 
     capability_triggers = [
         ("remote_control", "remote" in normalized or "controller" in normalized),
-        ("list_resources", "resource" in normalized or "resources" in normalized),
+        ("list_resources", list_resources),
         ("search_apps", "search" in normalized and "app" in normalized),
         ("open_app", "open" in normalized and "app" in normalized),
         ("close_app", "close" in normalized and "app" in normalized),
