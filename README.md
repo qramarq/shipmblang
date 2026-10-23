@@ -84,8 +84,10 @@ python -m shipmblang editor
 ```
 
 A source install needs Rust and Cargo for the first launch. The standalone
-executable already contains the editor. See the [editor guide](docs/notebook.md)
-for writing, saving, and running notes.
+executable already contains the editor. Saved notes open as chat rooms: a
+sidebar of documents, a conversation with ShipMB, and a composer at the bottom.
+See the [editor guide](docs/notebook.md) for keys, themes, and how older notes
+are kept. Use the executable from [any code editor](docs/editors.md).
 
 ## VS Code
 
@@ -96,9 +98,11 @@ To try the included extension, install ShipMBLang from this checkout as above, t
 3. In that window, open the Command Palette, choose **ShipMBLang: New Prose Program**,
    then choose **ShipMBLang: Run Natural Program**.
 
-The extension uses the same Python environment where ShipMBLang is installed. See
-the [VS Code guide](extensions/vscode-shipmblang/README.md) if you need to select a
-different interpreter.
+The extension uses the Python environment where ShipMBLang is installed, or the
+standalone executable when `shipmblang.executablePath` is set. It also starts
+`shipmblang lsp` for diagnostics and hover. See the
+[VS Code guide](extensions/vscode-shipmblang/README.md) and
+[editor setup for other IDEs](docs/editors.md).
 
 On Windows, run `vscode-workspace.cmd [folder]` to create `hello.shipmb`, `hello.smb`
 and `hello.shiplang` in a `workspace` folder and open them in VS Code.
@@ -264,11 +268,12 @@ and the [Colab notebook](examples/text_apps_colab.ipynb).
 ## ShipMBLang document editor
 
 Run `python -m shipmblang editor` (or `python -m shipmblang notebook`) to open
-the Ratatui terminal document editor. Write English instructions, insert local
-images inline with Ctrl+I, then compile with Ctrl+Enter or run with F5. Rust and
-Cargo are required for the bundled terminal UI. The bundled 0.5.0 compiler
-supports ordered `[[image:N]]` anchors through the v2 image prose contract. See
-the [editor guide](docs/notebook.md).
+the Ratatui chat-room notebook. Each saved note is a room. Enter sends the
+program (compile and run, same as F5); Ctrl+Enter or Alt+C compiles only;
+Alt+Enter inserts a newline. Attach images with Ctrl+I. Rust and Cargo are
+required for the bundled terminal UI on a source install. The bundled 0.5.0
+compiler supports ordered `[[image:N]]` anchors through the v2 image prose
+contract. See the [editor guide](docs/notebook.md).
 The [MiniCPM-V 4.6 guide](docs/minicpmv.md) documents the image provider,
 train-only QLoRA/CPU-offload preflight, and held-out compiler evaluation. No
 fine-tuned weights or upstream vision-benchmark scores are included in this

@@ -61,11 +61,22 @@ example `shipmblang program.shipmb --format text`. The same shorthand works in
 the installed Python console script. `compile`, `run`, `editor`, `notebook`,
 `hyperframes`, and the older commands keep their previous parsing.
 
-`shipmblang editor` and `shipmblang notebook` open the Ratatui editor. In a
-build made with `--require-editor`, the editor binary is inside the executable
-and Cargo is not used. The editor calls back into the same executable for notes
-and compilation. A build without that binary still asks for Rust and Cargo, as
-a source install does on first launch.
+`shipmblang editor` and `shipmblang notebook` open the Ratatui chat-room
+notebook. In a build made with `--require-editor`, the editor binary is inside
+the executable and Cargo is not used. The editor calls back into the same
+executable for notes and compilation. A build without that binary still asks
+for Rust and Cargo, as a source install does on first launch.
+
+```sh
+./dist/shipmblang --version
+./dist/shipmblang editor --version
+./dist/shipmblang editor --smoke --demo
+./dist/shipmblang lsp --check
+```
+
+`--smoke` prints `shipmblang editor smoke ok` and one frame, then exits. The
+same executable is the language server (`shipmblang lsp`) and the compile/run
+fallback for other editors. See [editors](editors.md).
 
 ## What is not inside the executable
 

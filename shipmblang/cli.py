@@ -151,6 +151,20 @@ def main():
     sys.argv = [sys.argv[0], *argv]
     if is_standalone() and len(sys.argv) > 1 and sys.argv[1] in MODEL_COMMANDS:
         _reject_model_extras()
+    if len(sys.argv) > 1 and sys.argv[1] in {"--version", "-V"}:
+        from .lsp import shipmblang_version
+
+        print(f"shipmblang {shipmblang_version()}")
+        return 0
+    if len(sys.argv) > 1 and sys.argv[1] == "lsp":
+        from .lsp import main as lsp_main
+
+        previous = sys.argv
+        sys.argv = [previous[0], *previous[2:]]
+        try:
+            return lsp_main()
+        finally:
+            sys.argv = previous
     if len(sys.argv) > 1 and sys.argv[1] == "hyperframes":
         from .hyperframes import main as hyperframes_main
 

@@ -24,9 +24,14 @@ you do not need another compiler checkout or package.
 If the command fails to start Python, set `shipmblang.pythonPath` to the full path
 of the same environment's Python executable (not a command with arguments). For
 example, use `C:/path/to/venv/Scripts/python.exe` on Windows or
-`/path/to/venv/bin/python` on macOS/Linux. The example `settings.json` below is
-optional; the extension defaults to the `direct` pipeline and `general` profile.
-Existing explicit settings take precedence.
+`/path/to/venv/bin/python` on macOS/Linux. To use the standalone executable
+instead, set `shipmblang.executablePath` to that file. When `executablePath` is
+empty, the extension uses a `shipmblang` executable on `PATH` if it finds one,
+and otherwise `pythonPath`. `shipmblang.lsp` (on by default) starts
+`shipmblang lsp` for diagnostics and hover. Compile, Run, and the explanation
+commands keep using the same executable or Python. The example `settings.json`
+below is optional; the extension defaults to the `direct` pipeline and
+`general` profile. Existing explicit settings take precedence.
 
 ```json
 {
@@ -52,7 +57,11 @@ Use `shipmblang.projectRoot` only to select a source checkout when the package i
 
 A clarification or unsupported program is shown as feedback, not treated as runnable code. Source changes clear stale Problems; results from superseded snapshots are discarded. Operations can be cancelled and default to a 30-second timeout (`shipmblang.timeoutMs`). Output is bounded to 4 MiB. Editor source memory is off unless explicitly enabled. These commands require a trusted, filesystem-backed workspace; they do not grant host/device permissions.
 
-Basic highlighting and bracket/string pairing are included. This extension does not yet provide completion, rename, debugging, or a language server. Other IDEs can use the same CLI documented in `docs/terminal-and-ides.md`.
+Basic highlighting and bracket/string pairing are included through
+`syntaxes/shipmblang.tmLanguage.json`. `shipmblang lsp` publishes compiler
+diagnostics and hover text. The extension does not yet provide completion,
+rename, debugging, or formatting. Other editors can use the same language
+server and CLI; see `docs/editors.md` and `docs/terminal-and-ides.md`.
 
 ## Development checks
 

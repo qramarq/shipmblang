@@ -2,7 +2,7 @@
   "name": "shipmblang",
   "displayName": "ShipMBLang",
   "description": "Compile and run ShipMBLang prose, inspect diagnostics, and explain errors.",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "publisher": "shipmb",
   "license": "Apache-2.0",
   "private": true,
@@ -30,10 +30,10 @@
     "errors"
   ],
   "scripts": {
-    "lint": "node --check src/extension.js && node --check src/runner.js",
+    "lint": "node --check src/extension.js && node --check src/runner.js && node --check src/lspClient.js",
     "vscode:prepublish": "npm run lint",
     "package": "vsce package",
-    "test": "node --test test/runner.test.js"
+    "test": "node --test test/*.test.js"
   },
   "activationEvents": [
     "onStartupFinished",
@@ -105,10 +105,20 @@
     "configuration": {
       "title": "ShipMBLang",
       "properties": {
+        "shipmblang.executablePath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the standalone shipmblang executable. When empty, the extension uses shipmblang on PATH if it exists, otherwise shipmblang.pythonPath."
+        },
+        "shipmblang.lsp": {
+          "type": "boolean",
+          "default": true,
+          "description": "Start the ShipMBLang language server for diagnostics and hover when the executable or Python package provides shipmblang lsp."
+        },
         "shipmblang.pythonPath": {
           "type": "string",
           "default": "python",
-          "description": "Python executable used to run ShipMBLang."
+          "description": "Python executable used to run ShipMBLang when shipmblang.executablePath is empty and shipmblang is not on PATH."
         },
         "shipmblang.projectRoot": {
           "type": "string",
