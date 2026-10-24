@@ -60,4 +60,23 @@ grep -q "PyTorch" "$empty/train.err"
 printf '%s\n' '{"action":"list","query":""}' | run_bin -X utf8 -m shipmblang.editor_bridge --database "$database" >"$empty/bridge.out"
 grep -q '"ok": true' "$empty/bridge.out"
 
+run_bin --version >"$empty/version.out"
+grep -q "shipmblang " "$empty/version.out"
+
+run_bin editor --version >"$empty/editor-version.out"
+grep -q "shipmblang-editor " "$empty/editor-version.out"
+
+run_bin editor --smoke --demo >"$empty/editor-demo.out"
+grep -q "shipmblang editor smoke ok" "$empty/editor-demo.out"
+grep -q "ShipMB" "$empty/editor-demo.out"
+
+run_bin editor --smoke --database "$database" >"$empty/editor-smoke.out"
+grep -q "shipmblang editor smoke ok" "$empty/editor-smoke.out"
+
+run_bin notebook --smoke --database "$database" >"$empty/notebook-smoke.out"
+grep -q "shipmblang editor smoke ok" "$empty/notebook-smoke.out"
+
+run_bin lsp --check >"$empty/lsp.out"
+grep -q "lsp ok" "$empty/lsp.out"
+
 echo "standalone smoke test passed: $bin"

@@ -29,6 +29,9 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Test the Ratatui editor
+        run: cargo test --locked --manifest-path shipmblang/native/ratatui-editor/Cargo.toml
+
       - name: Install build tools
         run: |
           python -m pip install --upgrade pip

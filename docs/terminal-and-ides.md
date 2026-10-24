@@ -51,7 +51,7 @@ python -m shipmblang compile --file "program with spaces.smb" --pipeline direct 
 python -m shipmblang run --file "program with spaces.smb" --pipeline direct --profile general --memory off
 ```
 
-The console commands `shipmblang`, `shipmb`, `shipmblang-compile`, `shipmb-compile`, and `shiplang-compile` use the same package. The corresponding run aliases also remain available. Use `python -m shipmblang` if console scripts are not on PATH. For an interpreter path containing spaces, PowerShell needs its call operator:
+`shipmblang --version` prints the package version. `shipmblang lsp` serves diagnostics and hover on standard input; `shipmblang lsp --check` prints `lsp ok`. Editors that pipe an unsaved buffer use `--file -`. The console commands `shipmblang`, `shipmb`, `shipmblang-compile`, `shipmb-compile`, and `shiplang-compile` use the same package. The corresponding run aliases also remain available. Use `python -m shipmblang` if console scripts are not on PATH. For an interpreter path containing spaces, PowerShell needs its call operator:
 
 ```powershell
 & "C:/path to/venv/Scripts/python.exe" -X utf8 -m shipmblang run --file "program.shipmb" --pipeline direct --profile general --memory off
@@ -63,11 +63,11 @@ General run output is JSON with `runtime.stdout` and `runtime.output`; it is not
 
 Configure an external tool with the interpreter as the executable and arguments `-m shipmblang compile --file <current-file> --pipeline direct --profile general --format json --memory off`. Set the working directory to the project's root; pass the filename as one argument, using your IDE's current-file variable. A second tool replaces `compile` with `run`. Save the file before invoking file-based tools.
 
-Any IDE that can invoke a process can use this boundary. Native Problems, completion and debugging depend on that editor's integration; no cross-editor language-server support is claimed.
+Any IDE that can invoke a process can use this boundary. `shipmblang lsp` is the shared language server for diagnostics, hover, and compile/run commands. Ready-to-use settings for VS Code, Cursor, Neovim, Vim, Emacs, Helix, Zed, Sublime Text, JetBrains, Notepad++, and Kate are in [editors](editors.md).
 
 ## VS Code
 
-See [extension setup](../extensions/vscode-shipmblang/README.md). The extension reads the current editor buffer directly, handles paths with spaces, maps compiler spans into Problems, and keeps existing printurf commands.
+See [extension setup](../extensions/vscode-shipmblang/README.md). The extension reads the current editor buffer directly, handles paths with spaces, maps compiler spans into Problems, and keeps existing printurf commands. Set `shipmblang.executablePath` to the standalone executable, or leave it empty to use `shipmblang` on PATH and then `shipmblang.pythonPath`. `shipmblang.lsp` starts the language server when it is available.
 
 ## Validation
 

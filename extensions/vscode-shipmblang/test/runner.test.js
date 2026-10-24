@@ -1,6 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { buildArgs, runProcess, parseResult, utf16Offset } = require('../src/runner');
+const { buildArgs, runProcess, parseResult, utf16Offset, commandFor } = require('../src/runner');
 test('direct keeps literal paths, profile and JSON without legacy flags', () => {
  const args = buildArgs('run','C:/a space/\u4f8b.smb','C:/a space',{pipeline:'direct',profile:'general',errorFile:'e'});
  assert.ok(args.includes('C:/a space/\u4f8b.smb')); assert.ok(args.includes('general')); assert.ok(args.includes('json'));
@@ -38,6 +38,32 @@ test('new editor defaults select direct general prose compilation', () => {
  assert.equal(manifest.contributes.configuration.properties['shipmblang.pipeline'].default,'direct');
 });
 
+test('standalone executable replaces python -m and stays one argument', () => {
+ const spec = commandFor('run', 'C:/a space/demo.shipmb', 'C:/a space', { executablePath: 'D:/tools/shipmblang.exe', pythonPath: 'python', interpretation: 'Show 1.' });
+ assert.equal(spec.command, 'D:/tools/shipmblang.exe');
+ assert.equal(spec.args[0], 'run');
+ assert.equal(spec.args.includes('-m'), false);
+ assert.equal(spec.args.includes('-X'), false);
+ assert.equal(spec.args[spec.args.indexOf('--file') + 1], 'C:/a space/demo.shipmb');
+ assert.equal(spec.args[spec.args.indexOf('--interpretation') + 1], 'Show 1.');
+});
+test('python remains the fallback when no executable is on PATH', () => {
+ const spec = commandFor('compile', 'a.shipmb', '.', { pythonPath: 'python3', autoDetect: false, env: { PATH: '' } });
+ assert.equal(spec.command, 'python3');
+ assert.equal(spec.args[0], '-X');
+ assert.equal(spec.args[2], '-m');
+});
+test('an executable on PATH is selected when executablePath is empty', () => {
+ const fs = require('node:fs');
+ const os = require('node:os');
+ const path = require('node:path');
+ const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'shipmb-bin-'));
+ const name = process.platform === 'win32' ? 'shipmblang.exe' : 'shipmblang';
+ fs.writeFileSync(path.join(directory, name), '');
+ const spec = commandFor('run', 'a.shipmb', '.', { executablePath: '', pythonPath: 'python', env: { PATH: directory }, executableNames: [name] });
+ assert.equal(spec.command, path.join(directory, name));
+ assert.equal(spec.args[0], 'run');
+});
 test('explicit clarification remains one literal argument and direct only', () => {
  const interpretation='Show "hello". Then show 12; $(literal).';
  const args=buildArgs('run','p.shipmb','.',{interpretation});
