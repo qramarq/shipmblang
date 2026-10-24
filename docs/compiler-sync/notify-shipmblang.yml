@@ -1,0 +1,47 @@
+# Copy this file to qramarq/shipmblang-compiler as
+# .github/workflows/notify-shipmblang.yml
+# It does not run in the shipmblang repository.
+#
+# Secret in the compiler repository, not in shipmblang:
+#   SHIPMBLANG_DISPATCH_TOKEN
+# Fine-grained PAT, repository access qramarq/shipmblang only:
+#   Contents: Read and write
+#   Metadata: Read
+# repository_dispatch is authorized as a contents write. A classic PAT with
+# the public_repo scope also works because shipmblang is public.
+
+name: Notify shipmblang
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    name: Dispatch compiler-updated
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require dispatch token
+        env:
+          SHIPMBLANG_DISPATCH_TOKEN: ${{ secrets.SHIPMBLANG_DISPATCH_TOKEN }}
+        run: |
+          if [ -z "${SHIPMBLANG_DISPATCH_TOKEN}" ]; then
+            echo "::error::Missing secret SHIPMBLANG_DISPATCH_TOKEN on shipmblang-compiler. Add a fine-grained PAT that can write contents on qramarq/shipmblang."
+            exit 1
+          fi
+
+      - name: Dispatch compiler-updated
+        env:
+          SHIPMBLANG_DISPATCH_TOKEN: ${{ secrets.SHIPMBLANG_DISPATCH_TOKEN }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          jq -n --arg sha "$COMMIT" '{event_type:"compiler-updated",client_payload:{commit:$sha}}' \
+            | curl --fail-with-body -sS -X POST \
+              -H "Authorization: Bearer ${SHIPMBLANG_DISPATCH_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              --data-binary @- \
+              https://api.github.com/repos/qramarq/shipmblang/dispatches

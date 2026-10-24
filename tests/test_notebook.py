@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from shipmblang.notebook import execute_program, STARTERS
+from shipmblang.notebook_runtime import compiler_snapshot
 from shipmblang.notebook_store import NotebookStore
 
 
@@ -78,7 +79,7 @@ class NotebookTests(unittest.TestCase):
                 code, result = execute_program(starter["source"], "run")
                 self.assertEqual(code, 0)
                 self.assertEqual(result["compiler"]["version"], "0.5.0")
-                self.assertEqual(result["compiler"]["commit"], "ecaf8078aa7507c2c4df44959adba6032aa65c80")
+                self.assertEqual(result["compiler"]["commit"], compiler_snapshot()["commit"])
                 self.assertEqual(result["runtime"]["stdout"], starter["output"])
 
     def test_media_never_reaches_run_in_notes(self):

@@ -1,0 +1,259 @@
+# Pull shipmblang-compiler's default branch back into the vendored snapshot.
+# Schedule, manual dispatch, and repository_dispatch only. pull_request is
+# absent so a fork cannot read SHIPMBLANG_COMPILER_TOKEN. Local edits that
+# upstream has not changed are kept and listed in local_patches; they are not
+# overwritten. source_commit advances when the snapshot is adopted.
+
+name: Sync compiler downstream
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+  repository_dispatch:
+    types: [compiler-updated]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: shipmblang-compiler-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Bundle compiler HEAD into shipmblang
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Require compiler token
+        env:
+          SHIPMBLANG_COMPILER_TOKEN: ${{ secrets.SHIPMBLANG_COMPILER_TOKEN }}
+        run: |
+          if [ -z "${SHIPMBLANG_COMPILER_TOKEN}" ]; then
+            echo "::error::Missing Actions secret SHIPMBLANG_COMPILER_TOKEN. Create a fine-grained PAT for qramarq/shipmblang-compiler with Contents read/write and Pull requests read/write, then add it under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+      - name: Check out shipmblang
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Check out shipmblang-compiler
+        uses: actions/checkout@v4
+        with:
+          repository: qramarq/shipmblang-compiler
+          token: ${{ secrets.SHIPMBLANG_COMPILER_TOKEN }}
+          path: upstream
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Plan, test, and open pull request
+        env:
+          SHIPMBLANG_COMPILER_TOKEN: ${{ secrets.SHIPMBLANG_COMPILER_TOKEN }}
+          DEFAULT_TOKEN: ${{ github.token }}
+          COMPILER_SYNC_INBOUND_AUTOMERGE: ${{ vars.COMPILER_SYNC_INBOUND_AUTOMERGE }}
+          LANG_REPO: qramarq/shipmblang
+          LANG_BASE: ${{ github.event.repository.default_branch }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config commit.gpgsign false
+          head=$(git -C upstream rev-parse HEAD)
+          short="${head::7}"
+          project=$(python tools/compiler_sync.py locate upstream)
+          payload=$(python - << 'PY'
+          import json, os, re
+          path = os.environ.get("GITHUB_EVENT_PATH")
+          if not path:
+              print("")
+              raise SystemExit
+          event = json.load(open(path))
+          sha = str((event.get("client_payload") or {}).get("commit") or "")
+          print(sha if re.fullmatch(r"[0-9a-fA-F]{40}", sha) else "")
+          PY
+          )
+          if [ -n "$payload" ] && [ "$payload" != "$head" ]; then
+            echo "repository_dispatch named ${payload}; syncing default-branch HEAD ${head} instead." >> "$GITHUB_STEP_SUMMARY"
+          fi
+          plan_dir=$(mktemp -d)
+          set +e
+          python tools/compiler_sync.py plan-inbound --snapshot shipmblang/_compiler --project "$project" --commit "$head" --output "$plan_dir"
+          code=$?
+          set -e
+          if [ "$code" -eq 2 ]; then
+            echo "::error::Inbound sync found files edited on both sides. No pull request was opened."
+            exit 1
+          fi
+          if [ "$code" -ne 0 ]; then
+            exit "$code"
+          fi
+          action=$(python -c 'import json,sys; print(json.load(open(sys.argv[1]))["action"])' "$plan_dir/plan.json")
+          echo "Inbound plan: ${action} for ${head}." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$action" = "up-to-date" ]; then
+            echo "Snapshot already matches shipmblang-compiler@${short}. No pull request." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          if [ "$action" = "record-patches" ]; then
+            branch="sync/local-patches"
+            title="Record compiler local_patches"
+            subject="Record compiler local_patches"
+            marker="Compiler-Sync: local-patches"
+          elif [ "$action" = "adopt" ]; then
+            branch="sync/compiler-${short}"
+            title="Sync compiler from shipmblang-compiler@${short}"
+            subject="$title"
+            marker="Compiler-Sync: downstream"
+          else
+            echo "::error::Unexpected inbound action ${action}"
+            exit 1
+          fi
+          case "$branch" in
+            sync/local-patches|sync/compiler-*) ;;
+            *) echo "::error::Refusing to push unexpected branch ${branch}"; exit 1 ;;
+          esac
+          if [ "$branch" = "$LANG_BASE" ]; then
+            echo "::error::Refusing to push the default branch."
+            exit 1
+          fi
+
+          lang_token="$DEFAULT_TOKEN"
+          token_kind="github_token"
+          if GH_TOKEN="$SHIPMBLANG_COMPILER_TOKEN" gh api "repos/${LANG_REPO}" --jq .permissions.push | grep -qx true; then
+            lang_token="$SHIPMBLANG_COMPILER_TOKEN"
+            token_kind="pat"
+          fi
+          export GH_TOKEN="$lang_token"
+          gh auth setup-git
+          git fetch origin "$LANG_BASE"
+          if git ls-remote --heads origin "$branch" | grep -q .; then
+            git checkout -B sync-work "origin/${branch}"
+            if ! git merge --no-edit "origin/${LANG_BASE}"; then
+              echo "::error::Could not merge ${LANG_BASE} into ${branch}. Refusing to force-push."
+              exit 1
+            fi
+          else
+            git checkout -B sync-work "origin/${LANG_BASE}"
+          fi
+          python tools/compiler_sync.py install-candidate --candidate "$plan_dir/candidate" --snapshot shipmblang/_compiler --pin apps/mobile/src/compiler-snapshot.json
+          git add -- shipmblang/_compiler apps/mobile/src/compiler-snapshot.json
+          bad_files=$(git diff --cached --name-only | python -c 'import sys
+          bad=[line.strip() for line in sys.stdin if line.strip() and not line.startswith("shipmblang/_compiler/") and line.strip()!="apps/mobile/src/compiler-snapshot.json"]
+          print("\n".join(bad))')
+          if [ -n "$bad_files" ]; then
+            echo "::error::Refusing to commit unexpected files: ${bad_files}"
+            exit 1
+          fi
+          owner=$(gh repo view "$LANG_REPO" --json owner --jq .owner.login)
+          if git diff --cached --quiet; then
+            if git rev-parse --verify "origin/${branch}" >/dev/null 2>&1; then
+              ahead=$(git rev-list --count "origin/${branch}..HEAD")
+              if [ "$ahead" != "0" ]; then
+                if ! git push origin "HEAD:refs/heads/${branch}"; then
+                  echo "::error::Push of ${branch} was rejected. Refusing to force-push."
+                  exit 1
+                fi
+              fi
+            fi
+            echo "Branch ${branch} already contains this snapshot." >> "$GITHUB_STEP_SUMMARY"
+            existing=$(gh pr list --repo "$LANG_REPO" --head "${owner}:${branch}" --state open --json number --jq '.[0].number')
+            if [ -z "$existing" ] || [ "$existing" = "null" ]; then
+              echo "No open pull request for ${branch}. Rerun after the branch is deleted, or open one manually." >> "$GITHUB_STEP_SUMMARY"
+            fi
+            exit 0
+          fi
+
+          python -m pip install --upgrade pip setuptools wheel
+          python tools/check_bundled_install.py --snapshot "$plan_dir/candidate"
+          python -m pip install -e .
+          python -c "import faulthandler, unittest; faulthandler.dump_traceback_later(180, exit=True); unittest.main(module=None, argv=['unittest', 'discover', '-s', 'tests', '-v'])"
+
+          git commit -m "$subject" -m "$marker" -m "Upstream shipmblang-compiler@${head}."
+          if ! git push origin "HEAD:refs/heads/${branch}"; then
+            echo "::error::Push of ${branch} was rejected. Refusing to force-push."
+            exit 1
+          fi
+          export MARKER="$marker"
+          export TOKEN_KIND="$token_kind"
+          export PLAN_DIR="$plan_dir"
+          python - << 'PY'
+          import json, os
+          plan = json.load(open(os.environ["PLAN_DIR"] + "/plan.json"))
+          lines = []
+          if plan["action"] == "adopt" and plan["metadata_only"]:
+              lines.append("ShipMBLang already has this compiler content. This updates `source_commit` to `%s` and clears `local_patches`." % plan["head"])
+          elif plan["action"] == "adopt":
+              lines.append("Brings the vendored compiler in line with shipmblang-compiler@%s." % plan["head"][:7])
+              lines.append("")
+              lines.append("Files still different from that commit stay in `local_patches` and keep their ShipMBLang bytes.")
+          else:
+              lines.append("Upstream `%s` has not absorbed the vendored edits. `source_commit` stays put. `local_patches` lists the normalized diffs so the manifest is honest. No compiler bytes are overwritten." % plan["head"][:7])
+          lines.append("")
+          lines.append(os.environ["MARKER"])
+          lines.append("")
+          if plan["changed"]:
+              lines.append("## Updated files")
+              for name in plan["changed"]:
+                  lines.append("- `%s`" % name)
+              lines.append("")
+          if plan["patches"]:
+              lines.append("## local_patches")
+              for name in plan["patches"]:
+                  lines.append("- `%s`" % name)
+              lines.append("")
+          if os.environ["TOKEN_KIND"] == "github_token":
+              lines.append("This pull request was opened with the default GITHUB_TOKEN. GitHub will not run pull_request workflows on it. Grant SHIPMBLANG_COMPILER_TOKEN Contents and Pull requests read/write on qramarq/shipmblang, or push an empty commit, so CI starts. Auto-merge is not enabled on GITHUB_TOKEN pull requests because checks would never start.")
+              lines.append("")
+          lines.append("Workflow run: %s" % os.environ["RUN_URL"])
+          open("/tmp/inbound-body.md", "w").write("\n".join(lines) + "\n")
+          PY
+          existing=$(gh pr list --repo "$LANG_REPO" --head "${owner}:${branch}" --state open --json number --jq '.[0].number')
+          if [ -n "$existing" ] && [ "$existing" != "null" ]; then
+            gh pr edit "$existing" --repo "$LANG_REPO" --title "$title" --body-file /tmp/inbound-body.md
+            number="$existing"
+          else
+            number=$(gh pr create --repo "$LANG_REPO" --base "$LANG_BASE" --head "$branch" --title "$title" --body-file /tmp/inbound-body.md --json number --jq .number)
+          fi
+          echo "Opened or updated ${LANG_REPO}#${number} (${action})." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$action" = "adopt" ]; then
+            gh pr list --repo "$LANG_REPO" --state open --limit 50 --json number,headRefName > /tmp/lang-prs.json
+            KEEP_BRANCH="$branch" python - << 'PY'
+          import json, os, subprocess
+          keep = os.environ["KEEP_BRANCH"]
+          for pr in json.load(open("/tmp/lang-prs.json")):
+              ref = pr["headRefName"]
+              if ref == keep:
+                  continue
+              if ref == "sync/local-patches" or ref.startswith("sync/compiler-"):
+                  subprocess.check_call(["gh", "pr", "close", str(pr["number"]), "--repo", os.environ["LANG_REPO"], "--comment", f"Superseded by `{keep}`."])
+          PY
+          fi
+          case "${COMPILER_SYNC_INBOUND_AUTOMERGE:-}" in
+            true|True|TRUE|1|yes|on) want_auto=true ;;
+            *) want_auto=false ;;
+          esac
+          if [ "$want_auto" != true ]; then
+            echo "COMPILER_SYNC_INBOUND_AUTOMERGE is not true. Left the pull request for review." >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$token_kind" != "pat" ]; then
+            echo "Inbound auto-merge was requested, but the pull request was opened with GITHUB_TOKEN so CI will not start. Left it open." >> "$GITHUB_STEP_SUMMARY"
+          elif merge_output=$(gh pr merge "$number" --repo "$LANG_REPO" --squash --auto 2>&1); then
+            echo "Enabled squash auto-merge on ${LANG_REPO}#${number}." >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo "Auto-merge is not available for ${LANG_REPO}#${number}. The pull request was left open."
+              echo ""
+              echo '```'
+              echo "$merge_output"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
