@@ -136,8 +136,10 @@ def _vision_executor_for(result, vision_executor):
     capabilities = (result.get("target_code") or {}).get("runtime_contract", {}).get("required_capabilities") or []
     if "vision" not in capabilities or vision_executor is not None:
         return vision_executor
+    from shipmblang.standalone import activate_packed_vision_library
     from shipmblang._compiler.vision import VisionExecutor, vision_library_path
 
+    activate_packed_vision_library()
     if not Path(vision_library_path()).is_file():
         raise ValueError(VISION_LIBRARY_REQUIRED)
     return VisionExecutor()

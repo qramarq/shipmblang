@@ -46,7 +46,12 @@ Package 0.6.0. The bundled compiler snapshot is 0.6.0 from compiler commit
   install. A build made with `--require-editor` already contains the notebook,
   so opening it does not need Rust or Cargo.
 - **`shipmblang setup`.** Installs missing Rust, FFmpeg (with ffprobe), VLC,
-  and Ollama from their official sources. Nothing is copied into the executable.
+  and Ollama from their official sources. Those tools are not copied into the
+  executable.
+- **Native vision.** `shipmblang setup --vision` downloads the pinned MiniCPM-V
+  4.6 weights, checks their hashes, quantizes the projector, and builds
+  `libshipmb_vision` when a compiler is available. See
+  [native vision](docs/native.md). Windows and macOS were not verified.
 - **Chat-room notebook.** `shipmblang notebook` and `shipmblang editor` open
   saved notes as rooms.
 - **`shipmblang lsp` and editors.** Diagnostics, hover, and compile/run over
@@ -64,8 +69,11 @@ artifacts, not a GitHub Release. No Python install is required.
 
 Unpack the artifact and run the installer. It copies the executable onto your
 user `PATH` and then runs `shipmblang setup`, which installs Rust, FFmpeg (with
-ffprobe), VLC, and Ollama when they are missing. Nothing is copied into the
-executable.
+ffprobe), VLC, and Ollama when they are missing. Those tools are not copied
+into the executable. A build made after `python tools/build_vision.py` also
+packs the CPU vision library, `llama-quantize`, and the vision license files.
+The weights stay outside the executable. Run `shipmblang setup --vision` for
+them. Windows and macOS vision builds were not verified.
 
 On Windows, from the unpacked artifact:
 
@@ -137,6 +145,7 @@ Flags below are the ones the CLI accepts. `run` defaults to `--format json`.
 | `shipmblang setup --yes --skip ollama` | Install without asking. `--skip` leaves components untouched. `--yes` does not download an Ollama model. |
 | `shipmblang setup --only rust,ffmpeg` | Limit the command to those components. Names are `rust`, `ffmpeg` (includes ffprobe), `vlc`, and `ollama`. |
 | `shipmblang setup --pull-models --model NAME` | After Ollama is available, run `ollama pull NAME`. There is no default model. |
+| `shipmblang setup --vision` | Download the pinned MiniCPM-V 4.6 weights, quantize the projector, and build or reuse `libshipmb_vision`. `--yes` skips the prompt. `--offline` does not use the network. `--check` reports what is missing. |
 | `shipmblang lsp` | Language server on stdin/stdout. `shipmblang lsp --check` prints `lsp ok`. |
 | `shipmblang --version` | Print `shipmblang 0.6.0`. `-V` is the same flag. |
 | `shipmblang --help` | Print the command list. `-h` is the same flag. |

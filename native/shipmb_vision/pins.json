@@ -1,0 +1,37 @@
+{
+  "llama_cpp": {
+    "tag": "b11846",
+    "commit": "1a24df163920a4744a95373d178d790b72a9bb2f",
+    "license": "MIT"
+  },
+  "language_model": {
+    "name": "MiniCPM-V-4_6-Q4_K_M.gguf",
+    "source": "https://huggingface.co/openbmb/MiniCPM-V-4.6-gguf",
+    "bytes": 529101504,
+    "sha256": "6b0c74962c44bc6bf4b655b9b02c13eda9d5a0491543ae976d1ac18e4b7892e2"
+  },
+  "mmproj_f16": {
+    "name": "mmproj-model-f16.gguf",
+    "source": "https://huggingface.co/openbmb/MiniCPM-V-4.6-gguf",
+    "bytes": 1108746944,
+    "sha256": "ca931d861d0801d9003e50697cd764721a334107c0e0415a51168ee1938462de"
+  },
+  "mmproj_q8_0": {
+    "name": "mmproj-model-q8_0.gguf",
+    "producer": "llama-quantize from the vendored b11846 tree, type Q8_0, no extra flags. ffn_down weights whose dimension is not divisible by 32 stay F16.",
+    "bytes": 726599744,
+    "sha256": "cc6e95b117ade93ca9dfc5a81998d14a19b9ae8ce4eb44658a20b55407a7d54f",
+    "sha256_prefix": "cc6e95b1",
+    "sha256_suffix": "07a7d54f"
+  },
+  "upstream_safetensors": {
+    "name": "model.safetensors",
+    "bytes": 2600957528,
+    "sha256": "aa67da5820411176d0f9593a00265bc25a73c45f62dc5a605a93b1b5516a0d34"
+  },
+  "rea": {
+    "repository": "https://github.com/morluto/rea",
+    "commit": "9d4293be275f14a24aae5855ee66648704fdbbda",
+    "command": "inspect-model-artifact"
+  }
+}

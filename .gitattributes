@@ -5,6 +5,8 @@
 *.onnx binary
 *.pt binary
 *.vsix binary
+*.gguf binary
+*.npz binary
 
 # Keep snapshot hashes stable across Windows checkouts and Git storage.
 shipmblang/_compiler/** -text

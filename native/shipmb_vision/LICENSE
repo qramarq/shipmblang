@@ -1,0 +1,41 @@
+ShipMBCompiler Proprietary License
+
+Copyright (c) 2026 Zmachinery. All rights reserved.
+
+1. Ownership
+ShipMBCompiler, including its source code and accompanying proprietary
+materials (the "Software"), is the property of Zmachinery and is provided
+through ShipMB. Zmachinery retains all right, title, and interest in the
+Software. ShipMB is the channel for authorization; no ownership is transferred
+by access, delivery, possession, or use of the Software.
+
+2. No grant of rights
+This notice grants no license. Without prior written authorization from
+Zmachinery through ShipMB, no person or entity may access, inspect, use, copy,
+modify, create derivative works of, publish, disclose, distribute, sublicense,
+sell, or otherwise make the Software or its source code available to anyone.
+Any authorization is limited to the persons, purposes, and rights expressly
+identified in that written authorization. Repository access alone does not
+grant any additional rights.
+
+3. Confidentiality and restricted access
+The source code and nonpublic proprietary materials are confidential.
+Authorized recipients must keep them confidential, restrict access to persons
+expressly authorized by Zmachinery through ShipMB, and must not upload them to
+public repositories or otherwise disclose them without prior written
+authorization. All copies must preserve this notice. The source repository
+must remain private unless Zmachinery expressly authorizes otherwise in writing.
+
+4. Separate rights
+Third-party materials remain subject to their respective ownership and license
+terms. This notice does not override those terms, revoke rights previously
+granted under other licenses, or restrict rights that cannot lawfully be
+restricted. It makes no claim to ownership of independently authored input
+programs or their compiled output.
+
+5. Disclaimer
+TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE SOFTWARE IS PROVIDED "AS IS",
+WITHOUT WARRANTIES OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. ZMACHINERY SHALL NOT BE
+LIABLE FOR CLAIMS, DAMAGES, OR OTHER LIABILITY ARISING FROM THE SOFTWARE,
+EXCEPT AS REQUIRED BY LAW OR EXPRESSLY AGREED IN WRITING.

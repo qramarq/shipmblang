@@ -146,6 +146,9 @@ def _peel_frozen_python_args(argv):
 
 def main():
     _configure_frozen_stdio()
+    from .standalone import activate_packed_vision_library
+
+    activate_packed_vision_library()
     from .setup_tools import apply_recorded_tool_env
 
     apply_recorded_tool_env()

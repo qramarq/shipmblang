@@ -81,3 +81,8 @@ native/bin/
 native/build*/
 native/cpp/
 native/BUNDLED.json
+
+# Built shipmb_vision library. vision.py loads it from beside itself.
+# The vendored sources stay in native/shipmb_vision/; this directory is output.
+shipmblang/_compiler/native/
+native/shipmb_vision/build/

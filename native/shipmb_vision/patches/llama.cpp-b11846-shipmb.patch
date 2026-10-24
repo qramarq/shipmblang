@@ -1,0 +1,88 @@
+--- a/cmake/build-info.cmake	2026-10-24 04:31:23.775279580 +0000
++++ b/cmake/build-info.cmake	2026-10-24 03:26:10.887761645 +0000
+@@ -16,7 +16,8 @@
+ endif()
+ 
+ # Get the commit count and hash
+-if(Git_FOUND)
++# Skip host-repo discovery when the parent already pinned llama.cpp b11846.
++if(Git_FOUND AND NOT LLAMA_BUILD_COMMIT)
+     execute_process(
+         COMMAND ${GIT_EXECUTABLE} rev-parse --short HEAD
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+--- a/ggml/CMakeLists.txt	2026-10-24 04:31:23.903279987 +0000
++++ b/ggml/CMakeLists.txt	2026-10-24 03:26:10.907760844 +0000
+@@ -11,7 +11,8 @@
+ list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/")
+ 
+ find_program(GIT_EXE NAMES git git.exe NO_CMAKE_FIND_ROOT_PATH)
+-if(GIT_EXE)
++# ShipMB pins the commit. A copy inside another git checkout must not inherit that checkout.
++if(GIT_EXE AND NOT GGML_BUILD_COMMIT)
+     # Get current git commit hash
+     execute_process(COMMAND ${GIT_EXE} rev-parse --short HEAD
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+--- a/ggml/src/ggml.c	2026-10-24 04:31:24.011280324 +0000
++++ b/ggml/src/ggml.c	2026-10-24 04:03:30.862837134 +0000
+@@ -266,7 +266,9 @@
+     } else {
+         // default: print error and backtrace to stderr
+         fprintf(stderr, "%s\n", message);
++        fflush(stderr);
+         ggml_print_backtrace();
++        fflush(stderr);
+     }
+ 
+     abort();
+--- a/ggml/src/ggml-cpu/ggml-cpu.c	2026-10-24 04:31:23.915280025 +0000
++++ b/ggml/src/ggml-cpu/ggml-cpu.c	2026-10-24 04:03:30.862837134 +0000
+@@ -163,7 +163,9 @@
+ typedef DWORD thread_ret_t;
+ static int pthread_create(pthread_t * out, void * unused, thread_ret_t(*func)(void *), void * arg) {
+     (void) unused;
+-    HANDLE handle = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE) func, arg, 0, NULL);
++    // The executable's default reserve is 1 MiB. Graph compute overflows that and
++    // the OS reports it as an access violation. Reserve 8 MiB explicitly.
++    HANDLE handle = CreateThread(NULL, 8 * 1024 * 1024, (LPTHREAD_START_ROUTINE) func, arg, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
+     if (handle == NULL)
+     {
+         return EAGAIN;
+--- a/conversion/minicpm.py	2026-10-24 04:31:23.787279619 +0000
++++ b/conversion/minicpm.py	2026-10-24 04:03:30.862837134 +0000
+@@ -123,6 +123,36 @@
+ class MiniCPMV4_6TextModel(Qwen3_5TextModel):
+     model_arch = gguf.MODEL_ARCH.QWEN35
+ 
++    def __init__(self, dir_model, *args, **kwargs):
++        # The parity fixture has no MTP tensors and no Hugging Face tokenizer.
++        # Real MiniCPM-V checkpoints keep the upstream conversion path.
++        hparams = kwargs.get("hparams")
++        if hparams is None:
++            hparams = ModelBase.load_hparams(dir_model, False)
++        if hparams.get("shipmb_vision_fixture"):
++            self.no_mtp = True
++        super().__init__(dir_model, *args, **kwargs)
++
++    def set_vocab(self):
++        if not self.hparams.get("shipmb_vision_fixture"):
++            super().set_vocab()
++            return
++        tokens = [str(token) for token in self.hparams["shipmb_vision_tokens"]]
++        types = [int(token_type) for token_type in self.hparams["shipmb_vision_token_types"]]
++        if len(tokens) != len(types):
++            raise ValueError("shipmb_vision_tokens and shipmb_vision_token_types differ in length")
++        self.gguf_writer.add_tokenizer_model("gpt2")
++        self.gguf_writer.add_tokenizer_pre("qwen35")
++        self.gguf_writer.add_token_list(tokens)
++        self.gguf_writer.add_token_types(types)
++        # The writer drops an empty array, and the BPE loader requires the merges key.
++        self.gguf_writer.add_token_merges(["z z"])
++        self.gguf_writer.add_bos_token_id(int(self.hparams.get("bos_token_id", 0)))
++        self.gguf_writer.add_eos_token_id(int(self.hparams["eos_token_id"]))
++        self.gguf_writer.add_unk_token_id(int(self.hparams["unk_token_id"]))
++        self.gguf_writer.add_add_bos_token(False)
++        self.gguf_writer.add_add_eos_token(False)
++
+     @classmethod
+     def filter_tensors(cls, item: tuple[str, Callable[[], Tensor]]) -> tuple[str, Callable[[], Tensor]] | None:
+         name, gen = item
