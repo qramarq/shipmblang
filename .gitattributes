@@ -19,3 +19,13 @@ shipmblang/_compiler/core.py -text
 shipmblang/_compiler/general_runtime.py -text
 shipmblang/_compiler/runtime.py -text
 shipmblang/_compiler/source_format.py -text
+
+# Vendored vision: LF sources. The llama patch and fixture bytes must survive
+# core.autocrlf=true, or git apply and the parity fixture stop matching.
+native/shipmb_vision/** text eol=lf
+native/shipmb_vision/vendor/** text eol=lf
+native/shipmb_vision/patches/** -text
+native/shipmb_vision/fixtures/** binary
+native/shipmb_vision/**/*.gguf binary
+native/shipmb_vision/**/*.npz binary
+native/shipmb_vision/**/*.png binary

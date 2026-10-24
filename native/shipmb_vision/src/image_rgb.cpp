@@ -7,6 +7,9 @@
 
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
+#ifdef _WIN32
+#define STBI_WINDOWS_UTF8
+#endif
 #define STBI_NO_PSD
 #define STBI_NO_HDR
 #define STBI_NO_PIC

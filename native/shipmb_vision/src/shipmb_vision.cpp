@@ -105,16 +105,97 @@ int physical_cores() {
     return fallback ? (int)fallback : 1;
 }
 
+#if defined(_WIN32)
+std::wstring utf8_to_wide(const std::string &text) {
+    if (text.empty()) return {};
+    int chars = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), (int)text.size(), nullptr, 0);
+    if (chars <= 0) chars = MultiByteToWideChar(CP_UTF8, 0, text.data(), (int)text.size(), nullptr, 0);
+    if (chars <= 0) return {};
+    std::wstring wide(chars, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, text.data(), (int)text.size(), wide.data(), chars);
+    return wide;
+}
+
+std::string wide_to_utf8(const std::wstring &wide) {
+    if (wide.empty()) return {};
+    int bytes = WideCharToMultiByte(CP_UTF8, 0, wide.data(), (int)wide.size(), nullptr, 0, nullptr, nullptr);
+    if (bytes <= 0) return {};
+    std::string out(bytes, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wide.data(), (int)wide.size(), out.data(), bytes, nullptr, nullptr);
+    return out;
+}
+
+std::optional<std::filesystem::path> windows_env_path(const wchar_t *name) {
+    DWORD length = GetEnvironmentVariableW(name, nullptr, 0);
+    if (length == 0) return std::nullopt;
+    std::wstring value(length, L'\0');
+    DWORD written = GetEnvironmentVariableW(name, value.data(), length);
+    if (written == 0) return std::nullopt;
+    value.resize(written);
+    if (value.empty()) return std::nullopt;
+    return std::filesystem::path(value);
+}
+#endif
+
+std::filesystem::path path_from_utf8(const std::string &text) {
+#if defined(_WIN32)
+    std::wstring wide = utf8_to_wide(text);
+    if (wide.empty() && !text.empty()) throw std::runtime_error("Vision path is not valid UTF-8.");
+    return std::filesystem::path(wide);
+#else
+    return std::filesystem::path(text);
+#endif
+}
+
+std::string display_path(const std::filesystem::path &path) {
+#if defined(_WIN32)
+    return wide_to_utf8(path.wstring());
+#else
+    return path.string();
+#endif
+}
+
+// ggml_fopen and stb_image open UTF-8 via _wfopen on Windows. The \\?\ prefix
+// is what lets those calls pass MAX_PATH when long-path policy is off.
+// Python's setup writes the same prefix for the cache files.
+std::filesystem::path extended_path(const std::filesystem::path &input) {
+#if defined(_WIN32)
+    namespace fs = std::filesystem;
+    std::error_code error;
+    fs::path absolute = fs::absolute(input, error);
+    if (error) absolute = input;
+    std::wstring wide = absolute.wstring();
+    if (wide.rfind(L"\\\\?\\", 0) == 0) return fs::path(wide);
+    if (wide.size() >= 2 && wide[0] == L'\\' && wide[1] == L'\\') {
+        return fs::path(std::wstring(L"\\\\?\\UNC\\") + wide.substr(2));
+    }
+    if (wide.size() >= 2 && wide[1] == L':') return fs::path(std::wstring(L"\\\\?\\") + wide);
+    return absolute;
+#else
+    return input;
+#endif
+}
+
+std::string utf8_open_path(const std::filesystem::path &input) {
+#if defined(_WIN32)
+    return wide_to_utf8(extended_path(input).wstring());
+#else
+    return input.string();
+#endif
+}
+
 std::filesystem::path default_model_dir() {
     namespace fs = std::filesystem;
+#if defined(_WIN32)
+    if (auto dir = windows_env_path(L"SHIPMB_VISION_MODEL_DIR")) return *dir;
+    if (auto local = windows_env_path(L"LOCALAPPDATA")) return *local / "shipmblang" / "vision";
+    if (auto user = windows_env_path(L"USERPROFILE")) return *user / "AppData" / "Local" / "shipmblang" / "vision";
+    return fs::path("shipmblang") / "vision";
+#else
     if (const char *env = std::getenv("SHIPMB_VISION_MODEL_DIR")) {
         if (*env) return fs::path(env);
     }
-#if defined(_WIN32)
-    if (const char *local = std::getenv("LOCALAPPDATA")) return fs::path(local) / "shipmblang" / "vision";
-    if (const char *user = std::getenv("USERPROFILE")) return fs::path(user) / "AppData" / "Local" / "shipmblang" / "vision";
-    return fs::path("shipmblang") / "vision";
-#elif defined(__APPLE__)
+#if defined(__APPLE__)
     const char *home = std::getenv("HOME");
     return fs::path(home ? home : ".") / "Library" / "Caches" / "shipmblang" / "vision";
 #else
@@ -123,6 +204,7 @@ std::filesystem::path default_model_dir() {
     }
     const char *home = std::getenv("HOME");
     return fs::path(home ? home : ".") / ".cache" / "shipmblang" / "vision";
+#endif
 #endif
 }
 
@@ -251,13 +333,15 @@ struct Engine {
         if (predict > 256) predict = 256;
 
         namespace fs = std::filesystem;
-        fs::path path(image_path);
-        if (!fs::is_regular_file(path)) throw std::runtime_error("Vision image was not found.");
-        std::string image_sha = sha256_file(path.string());
+        fs::path path = path_from_utf8(image_path);
+        fs::path opened = extended_path(path);
+        if (!fs::is_regular_file(opened)) throw std::runtime_error("Vision image was not found.");
+        std::string opened_utf8 = utf8_open_path(path);
+        std::string image_sha = sha256_file(opened_utf8);
 
         smb_rgb decoded{};
         char err[256];
-        if (smb_rgb_decode_file(path.string().c_str(), &decoded, err, sizeof err)) throw std::runtime_error(err);
+        if (smb_rgb_decode_file(opened_utf8.c_str(), &decoded, err, sizeof err)) throw std::runtime_error(err);
         smb_rgb owned = decoded;
         smb_rgb resized{};
         if (!detailed_query) {
@@ -423,7 +507,7 @@ nlohmann::json parse_json(const char *text) {
 
 std::filesystem::path weight_file(const nlohmann::json &config, const char *key, const std::filesystem::path &dir, const char *fallback) {
     if (config.contains(key) && config.at(key).is_string() && !config.at(key).get<std::string>().empty())
-        return std::filesystem::path(config.at(key).get<std::string>());
+        return path_from_utf8(config.at(key).get<std::string>());
     return dir / fallback;
 }
 
@@ -452,13 +536,17 @@ void *smb_vision_create(const char *config_json) {
         nlohmann::json config = parse_json(config_json);
         namespace fs = std::filesystem;
         fs::path dir = config.contains("model_dir") && config.at("model_dir").is_string() && !config.at("model_dir").get<std::string>().empty()
-                           ? fs::path(config.at("model_dir").get<std::string>())
+                           ? path_from_utf8(config.at("model_dir").get<std::string>())
                            : default_model_dir();
         fs::path llm = weight_file(config, "model_path", dir, kLlmName);
         fs::path mmproj = weight_file(config, "mmproj_path", dir, kMmprojName);
-        if (!fs::is_regular_file(llm) || !fs::is_regular_file(mmproj)) {
-            throw std::runtime_error(std::string(kMissingWeights) + " Expected " + llm.string() + " and " + mmproj.string() + ".");
+        fs::path llm_open = extended_path(llm);
+        fs::path mmproj_open = extended_path(mmproj);
+        if (!fs::is_regular_file(llm_open) || !fs::is_regular_file(mmproj_open)) {
+            throw std::runtime_error(std::string(kMissingWeights) + " Expected " + display_path(llm) + " and " + display_path(mmproj) + ".");
         }
+        std::string llm_utf8 = utf8_open_path(llm);
+        std::string mmproj_utf8 = utf8_open_path(mmproj);
         int threads = config.value("n_threads", 0);
         if (threads <= 0) threads = physical_cores();
         if (threads > 256) threads = 256;
@@ -480,7 +568,7 @@ void *smb_vision_create(const char *config_json) {
         engine->n_ctx = n_ctx;
         engine->max_tokens = max_tokens;
         engine->detailed = detailed;
-        engine->model_hash = sha256_file(llm.string()) + sha256_file(mmproj.string());
+        engine->model_hash = sha256_file(llm_utf8) + sha256_file(mmproj_utf8);
 
         llama_model_params model_params = llama_model_default_params();
         if (!use_gpu) model_params.n_gpu_layers = 0;
@@ -489,7 +577,7 @@ void *smb_vision_create(const char *config_json) {
         // tail of the last page; Windows raises an access violation past EOF.
         model_params.load_mode = LLAMA_LOAD_MODE_NONE;
 #endif
-        engine->model = llama_model_load_from_file(llm.string().c_str(), model_params);
+        engine->model = llama_model_load_from_file(llm_utf8.c_str(), model_params);
         if (!engine->model) throw std::runtime_error("Vision language model failed to load.");
 
         llama_context_params context_params = llama_context_default_params();
@@ -508,7 +596,7 @@ void *smb_vision_create(const char *config_json) {
         mtmd_params.print_timings = false;
         mtmd_params.warmup = warmup;
         mtmd_params.flash_attn_type = context_params.flash_attn_type;
-        engine->mctx = mtmd_init_from_file(mmproj.string().c_str(), engine->model, mtmd_params);
+        engine->mctx = mtmd_init_from_file(mmproj_utf8.c_str(), engine->model, mtmd_params);
         if (!engine->mctx) throw std::runtime_error("Vision encoder failed to load.");
         engine->sampler = llama_sampler_init_greedy();
         if (!engine->sampler) throw std::runtime_error("Vision sampler failed to initialize.");
