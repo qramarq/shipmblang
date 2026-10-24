@@ -38,6 +38,7 @@ def main():
         print("Usage:")
         print("  python -m shipmblang compile     Compile natural ShipMBLang sentences")
         print("  python -m shipmblang run         Run natural ShipMBLang sentences")
+        print("  python -m shipmblang setup       Install Rust, FFmpeg, VLC, and Ollama if missing")
         print("  python -m shipmblang program.shipmb")
         print("                       Run a .shipmb file (direct pipeline, general profile, memory off)")
         print("  python -m shipmblang --version   Print the ShipMBLang version")

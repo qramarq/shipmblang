@@ -9,6 +9,27 @@ Download `shipmblang` for Linux or macOS, or `shipmblang.exe` for Windows, from 
 Open a successful run and save the artifact for your system. These are Actions
 artifacts, not a GitHub Release. No Python install is required.
 
+One install command puts that executable on your PATH and installs Rust, FFmpeg
+(with ffprobe), VLC, and Ollama from their official sources. Nothing is copied
+into the executable. On macOS or Linux, from the unpacked artifact:
+
+```sh
+./install.sh
+```
+
+On Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+The installer asks once before it installs anything. `shipmblang setup --yes` skips
+the question. `shipmblang setup --check` only reports what is missing.
+`shipmblang setup --skip ollama` leaves a component out. Rust is optional while
+you use the packed editor; it is installed because building from source uses
+Cargo. See [the standalone guide](docs/standalone.md) for each operating system,
+where each tool comes from, and the licenses.
+
 Run a program by passing the file:
 
 ```sh

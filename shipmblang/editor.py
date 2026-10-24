@@ -154,7 +154,13 @@ def main() -> None:
         command, cwd, env = editor_launch_plan(args.database, _editor_extra(args))
         completed = subprocess.run(command, cwd=cwd, env=env, check=False)
     except EditorLaunchError as error:
-        parser.exit(2, f"{error}\n")
+        from .setup_tools import missing_tool_hint
+
+        hint = missing_tool_hint(str(error))
+        message = f"{error}\n"
+        if hint:
+            message += f"{hint}\n"
+        parser.exit(2, message)
     except OSError as error:
         parser.exit(2, f"Could not start the Ratatui editor: {error}\n")
     raise SystemExit(completed.returncode)

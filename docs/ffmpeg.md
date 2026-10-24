@@ -2,7 +2,9 @@
 
 Media instructions use the default general English pipeline. Install FFmpeg and
 ffprobe separately to execute them; compilation does not process media or require
-those executables. ShipMBLang does not download either tool.
+those executables. `shipmblang setup` can install them from the official package
+source for your system. The executable does not contain FFmpeg. See
+[the standalone guide](standalone.md).
 
 Compile the [transcoding example](../examples/ffmpeg-transcode.shipmb):
 
