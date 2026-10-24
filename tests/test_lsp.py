@@ -113,7 +113,7 @@ class ServerTests(unittest.TestCase):
     def test_cli_version_and_check(self):
         version = subprocess.run([sys.executable, "-m", "shipmblang", "--version"], capture_output=True, text=True, check=False)
         self.assertEqual(version.returncode, 0, version.stderr)
-        self.assertTrue(version.stdout.startswith("shipmblang "))
+        self.assertEqual(version.stdout.strip(), "shipmblang 0.6.0")
         checked = subprocess.run([sys.executable, "-m", "shipmblang", "lsp", "--check"], capture_output=True, text=True, check=False)
         self.assertEqual(checked.returncode, 0, checked.stderr)
         self.assertIn("lsp ok", checked.stdout)
