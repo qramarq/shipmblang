@@ -126,7 +126,24 @@ def _ready(result):
             and not any(d.get("level") == "error" for d in result.get("diagnostics", [])))
 
 
-def _run_direct_result(result, *, host=None, ffmpeg_executor=None, vlc_executor=None):
+VISION_LIBRARY_REQUIRED = (
+    "Vision execution requires the shipmb_vision library / run shipmblang setup --vision"
+)
+
+
+def _vision_executor_for(result, vision_executor):
+    """Use a supplied executor, or the native library when that file is present."""
+    capabilities = (result.get("target_code") or {}).get("runtime_contract", {}).get("required_capabilities") or []
+    if "vision" not in capabilities or vision_executor is not None:
+        return vision_executor
+    from shipmblang._compiler.vision import VisionExecutor, vision_library_path
+
+    if not Path(vision_library_path()).is_file():
+        raise ValueError(VISION_LIBRARY_REQUIRED)
+    return VisionExecutor()
+
+
+def _run_direct_result(result, *, host=None, ffmpeg_executor=None, vlc_executor=None, vision_executor=None):
     if not _ready(result):
         return result
     from shipmblang._compiler.runtime import run_artifact
@@ -136,15 +153,19 @@ def _run_direct_result(result, *, host=None, ffmpeg_executor=None, vlc_executor=
         options["ffmpeg_executor"] = ffmpeg_executor
     if vlc_executor is not None:
         options["vlc_executor"] = vlc_executor
+    vision_executor = _vision_executor_for(result, vision_executor)
+    if vision_executor is not None:
+        options["vision_executor"] = vision_executor
     state, diagnostics = run_artifact(result["target_code"], **options)
     return {**result, "runtime": state,
             "diagnostics": [*result.get("diagnostics", []), *[d.to_dict() for d in diagnostics]]}
 
 
-def run_direct_program(source, *, host=None, ffmpeg_executor=None, vlc_executor=None, **compile_options):
+def run_direct_program(source, *, host=None, ffmpeg_executor=None, vlc_executor=None, vision_executor=None, **compile_options):
     """Compile and run a direct artifact; only an explicitly supplied host is used."""
     return _run_direct_result(compile_direct_program(source, **compile_options),
-                              host=host, ffmpeg_executor=ffmpeg_executor, vlc_executor=vlc_executor)
+                              host=host, ffmpeg_executor=ffmpeg_executor, vlc_executor=vlc_executor,
+                              vision_executor=vision_executor)
 
 
 def _legacy_core_has_statement(core):

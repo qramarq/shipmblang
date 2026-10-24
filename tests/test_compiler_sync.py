@@ -358,13 +358,18 @@ class CompilerSyncTests(unittest.TestCase):
         self.assertEqual(resource_paths(snapshot), non_python)
         self.assertIn('hyperframes/vendor/inter-latin-400-normal.woff2', non_python)
         for name in CRLF_TEXT:
+            self.assertNotIn(b'\r', (snapshot / name).read_bytes(), name)
+        for name in ('core.py', 'general_runtime.py', 'runtime.py', 'source_format.py'):
             data = (snapshot / name).read_bytes()
-            self.assertTrue(data.count(b'\r\n'), name)
+            self.assertIn(b'\r\n', data, name)
             stripped = data.replace(b'\r\n', b'')
             self.assertNotIn(b'\n', stripped, name)
             self.assertNotIn(b'\r', stripped, name)
-        for name in ('compiler.py', 'core.py', 'general_runtime.py', 'runtime.py', 'source_format.py'):
-            self.assertNotIn(b'\r', (snapshot / name).read_bytes(), name)
+        compiler = (snapshot / 'compiler.py').read_bytes()
+        self.assertIn(b'\r\n', compiler)
+        bare = compiler.replace(b'\r\n', b'')
+        self.assertIn(b'\n', bare)
+        self.assertNotIn(b'\r', bare)
         self.assertEqual(pin_for(manifest), compiler_snapshot())
         self.assertEqual(pin_for(manifest), json.loads((ROOT / 'apps/mobile/src/compiler-snapshot.json').read_text()))
 

@@ -194,7 +194,7 @@ Show numbers.
             "[4]\n",
         )
         self.assertEqual(result["target_code"]["version"], "0.3")
-        self.assertEqual(result["target_code"]["debug"]["grammar"], "general-english-0.10")
+        self.assertEqual(result["target_code"]["debug"]["grammar"], "general-english-0.11")
         self.assert_prints(
             """Let numbers be a mutable list of integers with value the empty list of integers.
 Append 4 to numbers.

@@ -85,3 +85,12 @@ class MobileServiceTests(unittest.TestCase):
         self.assertEqual(status, "200 OK")
         self.assertFalse(result["ok"])
         self.assertIn("not enabled in Notes", result["diagnostics"][0]["message"])
+
+    def test_remote_vision_returns_diagnostic_without_native_engine(self):
+        source = 'Look at "photo.jpg" and tell me what is in it.'
+        status, _, result = self.request(create_app(TOKEN), {"source": source, "compiler": compiler_snapshot()})
+        self.assertEqual(status, "200 OK")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["stdout"], "")
+        self.assertIn("cannot run the native vision engine", result["diagnostics"][0]["message"])
+        self.assertNotIn("not enabled in Notes", result["diagnostics"][0]["message"])

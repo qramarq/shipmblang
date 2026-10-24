@@ -1,12 +1,12 @@
 # ShipMBLang
 
 Natural-language programs in a `.shipmb` file, compiled and run on your machine.
-Package 0.6.0. The bundled compiler snapshot is still the 0.5.0 snapshot; it
-changes only when the compiler sync updates it.
+Package 0.6.0. The bundled compiler snapshot is 0.6.0 from compiler commit
+`4972b2f7ff69bc9f0f1105afc02ef4d3d59ef2f5`. It changes only when the compiler sync updates it.
 
 ## What's new in 0.6.0
 
-- **Grammar `general-english-0.10`.** `Otherwise if`, `Repeat N times`,
+- **Grammar `general-english-0.11`.** `Otherwise if`, `Repeat N times`,
   `Append ... to` a list, `#` comments, `divided by`, and `What is ...?` compile
   on the general profile. Save this as `grammar.shipmb`:
 

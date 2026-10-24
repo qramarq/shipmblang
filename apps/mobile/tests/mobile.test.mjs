@@ -64,7 +64,7 @@ test('Check sends source to the compile-only endpoint', async () => {
   await runNote({ url: 'https://compiler.example.com', token: 'test-token' }, 'Show 5.', snapshot, false, fetcher, 'check');
   assert.equal(called.url, 'https://compiler.example.com/v1/check');
   assert.equal(called.body.source, 'Show 5.');
-  assert.equal(called.body.compiler.version, '0.5.0');
+  assert.equal(called.body.compiler.version, snapshot.version);
 });
 
 
