@@ -52,6 +52,9 @@ Package 0.6.0. The bundled compiler snapshot is 0.6.0 from compiler commit
   installs it. See [Native vision](#native-vision) and
   [the vision guide](docs/native.md). Linux is verified. Windows x64 build,
   setup, and run steps are in that section. macOS comes later.
+- **Portable Windows zip.** `python tools/build_portable.py` writes a folder
+  you can unzip on Windows 10 or 11 x64. See
+  [Portable Windows zip](#portable-windows-zip).
 - **Chat-room notebook.** `shipmblang notebook` and `shipmblang editor` open
   saved notes as rooms.
 - **`shipmblang lsp` and editors.** Diagnostics, hover, and compile/run over
@@ -59,6 +62,161 @@ Package 0.6.0. The bundled compiler snapshot is 0.6.0 from compiler commit
   `shipmblang.executablePath` to the standalone executable.
 - **Compiler sync.** Pull requests keep `shipmblang/_compiler/` aligned with
   shipmblang-compiler. See [compiler sync](docs/compiler-sync.md).
+
+## Portable Windows zip
+
+This is a folder you unzip on Windows 10 or 11 x64. It contains the program,
+the vision library, `llama-quantize`, and the Visual C++ runtime DLLs the
+program needs. It does not contain a Python install. Model weights are not in
+the default zip. The first `shipmblang setup --vision` downloads them.
+
+The folder is a PyInstaller onedir build: Python stays in `_internal` and
+starts with the program. Building the vision library from source, including
+the static C runtime, is covered in [Windows](#windows) and
+[the vision guide](docs/native.md#windows-x64).
+
+### Download
+
+There is no release download for this zip. Build it on a Windows x64 machine:
+
+```powershell
+python tools/build_portable.py
+```
+
+The zip is written to `dist/`. For this version the file is
+`dist/shipmblang-0.6.0-windows-x64.zip`. The same command prints one
+`SIZE <name>=<bytes>` line for every row in the [size table](#size) below,
+and `SIZE top 1` through `SIZE top 10` for the largest files in the default zip.
+
+`python tools/build_portable.py --with-weights` also writes
+`dist/shipmblang-0.6.0-windows-x64-with-weights.zip`. That zip adds the two
+runtime weight files after checking them against the pins. It does not add
+the f16 projector. `python tools/build_portable.py --check-weights` checks
+the cache and prints the weight sizes. It does not build a zip.
+
+### Install
+
+Unzip the folder anywhere. You can add that folder to `PATH`. No Python
+install is required, and no separate Visual C++ redistributable is required.
+The Universal CRT is part of Windows 10 and later and is not in the zip.
+
+The Tk notebook window and the `shipmblang editor` command are not in this
+zip. Notes stored in sqlite still work. See [Notebook](#notebook) and
+[Editors](#editors) for those from a Python or Rust install.
+
+The unzipped folder looks like this:
+
+```text
+shipmblang-0.6.0-windows-x64\
+  shipmblang.exe
+  vcruntime140.dll
+  vcruntime140_1.dll
+  _internal\          Python runtime, shipmb_vision.dll, llama-quantize.exe
+  licenses\
+  pins\
+  README.txt
+```
+
+`msvcp140.dll` is next to the executable only when the program imports it.
+A zip built with `--with-weights` also has `vision\` beside `shipmblang.exe`,
+with the language model and the q8 projector. An explicit
+`SHIPMB_VISION_MODEL_DIR` still wins. The default zip has no `vision\` folder.
+
+### Setup
+
+```powershell
+shipmblang setup --vision
+```
+
+That downloads two files, checks each size and SHA-256, then quantizes the
+projector on this machine. Hashes, the Hugging Face revision, and the other
+setup flags are in [Install](#install).
+
+| File | Bytes | Role |
+| --- | --- | --- |
+| `MiniCPM-V-4_6-Q4_K_M.gguf` | 529101504 | downloaded language model |
+| `mmproj-model-f16.gguf` | 1108746944 | downloaded quantize input |
+| `mmproj-model-q8_0.gguf` | 726599744 | produced locally by `llama-quantize` |
+
+The q8 file is not a download. Setup runs `llama-quantize` on the f16 file
+with type `Q8_0` and no extra flags, then checks the result. The three files
+are stored in `%LOCALAPPDATA%\shipmblang\vision`. `SHIPMB_VISION_MODEL_DIR`,
+when it is set to a non-empty path, overrides that directory.
+`shipmblang setup --vision --check` does not download or quantize. It exits
+1 and reports the language model or the q8 projector as missing until setup
+has finished.
+
+### First run
+
+```powershell
+shipmblang --version
+```
+
+Save this as `hello.shipmb`:
+
+```text
+Show 27.
+```
+
+```powershell
+shipmblang hello.shipmb --format text
+```
+
+That prints `27`. `examples/general_sum.shipmb` prints `27` as well.
+
+A vision program needs a PNG, JPEG, GIF, or BMP. Write the path with forward
+slashes. A backslash inside quotes is an escape. The answer uses at most 16
+tokens, so a longer sentence can stop early. More of the run is in
+[Run a program](#run-a-program).
+
+```text
+Look at "C:/Users/me/photo.png" and tell me what is in it.
+```
+
+```powershell
+shipmblang photo.shipmb --format text
+```
+
+### Size
+
+Bytes. A Windows-only measurement that this repository has not recorded yet
+is `TBD (measured on Windows)`. The weight rows are the pinned sizes, and the
+build prints those same numbers. Do not fill a TBD cell from a Linux binary
+or from a guess.
+
+`python tools/build_portable.py` prints `SIZE <line>=<bytes>` using the name
+in the last column. Copy that number into the TBD cell after a Windows build.
+The default command prints `not_built` for the two `--with-weights` rows.
+`python tools/build_portable.py --with-weights` replaces `not_built` with the
+measured sizes. `disk_after_setup_bytes` is the unzipped default zip plus
+`weights_on_disk_bytes`. The exe and Python runtime row includes the
+executable, the Python runtime, licenses, pins, and `README.txt`. It does not
+include the vision DLL, `llama-quantize`, or the VC runtime DLLs. A measured
+`0` for `msvcp140.dll` means that DLL was not shipped.
+
+| Piece | Bytes | Script line |
+| --- | --- | --- |
+| Default zip, compressed | TBD (measured on Windows) | `default_zip_bytes` |
+| Default zip, unzipped | TBD (measured on Windows) | `default_unzipped_bytes` |
+| `--with-weights` zip, compressed | TBD (measured on Windows) | `with_weights_zip_bytes` |
+| `--with-weights` zip, unzipped | TBD (measured on Windows) | `with_weights_unzipped_bytes` |
+| Exe and Python runtime, uncompressed | TBD (measured on Windows) | `exe_and_python_uncompressed_bytes` |
+| Exe and Python runtime, compressed in the default zip | TBD (measured on Windows) | `exe_and_python_compressed_bytes` |
+| `shipmb_vision.dll`, uncompressed | TBD (measured on Windows) | `vision_dll_uncompressed_bytes` |
+| `shipmb_vision.dll`, compressed in the default zip | TBD (measured on Windows) | `vision_dll_compressed_bytes` |
+| `llama-quantize.exe`, uncompressed | TBD (measured on Windows) | `llama_quantize_uncompressed_bytes` |
+| `llama-quantize.exe`, compressed in the default zip | TBD (measured on Windows) | `llama_quantize_compressed_bytes` |
+| VC runtime DLLs, uncompressed | TBD (measured on Windows) | `vc_runtime_uncompressed_bytes` |
+| VC runtime DLLs, compressed in the default zip | TBD (measured on Windows) | `vc_runtime_compressed_bytes` |
+| `vcruntime140.dll` | TBD (measured on Windows) | `vc_vcruntime140_uncompressed_bytes` |
+| `vcruntime140_1.dll` | TBD (measured on Windows) | `vc_vcruntime140_1_uncompressed_bytes` |
+| `msvcp140.dll` | TBD (measured on Windows) | `vc_msvcp140_uncompressed_bytes` |
+| `MiniCPM-V-4_6-Q4_K_M.gguf` | 529101504 | `weight_llm_bytes` |
+| `mmproj-model-f16.gguf` | 1108746944 | `weight_f16_bytes` |
+| `mmproj-model-q8_0.gguf` | 726599744 | `weight_q8_bytes` |
+| First-run download (language model + f16 projector) | 1637848448 | `download_bytes` |
+| Weight files on disk after setup | 2364448192 | `weights_on_disk_bytes` |
+| Disk after setup (unzipped default zip + those weight files) | TBD (measured on Windows) | `disk_after_setup_bytes` |
 
 ## Native vision
 
@@ -186,7 +344,9 @@ python tools\build_standalone.py
 
 `dist\shipmblang.exe` packs the DLL, `llama-quantize.exe`, and the license
 files. The weights stay in the cache. Run `shipmblang setup --vision` on the
-machine that will run vision programs.
+machine that will run vision programs. The portable folder zip, which also
+carries the Visual C++ runtime next to the executable, is
+[Portable Windows zip](#portable-windows-zip).
 
 ### Platforms and licenses
 
@@ -212,7 +372,8 @@ packs the CPU vision library, `llama-quantize`, and the vision license files.
 The weights stay outside the executable. Run `shipmblang setup --vision` for
 them. Linux vision is verified. Windows x64 vision is built from this
 repository with Visual Studio 2022; see [Native vision](#native-vision).
-macOS vision comes later.
+The portable Windows folder zip is a separate build; see
+[Portable Windows zip](#portable-windows-zip). macOS vision comes later.
 
 On Windows, from the unpacked artifact:
 
