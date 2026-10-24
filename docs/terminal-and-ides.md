@@ -1,6 +1,6 @@
 # Terminals and IDEs
 
-The supported command boundary is the installed ShipMBLang Python package. Python 3.11 or newer is required, and the package includes its compiler; no separate compiler checkout or package is needed. Use the same Python environment in your terminal, VS Code, and notebook.
+Run a program without installing Python with the [standalone executable](standalone.md). Terminals, VS Code, and a source checkout use the installed ShipMBLang Python package. Python 3.11 or newer is required for that package, which includes its compiler; no separate compiler checkout or package is needed. Use the same Python environment in your terminal, VS Code, and notebook.
 
 ## Install and run locally
 
@@ -12,7 +12,17 @@ python -m pip install --editable .
 python -m shipmblang run --file examples/quoted_paragraph.shipmb --pipeline direct --profile general --memory off
 ```
 
-The example prints `12`. For the VS Code extension, set
+The example prints `12`. A `.shipmb` file can also be run directly:
+
+```sh
+python -m shipmblang examples/quoted_paragraph.shipmb
+```
+
+That shorthand uses the direct pipeline, the general profile, and memory off.
+Explicit `compile` and `run` commands, including their defaults, are unchanged.
+
+To run the same commands without installing Python, use the self-contained
+executable from [standalone builds](standalone.md). For the VS Code extension, set
 `shipmblang.pythonPath` to this same environment's Python executable, open
 `extensions/vscode-shipmblang` in VS Code, and press **F5** to launch the
 Extension Development Host. If it reports unrecognized `--pipeline`, `--memory`,
@@ -27,8 +37,9 @@ python -m shipmblang editor
 python -m shipmblang notebook
 ```
 
-The editor and notebook open the same local document store. Rust and Cargo are
-required for the first launch, which builds the bundled terminal UI. See the
+The editor and notebook open the same local document store. A source install
+needs Rust and Cargo for the first launch, which builds the bundled terminal UI.
+The standalone executable already includes the editor. See the
 [notebook guide](notebook.md) for controls and database location.
 
 ## Terminal

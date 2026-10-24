@@ -32,12 +32,15 @@ def download_model():
 
 
 def main():
-    if len(sys.argv) < 2:
+    if len(sys.argv) < 2 or sys.argv[1] in {"-h", "--help"}:
         print("ShipMBLang - natural language programming for ShipMB")
         print()
         print("Usage:")
         print("  python -m shipmblang compile     Compile natural ShipMBLang sentences")
         print("  python -m shipmblang run         Run natural ShipMBLang sentences")
+        print("  python -m shipmblang setup       Install Rust, FFmpeg, VLC, and Ollama if missing")
+        print("  python -m shipmblang program.shipmb")
+        print("                       Run a .shipmb file (direct pipeline, general profile, memory off)")
         print("  python -m shipmblang printurf    Explain a raw code error")
         print("  python -m shipmblang mcp         Run the ShipMBLang MCP server")
         print("  python -m shipmblang onboarding  Print/validate ShipMB onboarding contract")
