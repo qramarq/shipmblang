@@ -78,7 +78,7 @@ class NotebookTests(unittest.TestCase):
                 self.assertNotIn("runtime", checked)
                 code, result = execute_program(starter["source"], "run")
                 self.assertEqual(code, 0)
-                self.assertEqual(result["compiler"]["version"], "0.5.0")
+                self.assertEqual(result["compiler"]["version"], compiler_snapshot()["version"])
                 self.assertEqual(result["compiler"]["commit"], compiler_snapshot()["commit"])
                 self.assertEqual(result["runtime"]["stdout"], starter["output"])
 

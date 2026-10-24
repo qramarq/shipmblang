@@ -9,7 +9,7 @@ import re
 
 from .general_vocabulary import OUTPUT_PATTERN, SUM_NOUNS
 
-GRAMMAR_VERSION = "general-english-0.10"
+GRAMMAR_VERSION = "general-english-0.11"
 CATALOG_VERSION = "general-media-0.2"
 TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|\d+\.\d+|\d+|[A-Za-z_][A-Za-z_0-9]*|[^\s]')
 TYPES = {"integer", "boolean", "text"}
@@ -280,6 +280,10 @@ class Expressions:
             if operand["type"] != "integer":
                 self.fail("Negative requires an integer.")
             return node("Unary", self.range(begin), operator="negate", operand=operand, type="integer")
+        from .vision_english import parse_vision_expression
+        vision = parse_vision_expression(self, begin)
+        if vision is not None:
+            return vision
         self.take("the")
         if self.at < len(self.tokens) and self.tokens[self.at][0].lower() in {"duration", "position", "width", "height"}:
             from .vlc_english import parse_player_property
@@ -547,6 +551,11 @@ class Parser:
                 if media is not None:
                     body.append(media)
                     continue
+            from .vision_english import parse_vision_clause
+            vision = parse_vision_clause(self, text, span)
+            if vision is not None:
+                body.append(node("Show", span, value=vision))
+                continue
             from .vlc_english import parse_vlc
             vlc = parse_vlc(self,text,span)
             if vlc is not None:

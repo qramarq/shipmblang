@@ -11,3 +11,9 @@ shipmblang/_compiler/** -text
 shipmblang/_compiler/**/*.py text eol=lf
 shipmblang/_compiler/*.py text eol=lf
 shipmblang/_compiler/BUNDLED.json text eol=lf
+# These five match upstream bytes, including CRLF. compiler.py is mixed.
+shipmblang/_compiler/compiler.py -text
+shipmblang/_compiler/core.py -text
+shipmblang/_compiler/general_runtime.py -text
+shipmblang/_compiler/runtime.py -text
+shipmblang/_compiler/source_format.py -text

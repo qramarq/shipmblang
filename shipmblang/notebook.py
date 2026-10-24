@@ -45,7 +45,11 @@ def execute_program(source, mode, *, timeout=20):
     capabilities = (result.get("target_code") or {}).get("runtime_contract", {}).get("required_capabilities", [])
     if capabilities:
         result.pop("runtime", None)
-        result["diagnostics"] = [{"level": "error", "message": "Media is not enabled in Notes core mode. Open the Media panel for conversion and compositions; use Play for VLC preview."}]
+        if "vision" in capabilities:
+            message = "Vision cannot run in Notes. This device cannot run the native vision engine."
+        else:
+            message = "Media is not enabled in Notes core mode. Open the Media panel for conversion and compositions; use Play for VLC preview."
+        result["diagnostics"] = [{"level": "error", "message": message}]
         result["compiler"] = snapshot
         return 2, result
     result["compiler"] = snapshot

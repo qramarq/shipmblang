@@ -11,7 +11,7 @@ from .limits import MAX_SOURCE_CHARS, MAX_IMAGE_INPUTS
 from .memory_support import open_memory, project_context
 from .clarification import revision, apply_answers
 
-COMPILER_VERSION = "0.5.0"
+from . import __version__ as COMPILER_VERSION
 _DEFAULT_MODEL = object()
 
 

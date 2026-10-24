@@ -1,31 +1,31 @@
 {
   "distribution": "shipmbcompiler",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "sha256": {
-    "__init__.py": "77472dfa25a721d6da79a9d7709918830d823ed2c988d2027946c97205ceaf77",
+    "__init__.py": "53b6ed0b703692f0f21c50957e6f3afeaaeeaa3fd2c2f24eed86e3196b87caac",
     "clarification.py": "eaeccc0b42ce5e1a13b4d2ec05f89d075593b057c2cae1b418171519dc8fc061",
-    "compiler.py": "ddd13ac48c10a633361eacf6626948e5b7e90c4b455781d778868ddfb28927c1",
-    "core.py": "c744f728b24d330f0faa3fa920f6342b351fa544e8d21080295cf74b4847994a",
+    "compiler.py": "bba94ffa3356b02c7430280cc50eecab9674ff0a960601c20a07ab7d42b311ab",
+    "core.py": "542bc91581bcd12d9c5cee2ca661f163ae9e915e92dd7a4f0490e3b8fe89b340",
     "diagnostics.py": "7b52b34543f0615666a5672f8bcc43627c27bb7d6088b08531e720ed0efc57e7",
-    "direct.py": "6f7a73a7032c4b77a8ffa3c43959b8779d02ff537068d91775a18b8e44a59573",
+    "direct.py": "05298ba6852bfbcdaca825e35d90799ae8d99b3d7114b40946d2307ca490ccbc",
     "english.py": "f3a7fe7f17954e39d9ec8757f1e4dbcf7ee558c7b992458af3bacc1881d4a5eb",
-    "english_model.py": "d2a88ad8f332169012a52448a9b171b82afc0f97e5bb7a5e62b7c92674dc6682",
+    "english_model.py": "9848829788e4f0343f5d5be2eb87f40d7d6a31f67a7e4406561493398a4535b6",
     "ffmpeg.py": "ce2c78aba490cccbcf42c1f6e46dbd11fdaa329188c465ed11dab2f691c3fa7c",
     "ffmpeg_catalog.py": "2b18d08f6b3ca2a3c8b0b4021ed8c7e4c8f7b5ce8621ca297d946ab0523ebbd5",
-    "general_codegen.py": "88938d25ece289230a3c24e12990109d7d6bac96baa94df02481a544d8f20e57",
-    "general_english.py": "34888a2a6a921058e00a7d858620ccfa135e34a1cf9bd4e533ce10cebfe206f7",
-    "general_runtime.py": "351a6b5bc815a103f6595d556caeaf5643e630fdd095db7a7b0b84d77af6cfca",
+    "general_codegen.py": "b257da4614196841e3f8a842df57ebe3301a23f03416530874432e71d52ff9ce",
+    "general_english.py": "1a10d1843603a716ee4c1085cf1e10dc436f78c49c13b4de259c5f45c54016fc",
+    "general_runtime.py": "7bb54b4310cbec47a388218856939ea40ec22dba5f9b82461e39eec71466b3ac",
     "general_vocabulary.py": "36540d3b4f01ecf616a605143238d1f8f7527bf734ce14f530005297a5daf9cd",
     "hyperframes/__init__.py": "c5a1860f74de124426deb10b315dd7f8e7bde731fe997f7ac937a5c193c32208",
     "hyperframes/cli.py": "a46a027852fc10136242e7c42d63b710f81d932b0d1e7a70ba11518da1f7ea77",
     "hyperframes/compiler.py": "fa33e9517416c4904a9cf62b83cbcd05f29211d74af44cf9d580d3bc0574087d",
-    "hyperframes/node/bridge.mjs": "fa838be8e927b7dbad92678649dc8942565fc8f7e6470259951e170119d5bf3d",
-    "hyperframes/node/package-lock.json": "65587cdb8d1d07979545059c4aefe1805faa27146a372f252f154d2b2afa8b19",
-    "hyperframes/node/package.json": "82577ec15ffe10e6d3b427275f156a9e4730621b841c75158d701a3dc0ad0820",
+    "hyperframes/node/bridge.mjs": "689161c53c0d7a53708a1456a11fbe4dfb2de7a59c5ccf56f928a8d48a29dff5",
+    "hyperframes/node/package-lock.json": "dea0f138b7a4238bfd2e99f6b55510e328ec74458f699e35596baad7c2064507",
+    "hyperframes/node/package.json": "41c7d7e39d1e32b5b70638589e558411b6e01b2a205b62d391992369214c1702",
     "hyperframes/project.py": "72453d2a8e2f8a56befe4e838d3093a1823b872d262bf35fddb37196c3915d8e",
-    "hyperframes/vendor/INTER-LICENSE.txt": "05f6002bf3f86f0040a2b0cec4d103346ba12f6659817838196f76a218d55724",
-    "hyperframes/vendor/THIRD-PARTY.md": "958a48a4baba21ad6c984cab49d722d20e2ca38b39e9b171dd1a8737b38af2e5",
-    "hyperframes/vendor/gsap.min.js": "dd7dc87e023b3480f9707296342565ca2e361c8393cabb30f9557e06eb1bed4d",
+    "hyperframes/vendor/INTER-LICENSE.txt": "3b0a5fca3d17942cde889069889dedbbbd075e9b599968c82a95f4d944e9b345",
+    "hyperframes/vendor/THIRD-PARTY.md": "4a9b72c6b8faa19870f56e8d51db01862091e9a6e655762b42723715c942745d",
+    "hyperframes/vendor/gsap.min.js": "92bb9a96476f983d212a2bc4f54c889039c1696dd4461d40a736860938570fbb",
     "hyperframes/vendor/inter-latin-400-normal.woff2": "8909904ab6c872eb994093482a88a28eca2cd95912d7b6fecd72103b0dc07edc",
     "ir.py": "de05f5ebd802338d7cf1c7096d30410615283d67b7413f7090cb0cf55e5ce649",
     "lexer.py": "b8231c7b03f98012179c21832a3a2739c5e6cbe8d9e675e088cbb1309d52d6c9",
@@ -37,21 +37,25 @@
     "normalizer.py": "a43c49a023f52f7d474b83dfd468d5b2dde9c8e38237ce9a5693b3637f170383",
     "optimizer.py": "6f624bb5ed82af1fc239bd6ac66e86cc7fb044990c12efca670b31d806e8a454",
     "parser.py": "14701b3c56acd3ee8137d87af3c9d386018b4ac3ca4b8ec84b381a3866ef8859",
-    "runtime.py": "ac557e5ffc462353947fdffc1842470ca84504abbc7b4c6fe028c99292147b6f",
+    "runtime.py": "c7394c9ec2807281a1892849d10aacd5d0e581280d1dc4d5efc2dcecc2c2a28e",
     "semantics.py": "29105daf24a23a962afa40ebb745244ee2800c8910505e886d0a4fbeab82751b",
-    "source_format.py": "2bdd68858d6f604b894588a9ae03b54319f7484af15d77aebb1d60b2a68ccab8",
+    "source_format.py": "7bfe9a06892477f9e32ed4f1b387816ce0ffac44509b1f7ad22c13c84b3acb56",
     "target.py": "4ddd912a273b09359582bd72d287cc40915632e72147eaeea366fcdb026e4104",
     "thesaurus.py": "bd35c83979c06987a546f558f969a2f09d28ca54f80f42a6235b6737bce5dcd2",
     "urban_slang.py": "4b15a3baf2b2e08318f50cb11ebc7966fa83ac9f9602f8fbfa9802c603538b4e",
+    "vision.py": "cbdbeb2f4e8bc395f7411bf27e5a44077bdec2a52a92e0bbb8e0b58feb6309d4",
+    "vision_english.py": "3197969aee277d66d3209a04d14dcc0a48d3622a2531fa48a277cbf133cd7260",
+    "vision_prose.py": "c98485f155b601a81aadda82c7e75216dc2890b00e3d579f03185cd40ccf54c2",
+    "vision_reference.py": "0631a21f0182585aa53d4d76a685e8e8e3ac65694a296192de234f4adb7ceabd",
     "vlc.py": "74dfb23c92f1cf6ec8479a1e41c63a442c73d8a10142e325f5aa2bed32136efa",
     "vlc_english.py": "5fa174893148e1862a0d437fac85f0f0cf9d4e79b1b18678aad45e4358f6ac90"
   },
-  "source_commit": "ecaf8078aa7507c2c4df44959adba6032aa65c80",
+  "source_commit": "4972b2f7ff69bc9f0f1105afc02ef4d3d59ef2f5",
   "local_patches": [],
   "components": {
     "hyperframes": {
       "distribution": "shipmbcompiler",
-      "source_version": "0.5.0",
+      "source_version": "0.6.0",
       "target_version": "1",
       "files": [
         "hyperframes/__init__.py",
@@ -69,12 +73,23 @@
     },
     "vlc": {
       "distribution": "shipmbcompiler",
-      "source_version": "0.5.0",
+      "source_version": "0.6.0",
       "files": [
         "vlc.py",
         "vlc_english.py"
       ],
       "runtime_dependency": "Separately supplied shipmb_vlc adapter plus LibVLC3.x"
+    },
+    "vision": {
+      "distribution": "shipmbcompiler",
+      "source_version": "0.6.0",
+      "files": [
+        "vision.py",
+        "vision_english.py",
+        "vision_prose.py",
+        "vision_reference.py"
+      ],
+      "runtime_dependency": "Separately supplied shipmb_vision library. Not packed in this bundle; run shipmblang setup --vision."
     }
   }
 }

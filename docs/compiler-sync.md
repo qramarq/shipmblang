@@ -109,12 +109,13 @@ swapped tree.
 ## Line endings
 
 `shipmblang/.gitattributes` marks `shipmblang/_compiler/**` as `-text`, then
-forces LF for Python and for `BUNDLED.json`. The six HyperFrames text resources
+forces LF for Python and for `BUNDLED.json`. The 0.6.0 snapshot keeps upstream
+bytes: `compiler.py`, `core.py`, `general_runtime.py`, `runtime.py`, and
+`source_format.py` stay CRLF (`compiler.py` is mixed), and those five paths are
+`-text` so Git does not renormalize them. The six HyperFrames text resources
 (`bridge.mjs`, `package.json`, `package-lock.json`, `INTER-LICENSE.txt`,
-`THIRD-PARTY.md`, `gsap.min.js`) are stored CRLF, and `BUNDLED.json` hashes
-those CRLF bytes. `tools/bundle_compiler.py` LF-normalizes `.py` only. Upstream
-stores five Python blobs as CRLF (`compiler.py`, `core.py`, `general_runtime.py`,
-`runtime.py`, `source_format.py`) and the text resources as LF.
+`THIRD-PARTY.md`, `gsap.min.js`) are LF in this snapshot, and `BUNDLED.json`
+hashes those exact bytes. `tools/bundle_compiler.py` LF-normalizes `.py` only.
 
 Copy-back compares LF-normalized text (binaries such as `.woff2` are compared
 raw). An unchanged blob is not rewritten. A real edit is staged with Git

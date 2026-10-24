@@ -1,5 +1,6 @@
 """ShipMBLang prose compiler package."""
 
+__version__ = "0.6.0"
 __all__ = ["compile_source", "compile_direct_program", "TriggerLexicon", "FFmpegExecutor"]
 
 

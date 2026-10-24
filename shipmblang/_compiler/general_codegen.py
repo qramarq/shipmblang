@@ -2,6 +2,7 @@
 from copy import deepcopy
 
 from .general_english import GRAMMAR_VERSION
+from .vision import MODEL_SHA256
 
 
 class GeneralLimitError(ValueError):
@@ -33,6 +34,8 @@ def emit_general(tree, symbols, *, function=False):
         kind = value["kind"]
         if kind == 'VLCQuery':
             vlc(value,query=True)
+        elif kind == 'VisionQuery':
+            vision(value)
         elif kind == "Literal":
             emit("const", {"value": value["value"], "type": value["type"]}, value)
         elif kind == "Name":
@@ -87,6 +90,18 @@ def emit_general(tree, symbols, *, function=False):
         operands={'operation':value['operation'],'argument_types':[a['type'] for a in value['arguments']]}
         if query: operands['return_type']=value['type']
         emit('vlc_query' if query else 'vlc_execute',operands,value)
+
+    def vision(value):
+        capabilities.add('vision')
+        effects.add('host_media')
+        for argument in value['arguments']:
+            expression(argument)
+        emit('vision_query', {
+            'operation': value['operation'],
+            'argument_types': [argument['type'] for argument in value['arguments']],
+            'return_type': value['type'],
+            'model_sha256': MODEL_SHA256,
+        }, value)
 
     def block(body):
         for statement in body:
@@ -194,7 +209,7 @@ def emit_general(tree, symbols, *, function=False):
                           "return_type": definition["return_type"], "locals": compiled["locals"], "bytecode": compiled["bytecode"]})
     if len(locals_) > 10000 or len(functions) > 10000:
         raise GeneralLimitError("Program exceeds the supported number of locals or functions.")
-    return {"producer": "shipmbcompiler", "target": "shipmblang-bytecode", "version": "0.5" if 'vlc' in capabilities else "0.4" if 'ffmpeg' in capabilities else "0.3",
+    return {"producer": "shipmbcompiler", "target": "shipmblang-bytecode", "version": "0.6" if 'vision' in capabilities else "0.5" if 'vlc' in capabilities else "0.4" if 'ffmpeg' in capabilities else "0.3",
             "profile": "general", "native_machine_code": False, "bytecode": code, "locals": locals_, "functions": functions,
             "debug": {"producer": "shipmbcompiler", "pipeline": "direct", "grammar": GRAMMAR_VERSION},
             "runtime_contract": {"effects": sorted(effects), "required_capabilities": sorted(capabilities)}}
