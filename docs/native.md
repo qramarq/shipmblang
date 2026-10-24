@@ -17,6 +17,16 @@ shipmblang setup --vision
 shipmblang photo.shipmb --format text
 ```
 
+That sentence is the `describe` operation. The bundled runtime asks "What is in
+this image?" and stops after 16 tokens. `VisionEngine` in
+`shipmblang/_compiler/vision.py` sends that budget when the engine is created,
+and `VisionExecutor.invoke` does not pass a larger `max_tokens` for `describe`.
+Sixteen tokens is a short phrase. A model that starts a longer sentence stops
+mid-sentence. The same budget covers yes/no and count answers, and it is the
+budget the 2-second latency check measures. This repository does not edit
+`shipmblang/_compiler`, so the program path keeps 16 tokens. Compile-time
+image prose is a different call and may use 64 or 256 tokens.
+
 The first run asks before it downloads. `shipmblang setup --vision --yes` skips the
 question. Compilation does not load the library. Running a vision program does.
 If the library is missing, the run exits 2 and tells you to run

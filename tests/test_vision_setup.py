@@ -396,18 +396,18 @@ class WindowsPathAndLockTests(unittest.TestCase):
         script = textwrap.dedent(
             """
             import sys
-            import time
             from pathlib import Path
             from shipmblang.vision_setup import exclusive_lock
             with exclusive_lock(Path(sys.argv[1]), "model.gguf"):
                 sys.stdout.write("held\\n")
                 sys.stdout.flush()
-                time.sleep(30)
+                sys.stdin.read()
             """
         )
         process = subprocess.Popen(
             [sys.executable, "-c", script, str(lock)],
             cwd=Path(__file__).resolve().parents[1],
+            stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             text=True,
         )
@@ -420,8 +420,14 @@ class WindowsPathAndLockTests(unittest.TestCase):
                 download_verified(pin, dest, opener=opener, offline=False)
             self.assertIn("already preparing", str(raised.exception))
         finally:
-            process.terminate()
-            process.wait(timeout=10)
+            # Let the holder exit by itself. A venv python.exe is a launcher, so
+            # terminate() can leave the real interpreter holding the lock file.
+            process.stdin.close()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=10)
             if process.stdout is not None:
                 process.stdout.close()
 

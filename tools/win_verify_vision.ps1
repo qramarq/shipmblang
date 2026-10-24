@@ -1,20 +1,28 @@
 # Windows x64 verification for native vision.
 # PowerShell 5. Run from any directory:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\admin\shipmb-worker\shipmblang\tools\win_verify_vision.ps1
+#   powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\admin\shipmb-worker\shipmblang\tools\win_verify_vision.ps1 -Python C:\venv\Scripts\python.exe
 # Writes C:\Users\admin\shipmb-worker\logs\win-verify.txt
 
-$ErrorActionPreference = 'Stop'
-Set-Location 'C:\Users\admin\shipmb-worker\shipmblang'
+param(
+    [string]$Python = 'C:\Python314\python.exe'
+)
+
+# PowerShell 5 turns redirected native stderr into terminating errors under 'Stop'.
+# Native exit codes are checked explicitly with Check. Cmdlets still stop.
+$ErrorActionPreference = 'Continue'
+$PSDefaultParameterValues['*:ErrorAction'] = 'Stop'
+Set-Location -ErrorAction Stop 'C:\Users\admin\shipmb-worker\shipmblang'
 $Root = (Get-Location).Path
 $LogDir = 'C:\Users\admin\shipmb-worker\logs'
-$Py = 'C:\Python314\python.exe'
-New-Item -ItemType Directory -Force -Path $LogDir | Out-Null
+$Py = $Python
+New-Item -ItemType Directory -Force -ErrorAction Stop -Path $LogDir | Out-Null
 $Summary = Join-Path $LogDir 'win-verify.txt'
 $Helper = Join-Path $LogDir 'win-vision-check.py'
-Set-Content -Path $Summary -Encoding ASCII -Value 'win-verify start'
+Set-Content -ErrorAction Stop -Path $Summary -Encoding ASCII -Value 'win-verify start'
 
 function Note([string]$line) {
-    Add-Content -Path $Summary -Encoding ASCII -Value $line
+    Add-Content -ErrorAction Stop -Path $Summary -Encoding ASCII -Value $line
     Write-Host $line
 }
 
@@ -27,11 +35,15 @@ function Check([string]$step) {
 $savedPath = $env:PATH
 $hadPythonPath = Test-Path Env:PYTHONPATH
 $savedPythonPath = $env:PYTHONPATH
+$hadVirtualEnv = Test-Path Env:VIRTUAL_ENV
+$savedVirtualEnv = $env:VIRTUAL_ENV
 
 try {
     if (-not (Test-Path $Py)) {
         throw "Python was not found at $Py"
     }
+    $Py = (Resolve-Path $Py).Path
+    Note "python=$Py"
     $sha = & git rev-parse HEAD
     Check 'git rev-parse'
     Note "sha=$($sha.Trim())"
@@ -41,7 +53,7 @@ try {
     Check 'refresh line endings'
 
     if (Test-Path 'native\shipmb_vision\build') {
-        Remove-Item -Recurse -Force 'native\shipmb_vision\build'
+        Remove-Item -ErrorAction Stop -Recurse -Force 'native\shipmb_vision\build'
     }
     $buildStart = Get-Date
     & $Py tools\build_vision.py > (Join-Path $LogDir 'build.txt') 2>&1
@@ -255,13 +267,21 @@ if __name__ == "__main__":
     Note "standalone_built=ok bytes=$((Get-Item $exe).Length)"
 
     $env:PATH = $savedPath
+    $pythonHome = Split-Path -Parent $Py
+    $pythonScripts = Join-Path $pythonHome 'Scripts'
     $clean = @()
     foreach ($entry in ($env:PATH -split ';')) {
         if (-not $entry) {
             continue
         }
-        $lower = $entry.ToLower()
+        $lower = $entry.TrimEnd('\').ToLower()
         if ($lower.Contains('python') -or $lower.Contains('windowsapps')) {
+            continue
+        }
+        if ($lower -eq $pythonHome.TrimEnd('\').ToLower()) {
+            continue
+        }
+        if ($lower -eq $pythonScripts.TrimEnd('\').ToLower()) {
             continue
         }
         $clean += $entry
@@ -269,6 +289,7 @@ if __name__ == "__main__":
     $env:PATH = ($clean -join ';')
     Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
     Remove-Item Env:PYTHONHOME -ErrorAction SilentlyContinue
+    Remove-Item Env:VIRTUAL_ENV -ErrorAction SilentlyContinue
     $pythonLeft = Get-Command python -ErrorAction SilentlyContinue
     if ($pythonLeft) {
         throw "python is still on PATH at $($pythonLeft.Source)"
@@ -335,9 +356,10 @@ if __name__ == "__main__":
         Set-Content -Path (Join-Path $LogDir "$label-dependents.txt") -Encoding ASCII -Value $blob
         $deps = @()
         foreach ($depLine in $lines) {
-            $trim = $depLine.Trim()
-            if ($trim -like '*.dll') {
-                $deps += $trim
+            # dumpbin indents dependency names. "Dump of file ...dll" is the
+            # header and also ends in .dll, so a bare *.dll match counts it.
+            if ($depLine -match '^\s+\S+\.dll\s*$') {
+                $deps += $depLine.Trim()
             }
         }
         Note ("dependents_" + $label + "=" + ($deps -join ','))
@@ -366,5 +388,10 @@ finally {
     $env:PATH = $savedPath
     if ($hadPythonPath) {
         $env:PYTHONPATH = $savedPythonPath
+    }
+    if ($hadVirtualEnv) {
+        $env:VIRTUAL_ENV = $savedVirtualEnv
+    } else {
+        Remove-Item Env:VIRTUAL_ENV -ErrorAction SilentlyContinue
     }
 }
