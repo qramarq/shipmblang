@@ -91,7 +91,13 @@ class ManifestTests(unittest.TestCase):
         section = readme[start:end]
         for key in SIZE_TABLE_KEYS:
             self.assertIn(f"`{key}`", section)
-        self.assertIn("TBD (measured on Windows)", section)
+        self.assertNotIn("TBD (measured on Windows)", section)
+        self.assertIn("16398332", section)
+        self.assertIn("16.4 MB", section)
+        self.assertIn("2399844148", section)
+        self.assertIn("2.4 GB", section)
+        self.assertIn("1284", section)
+        self.assertIn("1420", section)
         self.assertIn("529101504", section)
         self.assertIn("1108746944", section)
         self.assertIn("726599744", section)
@@ -295,7 +301,8 @@ class ZipReportTests(unittest.TestCase):
             self.assertEqual(code, 0)
             text = stdout.getvalue()
             self.assertIn(f"SIZE weight_llm_bytes={len(payload_llm)}", text)
-            self.assertIn("SIZE with_weights_zip_bytes=not_built", text)
+            self.assertNotIn("with_weights_zip_bytes", text)
+            self.assertNotIn("not_built", text)
             self.assertIn(f"weights_ok {cache}", text)
 
 
