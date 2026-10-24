@@ -70,6 +70,9 @@ Desktop.ini
 *.sqlite3-wal
 *.sqlite3-shm
 
+# Rust
+**/target/
+
 # Local editor test runtime and VSIX output
 .vscode-test/
 *.vsix

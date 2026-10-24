@@ -59,4 +59,56 @@ function utf16Offset(source, offset) {
   return Array.from(source).slice(0, Math.max(0, Number.isInteger(offset) ? offset : 0)).join('').length;
 }
 
-module.exports = { buildArgs, runProcess, parseResult, utf16Offset };
+const fs = require('node:fs');
+const path = require('node:path');
+
+function stripPythonModule(args) {
+  const index = args.indexOf('shipmblang');
+  if (index < 0) return args.slice();
+  return args.slice(index + 1);
+}
+
+function findExecutable(env = process.env, names) {
+  const list = names || (process.platform === 'win32'
+    ? ['shipmblang.exe', 'shipmblang.cmd', 'shipmblang']
+    : ['shipmblang']);
+  const pathValue = env.PATH || env.Path || '';
+  for (const directory of pathValue.split(path.delimiter)) {
+    if (!directory) continue;
+    for (const name of list) {
+      const candidate = path.join(directory, name);
+      try {
+        if (fs.existsSync(candidate)) return candidate;
+      } catch (_) { /* ignore unreadable PATH entries */ }
+    }
+  }
+  return '';
+}
+
+function launchSpec(options = {}) {
+  const executable = (options.executablePath || '').trim();
+  const pythonPath = options.pythonPath || 'python';
+  if (executable) return { command: executable, kind: 'executable' };
+  if (options.autoDetect !== false) {
+    const found = findExecutable(options.env || process.env, options.executableNames);
+    if (found) return { command: found, kind: 'executable' };
+  }
+  return { command: pythonPath, kind: 'python' };
+}
+
+function commandFor(mode, sourceFile, root, options = {}) {
+  const spec = launchSpec(options);
+  const moduleArgs = buildArgs(mode, sourceFile, root, options);
+  if (spec.kind === 'executable') return { command: spec.command, args: stripPythonModule(moduleArgs) };
+  return { command: spec.command, args: moduleArgs };
+}
+
+function lspCommand(options = {}) {
+  const spec = launchSpec(options);
+  if (spec.kind === 'executable') return { command: spec.command, args: ['lsp'] };
+  return { command: spec.command, args: ['-X', 'utf8', '-m', 'shipmblang', 'lsp'] };
+}
+
+module.exports = {
+  buildArgs, runProcess, parseResult, utf16Offset, launchSpec, commandFor, lspCommand, findExecutable, stripPythonModule,
+};

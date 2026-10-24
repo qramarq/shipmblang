@@ -1,14 +1,13 @@
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+mod ui;
+
+use crossterm::event::{self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use crossterm::execute;
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
-use ratatui::{Frame, Terminal};
+use ratatui::layout::Rect;
+use ratatui::Terminal;
 use serde_json::{json, Value};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::error::Error;
 use std::fs;
@@ -17,17 +16,35 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+use ui::{glyphs, palette, Glyphs, Palette};
 
 const MAX_IMAGES: usize = 4;
 const MAX_IMAGE_BYTES: u64 = 8_000_000;
 const MAX_TOTAL_IMAGE_BYTES: u64 = 16_000_000;
+const EDITOR_VERSION: &str = "0.1.0";
 
 #[derive(Clone)]
-struct NoteSummary {
-    id: String,
-    title: String,
-    date: String,
+pub(crate) struct Room {
+    pub(crate) id: String,
+    pub(crate) title: String,
+    pub(crate) preview: String,
+    pub(crate) status: String,
+    pub(crate) last_activity: String,
+    pub(crate) unread: bool,
+    pub(crate) pinned: bool,
+}
+
+#[derive(Clone)]
+pub(crate) struct ChatMessage {
+    pub(crate) id: String,
+    pub(crate) role: String,
+    pub(crate) kind: String,
+    pub(crate) body: String,
+    pub(crate) detail: Value,
+    pub(crate) created_at: String,
+    pub(crate) parent_id: String,
 }
 
 #[derive(Clone)]
@@ -38,24 +55,20 @@ struct ImageAttachment {
 }
 
 #[derive(Clone, Copy, PartialEq)]
-enum Focus {
-    Notes,
-    Document,
-}
+pub(crate) enum Focus { Rooms, Search, Timeline, Composer }
 
 #[derive(Clone, Copy)]
-enum Operation {
-    Compile,
-    Run,
-}
+enum Operation { Compile, Run }
 
 #[derive(Clone)]
 struct CompileContext {
+    entry_id: String,
     operation: Operation,
     source: String,
     images: Vec<PathBuf>,
     interpretation: Option<String>,
     clarification_rounds: usize,
+    user_message_id: String,
 }
 
 struct WorkerResult {
@@ -63,18 +76,32 @@ struct WorkerResult {
     result: Result<Value, String>,
 }
 
-enum InputKind {
-    Search,
+#[derive(Clone)]
+pub(crate) enum InputKind {
     ImagePath,
-    Clarification(String),
     UnplacedImages { operation: Option<Operation>, ids: Vec<String> },
     BackupPath,
     Delete,
 }
 
-struct Modal {
-    kind: InputKind,
-    value: String,
+#[derive(Clone)]
+pub(crate) struct Modal {
+    pub(crate) kind: InputKind,
+    pub(crate) value: String,
+}
+
+#[derive(Clone)]
+struct Awaiting {
+    context: CompileContext,
+    parent_id: String,
+}
+
+pub(crate) struct Hits {
+    pub(crate) search: Rect,
+    pub(crate) rooms: Vec<(Rect, usize)>,
+    pub(crate) timeline: Rect,
+    pub(crate) composer: Rect,
+    pub(crate) bytecode: Vec<(u16, String)>,
 }
 
 struct Args {
@@ -82,32 +109,53 @@ struct Args {
     python: PathBuf,
     workdir: PathBuf,
     startdir: PathBuf,
+    theme: Option<String>,
+    smoke: bool,
+    demo: bool,
+    version: bool,
+    ascii: bool,
+    dump: Option<PathBuf>,
+    select: Option<usize>,
 }
 
-struct App {
+pub(crate) struct App {
     database: PathBuf,
     python: PathBuf,
     workdir: PathBuf,
     startdir: PathBuf,
-    notes: Vec<NoteSummary>,
-    selected_note: usize,
-    focus: Focus,
+    offline: bool,
+    pub(crate) rooms: Vec<Room>,
+    pub(crate) selected: usize,
+    pub(crate) room_scroll: usize,
+    pub(crate) focus: Focus,
     entry_id: Option<String>,
     entry_date: String,
     journal: String,
-    lines: Vec<Vec<char>>,
-    cursor_row: usize,
-    cursor_col: usize,
-    scroll_y: usize,
-    scroll_x: usize,
+    pub(crate) room_title: String,
+    room_status_text: String,
+    pub(crate) lines: Vec<Vec<char>>,
+    pub(crate) cursor_row: usize,
+    pub(crate) cursor_col: usize,
+    pub(crate) composer_scroll: usize,
+    pub(crate) messages: Vec<ChatMessage>,
+    pub(crate) timeline_scroll: usize,
+    pub(crate) stick_to_bottom: bool,
     images: Vec<ImageAttachment>,
     next_image_id: u64,
-    dirty: bool,
-    dirty_since: Option<std::time::Instant>,
-    busy: bool,
-    modal: Option<Modal>,
-    status: String,
-    output: Vec<String>,
+    pub(crate) dirty: bool,
+    dirty_since: Option<Instant>,
+    pub(crate) busy: bool,
+    pub(crate) modal: Option<Modal>,
+    pub(crate) status: String,
+    pub(crate) search: String,
+    light: bool,
+    pub(crate) palette: Palette,
+    pub(crate) glyphs: Glyphs,
+    pub(crate) now: String,
+    pub(crate) expanded: HashSet<String>,
+    pub(crate) awaiting: Option<Awaiting>,
+    pub(crate) hits: Hits,
+    demo_threads: HashMap<String, Vec<ChatMessage>>,
     tx: Sender<WorkerResult>,
     rx: Receiver<WorkerResult>,
     pending: Option<CompileContext>,
@@ -120,80 +168,145 @@ impl Args {
         let mut python = None;
         let mut workdir = None;
         let mut startdir = None;
+        let mut theme = None;
+        let mut dump = None;
+        let mut select = None;
+        let mut smoke = false;
+        let mut demo = false;
+        let mut version = false;
+        let mut ascii = false;
         let mut values = env::args().skip(1);
         while let Some(arg) = values.next() {
-            let value = values.next().ok_or_else(|| format!("Missing value after {arg}"))?;
             match arg.as_str() {
-                "--database" => database = Some(PathBuf::from(value)),
-                "--python" => python = Some(PathBuf::from(value)),
-                "--workdir" => workdir = Some(PathBuf::from(value)),
-                "--startdir" => startdir = Some(PathBuf::from(value)),
-                _ => return Err(format!("Unknown editor option: {arg}")),
+                "--version" => version = true,
+                "--smoke" => smoke = true,
+                "--demo" => demo = true,
+                "--ascii" => ascii = true,
+                "--database" => database = Some(required(&mut values, &arg)?),
+                "--python" => python = Some(required(&mut values, &arg)?),
+                "--workdir" => workdir = Some(required(&mut values, &arg)?),
+                "--startdir" => startdir = Some(required(&mut values, &arg)?),
+                "--theme" => theme = Some(required(&mut values, &arg)?),
+                "--dump" => dump = Some(PathBuf::from(required(&mut values, &arg)?)),
+                "--select" => {
+                    let raw = required(&mut values, &arg)?;
+                    select = Some(raw.parse::<usize>().map_err(|_| format!("Expected a room number after {arg}"))?);
+                }
+                other => return Err(format!("Unknown editor option: {other}")),
             }
         }
+        if !version && !demo && database.is_none() {
+            return Err("Missing --database".to_string());
+        }
         Ok(Self {
-            database: database.ok_or_else(|| "Missing --database".to_string())?,
-            python: python.ok_or_else(|| "Missing --python".to_string())?,
-            workdir: workdir.ok_or_else(|| "Missing --workdir".to_string())?,
-            startdir: startdir.ok_or_else(|| "Missing --startdir".to_string())?,
+            database: database.map(PathBuf::from).unwrap_or_default(),
+            python: python.map(PathBuf::from).unwrap_or_default(),
+            workdir: workdir.map(PathBuf::from).unwrap_or_else(|| env::current_dir().unwrap_or_default()),
+            startdir: startdir.map(PathBuf::from).unwrap_or_else(|| env::current_dir().unwrap_or_default()),
+            theme, smoke, demo, version, ascii, dump, select,
         })
     }
 }
 
+fn required(values: &mut impl Iterator<Item = String>, arg: &str) -> Result<String, String> {
+    values.next().ok_or_else(|| format!("Missing value after {arg}"))
+}
+
 impl App {
-    fn new(args: Args) -> Result<Self, Box<dyn Error>> {
+    fn new(args: &Args) -> Result<Self, Box<dyn Error>> {
         let (tx, rx) = mpsc::channel();
-        let mut app = Self {
-            database: args.database,
-            python: args.python,
-            workdir: args.workdir,
-            startdir: args.startdir,
-            notes: Vec::new(),
-            selected_note: 0,
-            focus: Focus::Document,
-            entry_id: None,
-            entry_date: String::new(),
-            journal: String::new(),
-            lines: vec![Vec::new()],
-            cursor_row: 0,
-            cursor_col: 0,
-            scroll_y: 0,
-            scroll_x: 0,
-            images: Vec::new(),
-            next_image_id: 1,
-            dirty: false,
-            dirty_since: None,
-            busy: false,
-            modal: None,
-            status: "Opening notebook…".to_string(),
-            output: vec![
-                "Write a ShipMBLang program as a document, add images inline, and compile.".to_string(),
-                "Image anchors are passed to the compiler in the order they appear in the text.".to_string(),
-            ],
-            tx,
-            rx,
-            pending: None,
-            quitting: false,
-        };
+        let light = args.theme.as_deref() == Some("light");
+        let mut app = Self::blank(args, tx, rx, light);
         app.refresh_notes("")?;
-        if !app.notes.is_empty() {
-            app.open_note(0)?;
+        if args.theme.is_none() {
+            if let Ok(value) = app.bridge(json!({"action": "list", "query": ""})) {
+                if value.get("theme").and_then(Value::as_str) == Some("light") {
+                    app.light = true;
+                    app.palette = palette(true);
+                }
+                if let Some(now) = value.get("now").and_then(Value::as_str) {
+                    app.now = now.to_string();
+                }
+            }
+        }
+        if !app.rooms.is_empty() {
+            let index = args.select.unwrap_or(0).min(app.rooms.len() - 1);
+            app.open_room(index)?;
         } else {
-            app.status = "New document".to_string();
+            app.status = "New chat".to_string();
+            app.room_title = "New chat".to_string();
         }
         Ok(app)
     }
 
+    fn demo(theme: &str, ascii: bool, select: usize) -> Self {
+        let (tx, rx) = mpsc::channel();
+        let args = Args {
+            database: PathBuf::new(), python: PathBuf::new(), workdir: PathBuf::new(), startdir: PathBuf::new(),
+            theme: Some(theme.to_string()), smoke: true, demo: true, version: false, ascii, dump: None, select: Some(select),
+        };
+        let mut app = Self::blank(&args, tx, rx, theme == "light");
+        app.offline = true;
+        app.glyphs = glyphs(ascii);
+        let now = utc_now_iso();
+        let today = date_prefix(&now).to_string();
+        let yday = yesterday(&today);
+        app.now = now;
+        let sum_user = message("u1", "user", "message", "Show the sum of 2 and 3.", json!({}), &format!("{today}T09:14:00+00:00"), "");
+        let sum_bot = message("b1", "bot", "reply", "Ran successfully.\n5", json!({
+            "status": "compiled", "bytecode": "const 2\nconst 3\nbinary add\nshow",
+        }), &format!("{today}T09:14:02+00:00"), "");
+        let follow = message("u2", "user", "message", "Present it.", json!({}), &format!("{today}T09:16:00+00:00"), "");
+        let question = message("b2", "bot", "clarification", "Which declared value does this reference mean? Use its name.", json!({"status": "needs_clarification"}), &format!("{today}T09:16:01+00:00"), "u2");
+        let cafe_user = message("c1", "user", "opening", "Present \"café\".", json!({}), &format!("{today}T08:02:00+00:00"), "");
+        let cafe_bot = message("c2", "bot", "reply", "Ran successfully.\ncafé", json!({"status": "compiled", "bytecode": "const café\nshow"}), &format!("{today}T08:02:01+00:00"), "");
+        let park_user = message("p1", "user", "message", "Describe [[image:1]] and count the trees.", json!({
+            "images": [{"id": "1", "path": "/photos/park.png", "caption": "park.png"}],
+        }), &format!("{yday}T18:02:00+00:00"), "");
+        let park_bot = message("p2", "bot", "reply", "Could not compile this program.\nline 1:1 (chars 0-12) Image interpretation needs an image-capable model.", json!({"status": "unsupported"}), &format!("{yday}T18:02:03+00:00"), "");
+        app.demo_threads.insert("sum".into(), vec![sum_user, sum_bot, follow, question]);
+        app.demo_threads.insert("cafe".into(), vec![cafe_user, cafe_bot]);
+        app.demo_threads.insert("park".into(), vec![park_user, park_bot]);
+        app.rooms = vec![
+            Room { id: "sum".into(), title: "Sum of 2 and 3".into(), preview: "Which declared value does this reference mean?".into(), status: "ask".into(), last_activity: format!("{today}T09:16:01+00:00"), unread: false, pinned: true },
+            Room { id: "cafe".into(), title: "Café receipt".into(), preview: "café".into(), status: "ok".into(), last_activity: format!("{today}T08:02:01+00:00"), unread: true, pinned: false },
+            Room { id: "park".into(), title: "Park photo".into(), preview: "Could not compile this program.".into(), status: "err".into(), last_activity: format!("{yday}T18:02:03+00:00"), unread: false, pinned: false },
+        ];
+        let index = select.min(app.rooms.len() - 1);
+        let _ = app.open_room(index);
+        app.focus = Focus::Composer;
+        app
+    }
+
+    fn blank(args: &Args, tx: Sender<WorkerResult>, rx: Receiver<WorkerResult>, light: bool) -> Self {
+        let ascii = args.ascii || env::var("SHIPMB_ASCII").ok().as_deref() == Some("1") || env::var("TERM").ok().as_deref() == Some("dumb");
+        Self {
+            database: args.database.clone(), python: args.python.clone(), workdir: args.workdir.clone(), startdir: args.startdir.clone(),
+            offline: args.demo, rooms: Vec::new(), selected: 0, room_scroll: 0, focus: Focus::Composer,
+            entry_id: None, entry_date: String::new(), journal: String::new(), room_title: String::new(), room_status_text: "draft".into(),
+            lines: vec![Vec::new()], cursor_row: 0, cursor_col: 0, composer_scroll: 0, messages: Vec::new(),
+            timeline_scroll: 0, stick_to_bottom: true, images: Vec::new(), next_image_id: 1, dirty: false, dirty_since: None,
+            busy: false, modal: None, status: "Ready".into(), search: String::new(), light, palette: palette(light), glyphs: glyphs(ascii),
+            now: utc_now_iso(), expanded: HashSet::new(), awaiting: None,
+            hits: Hits { search: Rect::default(), rooms: Vec::new(), timeline: Rect::default(), composer: Rect::default(), bytecode: Vec::new() },
+            demo_threads: HashMap::new(), tx, rx, pending: None, quitting: false,
+        }
+    }
+
+    pub(crate) fn room_status(&self) -> &str { &self.room_status_text }
+
+    pub(crate) fn theme_label(&self) -> &'static str { if self.light { "light" } else { "dark" } }
+
     fn bridge(&self, request: Value) -> Result<Value, String> {
+        if self.offline {
+            return Err("Sample chat rooms are not connected to a notebook.".to_string());
+        }
         let mut child = Command::new(&self.python)
             .args(["-X", "utf8", "-m", "shipmblang.editor_bridge", "--database"])
             .arg(&self.database)
             .current_dir(&self.workdir)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()
-            .map_err(|error| format!("Could not start Python: {error}"))?;
+            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
+            .spawn().map_err(|error| format!("Could not start Python: {error}"))?;
         if let Some(mut input) = child.stdin.take() {
             serde_json::to_writer(&mut input, &request).map_err(|error| error.to_string())?;
             input.flush().map_err(|error| error.to_string())?;
@@ -201,85 +314,147 @@ impl App {
         let output = child.wait_with_output().map_err(|error| error.to_string())?;
         if !output.status.success() {
             let detail = String::from_utf8_lossy(&output.stderr);
-            return Err(if detail.trim().is_empty() {
-                "Could not access the notes database.".to_string()
-            } else {
-                detail.trim().to_string()
-            });
+            return Err(if detail.trim().is_empty() { "Could not access the notes database.".to_string() } else { detail.trim().to_string() });
         }
-        let value: Value = serde_json::from_slice(&output.stdout).map_err(|error| {
-            format!("The notes database returned an unreadable response: {error}")
-        })?;
+        let value: Value = serde_json::from_slice(&output.stdout).map_err(|error| format!("The notes database returned an unreadable response: {error}"))?;
         if value.get("ok").and_then(Value::as_bool) != Some(true) {
             return Err(value.get("error").and_then(Value::as_str).unwrap_or("Notes operation failed.").to_string());
+        }
+        if let Some(now) = value.get("now").and_then(Value::as_str) {
+            let _ = now;
         }
         Ok(value)
     }
 
     fn refresh_notes(&mut self, query: &str) -> Result<(), String> {
-        let response = self.bridge(json!({"action":"list", "query":query}))?;
-        self.notes = response.get("entries").and_then(Value::as_array).into_iter().flatten()
-            .map(|entry| NoteSummary {
-                id: text(entry, "id"), title: text(entry, "title"), date: text(entry, "entry_date"),
-            }).collect();
-        self.selected_note = self.selected_note.min(self.notes.len().saturating_sub(1));
+        if self.offline {
+            return Ok(());
+        }
+        let response = self.bridge(json!({"action": "list", "query": query}))?;
+        if let Some(now) = response.get("now").and_then(Value::as_str) {
+            self.now = now.to_string();
+        }
+        let current = self.entry_id.clone();
+        self.rooms = response.get("entries").and_then(Value::as_array).into_iter().flatten().map(room_from_value).collect();
+        if let Some(id) = current {
+            if let Some(index) = self.rooms.iter().position(|room| room.id == id) {
+                self.selected = index;
+            }
+        }
+        self.selected = self.selected.min(self.rooms.len().saturating_sub(1));
         Ok(())
     }
 
-    fn open_note(&mut self, index: usize) -> Result<(), String> {
-        let summary = self.notes.get(index).ok_or("Choose a note first.")?.clone();
-        if self.dirty {
+    fn open_room(&mut self, index: usize) -> Result<(), String> {
+        if self.rooms.is_empty() {
+            return Ok(());
+        }
+        if self.dirty && !self.offline {
             self.save()?;
         }
-        let response = self.bridge(json!({"action":"get", "id":summary.id}))?;
-        let entry = response.get("entry").and_then(Value::as_object).ok_or("Note was not found.")?;
+        let room = self.rooms.get(index).ok_or("Choose a chat first.")?.clone();
+        if self.offline {
+            self.messages = self.demo_threads.get(&room.id).cloned().unwrap_or_default();
+            self.entry_id = Some(room.id.clone());
+            self.room_title = room.title.clone();
+            self.room_status_text = room.status.clone();
+            self.lines = vec![Vec::new()];
+            self.cursor_row = 0;
+            self.cursor_col = 0;
+            self.images.clear();
+            self.selected = index;
+            self.stick_to_bottom = true;
+            self.sync_awaiting();
+            self.status = "Ready".to_string();
+            return Ok(());
+        }
+        let response = self.bridge(json!({"action": "get", "id": room.id}))?;
+        let entry = response.get("entry").and_then(Value::as_object).ok_or("Chat was not found.")?;
         self.entry_id = entry.get("id").and_then(Value::as_str).map(str::to_string);
         self.entry_date = entry.get("entry_date").and_then(Value::as_str).unwrap_or("").to_string();
         self.journal = entry.get("journal").and_then(Value::as_str).unwrap_or("").to_string();
         let program = entry.get("program").and_then(Value::as_str).unwrap_or("").to_string();
         self.lines = split_lines(&program);
-        self.images = parse_images(entry.get("document").and_then(Value::as_str).unwrap_or(""), &program);
+        self.images = parse_images(entry.get("document").and_then(Value::as_str).unwrap_or(""));
         self.next_image_id = self.images.iter().filter_map(|image| image.id.parse::<u64>().ok()).max().unwrap_or(0) + 1;
-        self.cursor_row = 0;
-        self.cursor_col = 0;
-        self.scroll_x = 0;
-        self.scroll_y = 0;
+        let timeline = self.bridge(json!({"action": "timeline", "id": room.id}))?;
+        if let Some(now) = timeline.get("now").and_then(Value::as_str) {
+            self.now = now.to_string();
+        }
+        self.messages = timeline.get("messages").and_then(Value::as_array).into_iter().flatten().map(message_from_value).collect();
+        let _ = self.bridge(json!({"action": "read", "id": room.id}));
+        self.cursor_row = self.lines.len().saturating_sub(1);
+        self.cursor_col = self.lines.last().map(|line| line.len()).unwrap_or(0);
+        self.composer_scroll = 0;
         self.dirty = false;
         self.dirty_since = None;
-        self.selected_note = index;
-        self.focus = Focus::Document;
-        self.status = "Saved".to_string();
-        self.output = vec![format!("Opened {}", summary.title)];
+        self.selected = index;
+        self.room_title = entry.get("title").and_then(Value::as_str).unwrap_or(&room.title).to_string();
+        self.room_status_text = room.status.clone();
+        self.focus = Focus::Composer;
+        self.stick_to_bottom = true;
+        self.sync_awaiting();
+        self.status = "Opened".to_string();
+        let query = self.search.clone();
+        let _ = self.refresh_notes(&query);
         Ok(())
     }
 
-    fn new_note(&mut self) {
+    fn sync_awaiting(&mut self) {
+        self.awaiting = None;
+        let Some(question) = self.messages.iter().rev().find(|message| message.kind == "clarification" || message.detail.get("status").and_then(Value::as_str) == Some("needs_clarification")) else { return; };
+        let answered = self.messages.iter().any(|message| message.parent_id == question.id && message.role == "user");
+        if answered { return; }
+        let parent = self.messages.iter().find(|message| message.id == question.parent_id && message.role == "user");
+        let Some(parent) = parent else { return; };
+        let rounds = self.messages.iter().filter(|message| message.kind == "answer").count();
+        if rounds >= 4 { return; }
+        self.awaiting = Some(Awaiting {
+            parent_id: question.id.clone(),
+            context: CompileContext {
+                entry_id: self.entry_id.clone().unwrap_or_default(),
+                operation: Operation::Run,
+                source: parent.body.clone(),
+                images: paths_from_detail(&parent.detail),
+                interpretation: None,
+                clarification_rounds: rounds,
+                user_message_id: parent.id.clone(),
+            },
+        });
+    }
+
+    fn new_chat(&mut self) {
+        if self.offline { self.status = "Sample chat".to_string(); return; }
         if self.dirty {
             if let Err(error) = self.save() {
-                self.status = "Save failed".to_string();
-                self.output = vec![error];
+                self.status = error;
                 return;
             }
         }
         self.entry_id = None;
         self.entry_date.clear();
         self.journal.clear();
+        self.room_title = "New chat".to_string();
+        self.room_status_text = "draft".to_string();
         self.lines = vec![Vec::new()];
-        self.images.clear();
-        self.next_image_id = 1;
         self.cursor_row = 0;
         self.cursor_col = 0;
-        self.scroll_x = 0;
-        self.scroll_y = 0;
+        self.messages.clear();
+        self.images.clear();
+        self.next_image_id = 1;
+        self.awaiting = None;
         self.dirty = false;
-        self.status = "New document".to_string();
-        self.output = vec!["New document. Start typing or press Ctrl+I to add an image.".to_string()];
-        self.focus = Focus::Document;
+        self.focus = Focus::Composer;
+        if let Err(error) = self.save() {
+            self.status = error;
+            return;
+        }
+        self.status = "New chat".to_string();
     }
 
     fn save(&mut self) -> Result<(), String> {
+        if self.offline { return Ok(()); }
         let source = self.source();
-        let title = source.lines().find(|line| !line.trim().is_empty()).unwrap_or("Untitled note").trim();
         let document = json!({
             "version": 2,
             "images": self.images.iter().map(|image| json!({
@@ -287,28 +462,38 @@ impl App {
             })).collect::<Vec<_>>(),
         });
         let response = self.bridge(json!({
-            "action":"save", "id":self.entry_id, "entry_date":self.entry_date,
-            "title":title.chars().take(60).collect::<String>(), "journal":self.journal,
-            "program":source, "document":document.to_string(),
+            "action": "save", "id": self.entry_id, "entry_date": self.entry_date,
+            "title": self.title_for_save(), "journal": self.journal,
+            "program": source, "document": document.to_string(),
         }))?;
-        let entry = response.get("entry").and_then(Value::as_object).ok_or("Note was saved but could not be reloaded.")?;
+        let entry = response.get("entry").and_then(Value::as_object).ok_or("Chat was saved but could not be reloaded.")?;
         self.entry_id = entry.get("id").and_then(Value::as_str).map(str::to_string);
         self.entry_date = entry.get("entry_date").and_then(Value::as_str).unwrap_or("").to_string();
+        if let Some(title) = entry.get("title").and_then(Value::as_str) {
+            self.room_title = title.to_string();
+        }
         self.dirty = false;
         self.dirty_since = None;
-        self.refresh_notes("")?;
-        if let Some(id) = &self.entry_id {
-            if let Some(index) = self.notes.iter().position(|note| &note.id == id) {
-                self.selected_note = index;
-            }
-        }
+        let query = self.search.clone();
+        self.refresh_notes(&query)?;
         self.status = "Saved".to_string();
         Ok(())
     }
 
+    fn title_for_save(&self) -> String {
+        let drafted = self.source().lines().find(|line| !line.trim().is_empty()).unwrap_or("").trim().to_string();
+        if !drafted.is_empty() {
+            return drafted.chars().take(60).collect();
+        }
+        if !self.room_title.trim().is_empty() {
+            return self.room_title.chars().take(60).collect();
+        }
+        "New chat".to_string()
+    }
+
     fn mark_dirty(&mut self) {
         self.dirty = true;
-        self.dirty_since = Some(std::time::Instant::now());
+        self.dirty_since = Some(Instant::now());
         self.status = "Editing…".to_string();
     }
 
@@ -316,9 +501,7 @@ impl App {
         self.lines.iter().map(|line| line.iter().collect::<String>()).collect::<Vec<_>>().join("\n")
     }
 
-    fn title(&self) -> String {
-        self.source().lines().find(|line| !line.trim().is_empty()).unwrap_or("Untitled note").trim().chars().take(60).collect()
-    }
+    fn composer_empty(&self) -> bool { self.lines.iter().all(|line| line.is_empty()) }
 
     fn insert_char(&mut self, ch: char) {
         if ch == '\n' {
@@ -350,7 +533,7 @@ impl App {
         self.mark_dirty();
     }
 
-    fn delete(&mut self) {
+    fn delete_char(&mut self) {
         if self.cursor_col < self.lines[self.cursor_row].len() {
             self.lines[self.cursor_row].remove(self.cursor_col);
         } else if self.cursor_row + 1 < self.lines.len() {
@@ -372,6 +555,21 @@ impl App {
             KeyCode::End => self.cursor_col = self.lines[self.cursor_row].len(),
             _ => {}
         }
+    }
+
+    fn edit_last_sent(&mut self) {
+        let Some(message) = self.messages.iter().rev().find(|message| message.role == "user" && message.kind != "answer").cloned() else {
+            self.status = "No sent program yet".to_string();
+            return;
+        };
+        self.lines = split_lines(&message.body);
+        self.cursor_row = self.lines.len().saturating_sub(1);
+        self.cursor_col = self.lines.last().map(|line| line.len()).unwrap_or(0);
+        self.images = images_from_detail(&message.detail);
+        self.next_image_id = self.images.iter().filter_map(|image| image.id.parse::<u64>().ok()).max().unwrap_or(0) + 1;
+        self.mark_dirty();
+        self.focus = Focus::Composer;
+        self.status = "Editing the last sent program".to_string();
     }
 
     fn insert_image(&mut self, raw_path: &str) -> Result<(), String> {
@@ -404,14 +602,12 @@ impl App {
         let marker = format!("[[image:{id}]]");
         for ch in marker.chars() { self.insert_char(ch); }
         self.images.push(ImageAttachment { id, path, caption: caption.clone() });
-        self.output = vec![format!("Inserted {caption} at the cursor."), "The numbered image reference follows the document order.".to_string()];
+        self.status = format!("Attached {caption}");
         Ok(())
     }
 
     fn active_image_stats(&self) -> (usize, u64) {
-        let total = self.images.iter()
-            .filter_map(|image| fs::metadata(&image.path).ok())
-            .fold(0_u64, |sum, metadata| sum.saturating_add(metadata.len()));
+        let total = self.images.iter().filter_map(|image| fs::metadata(&image.path).ok()).fold(0_u64, |sum, metadata| sum.saturating_add(metadata.len()));
         (self.images.len(), total)
     }
 
@@ -425,17 +621,14 @@ impl App {
                 if let Some(end_rel) = chars[index + 8..].windows(2).position(|pair| pair == [']', ']']) {
                     let end = index + 8 + end_rel;
                     let id: String = chars[index + 8..end].iter().collect();
-                    if known.contains_key(id.as_str()) {
-                        *used.entry(id).or_insert(0) += 1;
-                    }
+                    if known.contains_key(id.as_str()) { *used.entry(id).or_insert(0) += 1; }
                     index = end + 2;
                     continue;
                 }
             }
             index += 1;
         }
-        self.images.iter().filter(|image| !used.contains_key(&image.id))
-            .map(|image| image.id.clone()).collect()
+        self.images.iter().filter(|image| !used.contains_key(&image.id)).map(|image| image.id.clone()).collect()
     }
 
     fn ordered_submission(&self, source: &str) -> Result<(String, Vec<PathBuf>), String> {
@@ -444,8 +637,7 @@ impl App {
         }
         let mut total_bytes = 0_u64;
         for image in &self.images {
-            let metadata = fs::metadata(&image.path)
-                .map_err(|error| format!("Cannot read attached image {}: {error}", image.caption))?;
+            let metadata = fs::metadata(&image.path).map_err(|error| format!("Cannot read attached image {}: {error}", image.caption))?;
             if !metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_IMAGE_BYTES {
                 return Err(format!("Attached image {} must be a nonempty regular image file of 8 MB or less.", image.caption));
             }
@@ -476,7 +668,7 @@ impl App {
                 let uses = used.entry(id.clone()).or_insert(0);
                 *uses += 1;
                 if *uses > 1 {
-                    return Err(format!("Image attachment {} is referenced more than once. Keep one marker or insert a separate attachment with Ctrl+I.", id));
+                    return Err(format!("Image attachment {id} is referenced more than once. Keep one marker or insert a separate attachment with Ctrl+I."));
                 }
                 paths.push((*path).clone());
                 output.push_str(&format!("[[image:{}]]", paths.len()));
@@ -487,7 +679,7 @@ impl App {
             index += 1;
         }
         if let Some(image) = self.images.iter().find(|image| !used.contains_key(&image.id)) {
-            return Err(format!("Attached image {} has no marker in the document. Restore [[image:{}]] or remove unplaced images with Ctrl+R.", image.caption, image.id));
+            return Err(format!("Attached image {} has no marker in the message. Restore [[image:{}]] or remove unplaced images with Ctrl+R.", image.caption, image.id));
         }
         Ok((output, paths))
     }
@@ -495,66 +687,111 @@ impl App {
     fn prompt_remove_unplaced(&mut self, operation: Option<Operation>) {
         let ids = self.unplaced_image_ids(&self.source());
         if ids.is_empty() {
-            if operation.is_none() {
-                self.status = "No unplaced images".to_string();
-            }
+            if operation.is_none() { self.status = "No unplaced images".to_string(); }
             return;
         }
         self.modal = Some(Modal { kind: InputKind::UnplacedImages { operation, ids }, value: String::new() });
     }
 
-    fn ordered_image_ids(&self) -> Vec<String> {
-        let source: Vec<char> = self.source().chars().collect();
-        let known: HashMap<&str, ()> = self.images.iter().map(|image| (image.id.as_str(), ())).collect();
-        let mut ids = Vec::new();
-        let mut index = 0;
-        while index + 8 <= source.len() {
-            if source[index..index + 8].iter().collect::<String>() == "[[image:" {
-                if let Some(end_rel) = source[index + 8..].windows(2).position(|pair| pair == [']', ']']) {
-                    let end = index + 8 + end_rel;
-                    let id = source[index + 8..end].iter().collect::<String>();
-                    if known.contains_key(id.as_str()) {
-                        ids.push(id);
-                        index = end + 2;
-                        continue;
-                    }
-                }
-            }
-            index += 1;
-        }
-        ids
-    }
-
     fn begin_compile(&mut self, operation: Operation) {
-        if self.busy { return; }
-        let source = self.source();
-        if source.trim().is_empty() {
-            self.output = vec!["Write a program before compiling.".to_string()];
-            self.status = "Empty document".to_string();
+        if self.busy || self.offline { return; }
+        if self.awaiting.is_some() && matches!(operation, Operation::Run) {
+            self.answer_clarification();
             return;
         }
-        if let Err(error) = self.save() {
-            self.output = vec![format!("Save before compiling: {error}")];
-            self.status = "Save failed".to_string();
+        let draft = self.source();
+        if draft.trim().is_empty() {
+            self.status = "Write a program before sending.".to_string();
             return;
         }
-        let (source, images) = match self.ordered_submission(&source) {
+        let (source, images) = match self.ordered_submission(&draft) {
             Ok(result) => result,
             Err(error) => {
-                self.output = vec![error];
-                self.status = "Image reference needs attention".to_string();
+                self.status = error;
                 self.prompt_remove_unplaced(Some(operation));
                 return;
             }
         };
-        self.start_worker(CompileContext { operation, source, images, interpretation: None, clarification_rounds: 0 });
+        if let Err(error) = self.save() {
+            self.status = format!("Save before compiling: {error}");
+            return;
+        }
+        let entry_id = match self.entry_id.clone() {
+            Some(id) => id,
+            None => { self.status = "Could not open a chat for this message.".to_string(); return; }
+        };
+        let detail = json!({
+            "images": self.images.iter().map(|image| json!({"id": image.id, "path": image.path.to_string_lossy(), "caption": image.caption})).collect::<Vec<_>>(),
+        });
+        let appended = self.bridge(json!({
+            "action": "append", "id": entry_id, "role": "user", "kind": "message",
+            "body": source, "detail": detail,
+        }));
+        let message = match appended {
+            Ok(value) => value.get("message").cloned().unwrap_or(Value::Null),
+            Err(error) => { self.status = error; return; }
+        };
+        let user_message_id = message.get("id").and_then(Value::as_str).unwrap_or("").to_string();
+        self.lines = vec![Vec::new()];
+        self.cursor_row = 0;
+        self.cursor_col = 0;
+        self.images.clear();
+        self.next_image_id = 1;
+        self.dirty = true;
+        if let Err(error) = self.save() {
+            self.status = format!("Saved the message, but not the empty draft: {error}");
+        }
+        self.load_timeline();
+        self.stick_to_bottom = true;
+        self.start_worker(CompileContext { entry_id, operation, source, images, interpretation: None, clarification_rounds: 0, user_message_id });
+    }
+
+    fn answer_clarification(&mut self) {
+        let Some(awaiting) = self.awaiting.clone() else { return; };
+        let answer = self.source();
+        if answer.trim().is_empty() {
+            self.status = "Write the clarified program in the composer.".to_string();
+            return;
+        }
+        if let Err(error) = self.bridge(json!({
+            "action": "append", "id": awaiting.context.entry_id, "role": "user", "kind": "answer",
+            "body": answer, "parent_id": awaiting.parent_id, "detail": {},
+        })) {
+            self.status = error;
+            return;
+        }
+        self.lines = vec![Vec::new()];
+        self.cursor_row = 0;
+        self.cursor_col = 0;
+        self.dirty = true;
+        let _ = self.save();
+        self.load_timeline();
+        let mut context = awaiting.context;
+        context.interpretation = Some(answer);
+        context.clarification_rounds += 1;
+        self.awaiting = None;
+        self.start_worker(context);
+    }
+
+    fn load_timeline(&mut self) {
+        let Some(id) = self.entry_id.clone() else { return; };
+        if let Ok(timeline) = self.bridge(json!({"action": "timeline", "id": id})) {
+            if let Some(now) = timeline.get("now").and_then(Value::as_str) { self.now = now.to_string(); }
+            self.messages = timeline.get("messages").and_then(Value::as_array).into_iter().flatten().map(message_from_value).collect();
+        }
+        let query = self.search.clone();
+        let _ = self.refresh_notes(&query);
+        if let Some(room) = self.rooms.iter().find(|room| Some(&room.id) == self.entry_id.as_ref()) {
+            self.room_status_text = room.status.clone();
+            self.room_title = room.title.clone();
+        }
     }
 
     fn start_worker(&mut self, context: CompileContext) {
         self.busy = true;
         self.pending = Some(context.clone());
         self.status = match context.operation { Operation::Compile => "Compiling…", Operation::Run => "Running…" }.to_string();
-        self.output = vec![self.status.clone(), "The editor remains available while the compiler works.".to_string()];
+        self.stick_to_bottom = true;
         let tx = self.tx.clone();
         let python = self.python.clone();
         let workdir = self.workdir.clone();
@@ -568,152 +805,231 @@ impl App {
         let Ok(message) = self.rx.try_recv() else { return; };
         self.busy = false;
         self.pending = None;
+        let entry_id = message.context.entry_id.clone();
+        let user_message_id = message.context.user_message_id.clone();
         match message.result {
-            Err(error) => { self.output = vec![format!("Could not compile: {error}")]; self.status = "Compiler error".to_string(); }
+            Err(error) => {
+                let detail = json!({"status": "error"});
+                let _ = self.bridge(json!({"action": "append", "id": entry_id, "role": "bot", "kind": "reply", "body": format!("Could not compile: {error}"), "detail": detail, "parent_id": user_message_id}));
+                self.status = "Compiler error".to_string();
+            }
             Ok(result) => {
-                let stale = self.ordered_submission(&self.source()).map(|(source, paths)| source != message.context.source || paths != message.context.images).unwrap_or(true);
-                self.output = format_result(&result, message.context.operation);
-                if stale {
-                    self.output.insert(0, "Result is from before the latest document edit.".to_string());
-                    self.status = "Older document result".to_string();
-                    return;
-                }
-                if result.get("status").and_then(Value::as_str) == Some("needs_clarification") {
+                let (body, detail, status_name) = bot_from_result(&result, &message.context.source, message.context.operation);
+                let kind = if status_name == "needs_clarification" { "clarification" } else { "reply" };
+                let _ = self.bridge(json!({
+                    "action": "append", "id": entry_id, "role": "bot", "kind": kind,
+                    "body": body, "detail": detail, "parent_id": user_message_id,
+                }));
+                if status_name == "needs_clarification" {
                     let question = result.get("clarifications").and_then(Value::as_array).and_then(|items| items.first());
                     let id = question.and_then(|item| item.get("id")).and_then(Value::as_str).unwrap_or("");
                     let text = question.and_then(|item| item.get("question")).and_then(Value::as_str).unwrap_or("");
                     if id == "image-model" {
                         self.status = "Image-capable model required".to_string();
-                    } else if !text.is_empty() {
-                        let context = message.context;
-                        if context.clarification_rounds < 4 {
-                            self.modal = Some(Modal { kind: InputKind::Clarification(text.to_string()), value: String::new() });
-                            self.pending = Some(context);
-                            self.status = "Compiler needs clarification".to_string();
-                        } else {
-                            self.status = "Clarification limit reached".to_string();
-                        }
+                    } else if !text.is_empty() && message.context.clarification_rounds < 4 {
+                        self.status = "Reply to ShipMB in the composer".to_string();
+                    } else if message.context.clarification_rounds >= 4 {
+                        self.status = "Clarification limit reached".to_string();
                     } else {
                         self.status = "Compiler needs clarification".to_string();
                     }
-                } else if result.get("status").and_then(Value::as_str) == Some("compiled") {
+                } else if status_name == "compiled" {
                     self.status = match message.context.operation { Operation::Compile => "Compiled", Operation::Run => "Finished" }.to_string();
                 } else {
                     self.status = "Could not compile".to_string();
                 }
             }
         }
+        if self.entry_id.as_deref() == Some(entry_id.as_str()) {
+            self.load_timeline();
+            let _ = self.bridge(json!({"action": "read", "id": entry_id}));
+            self.sync_awaiting();
+            self.stick_to_bottom = true;
+        } else {
+            let query = self.search.clone();
+        let _ = self.refresh_notes(&query);
+        }
+    }
+
+    fn toggle_theme(&mut self) {
+        self.light = !self.light;
+        self.palette = palette(self.light);
+        if !self.offline {
+            let name = if self.light { "light" } else { "dark" };
+            let _ = self.bridge(json!({"action": "preference", "key": "theme", "value": name}));
+        }
+        self.status = format!("Theme: {}", self.theme_label());
+    }
+
+    fn toggle_pin(&mut self) {
+        if self.offline { self.status = "Sample chat".to_string(); return; }
+        let Some(id) = self.entry_id.clone() else { return; };
+        let pinned = self.rooms.iter().find(|room| room.id == id).map(|room| room.pinned).unwrap_or(false);
+        match self.bridge(json!({"action": "pin", "id": id, "pinned": !pinned})) {
+            Ok(_) => {
+                let query = self.search.clone();
+                let _ = self.refresh_notes(&query);
+                self.status = if pinned { "Unpinned".into() } else { "Pinned".into() };
+            }
+            Err(error) => self.status = error,
+        }
+    }
+
+    fn toggle_bytecode(&mut self) {
+        let id = self.messages.iter().rev().find(|message| message.role == "bot" && message.detail.get("bytecode").and_then(Value::as_str).map(|text| !text.is_empty()).unwrap_or(false)).map(|message| message.id.clone());
+        if let Some(id) = id {
+            if !self.expanded.insert(id.clone()) { self.expanded.remove(&id); }
+        }
     }
 
     fn handle_key(&mut self, key: KeyEvent) {
         if key.kind == KeyEventKind::Release { return; }
-        if self.modal.is_some() {
-            self.handle_modal_key(key);
-            return;
-        }
+        if self.modal.is_some() { self.handle_modal_key(key); return; }
         let control = key.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
+        if key.code == KeyCode::F(5) { self.begin_compile(Operation::Run); return; }
+        if alt && matches!(key.code, KeyCode::Char('t') | KeyCode::Char('T')) { self.toggle_theme(); return; }
+        if alt && matches!(key.code, KeyCode::Char('c') | KeyCode::Char('C')) { self.begin_compile(Operation::Compile); return; }
         if control {
             match key.code {
-                KeyCode::Char('s') => { if let Err(error) = self.save() { self.output = vec![error]; self.status = "Save failed".to_string(); } }
-                KeyCode::Char('n') => self.new_note(),
-                KeyCode::Char('o') => self.modal = Some(Modal { kind: InputKind::Search, value: String::new() }),
+                KeyCode::Char('s') => { if let Err(error) = self.save() { self.status = error; } }
+                KeyCode::Char('n') => self.new_chat(),
+                KeyCode::Char('o') => { self.focus = Focus::Search; self.status = "Search chats".into(); }
                 KeyCode::Char('i') => self.modal = Some(Modal { kind: InputKind::ImagePath, value: String::new() }),
                 KeyCode::Char('b') => self.modal = Some(Modal { kind: InputKind::BackupPath, value: String::new() }),
                 KeyCode::Char('r') => self.prompt_remove_unplaced(None),
+                KeyCode::Char('p') => self.toggle_pin(),
+                KeyCode::Char('e') => self.toggle_bytecode(),
+                KeyCode::Char('j') => { if self.focus == Focus::Composer { self.insert_char('\n'); } }
                 KeyCode::Enter => self.begin_compile(Operation::Compile),
-                KeyCode::Char('q') => {
-                    if self.dirty {
-                        if let Err(error) = self.save() {
-                            self.output = vec![format!("Could not save before quitting: {error}")];
-                            self.status = "Not saved".to_string();
-                            return;
-                        }
-                    }
-                    self.quitting = true;
-                }
+                KeyCode::Char('q') => self.quit(),
                 KeyCode::Char('d') => self.modal = Some(Modal { kind: InputKind::Delete, value: String::new() }),
                 _ => {}
             }
             return;
         }
-        if key.code == KeyCode::F(5) { self.begin_compile(Operation::Run); return; }
-        if key.code == KeyCode::Tab { self.focus = if self.focus == Focus::Notes { Focus::Document } else { Focus::Notes }; return; }
-        if self.focus == Focus::Notes {
-            match key.code {
-                KeyCode::Up | KeyCode::Char('k') => self.selected_note = self.selected_note.saturating_sub(1),
-                KeyCode::Down | KeyCode::Char('j') => self.selected_note = (self.selected_note + 1).min(self.notes.len().saturating_sub(1)),
-                KeyCode::Enter => { let result = self.open_note(self.selected_note); if let Err(error) = result { self.output = vec![error]; } }
-                KeyCode::Char('i') => self.modal = Some(Modal { kind: InputKind::ImagePath, value: String::new() }),
-                _ => self.focus = Focus::Document,
-            }
-        } else {
-            match key.code {
-                KeyCode::Char(ch) => self.insert_char(ch),
-                KeyCode::Enter => self.insert_char('\n'),
-                KeyCode::Backspace => self.backspace(),
-                KeyCode::Delete => self.delete(),
-                code @ (KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down | KeyCode::Home | KeyCode::End) => self.move_cursor(code),
-                KeyCode::Esc => self.focus = Focus::Notes,
-                _ => {}
-            }
+        if matches!(key.code, KeyCode::Enter) && (alt || key.modifiers.contains(KeyModifiers::SHIFT)) {
+            if self.focus != Focus::Composer { self.focus = Focus::Composer; }
+            self.insert_char('\n');
+            return;
+        }
+        if key.code == KeyCode::Tab {
+            self.focus = match self.focus {
+                Focus::Search => Focus::Rooms,
+                Focus::Rooms => Focus::Timeline,
+                Focus::Timeline => Focus::Composer,
+                Focus::Composer => Focus::Rooms,
+            };
+            return;
+        }
+        if key.code == KeyCode::BackTab {
+            self.focus = match self.focus {
+                Focus::Composer => Focus::Timeline,
+                Focus::Timeline => Focus::Rooms,
+                Focus::Rooms => Focus::Search,
+                Focus::Search => Focus::Composer,
+            };
+            return;
+        }
+        match self.focus {
+            Focus::Search => self.handle_search_key(key),
+            Focus::Rooms => self.handle_room_key(key),
+            Focus::Timeline => self.handle_timeline_key(key),
+            Focus::Composer => self.handle_composer_key(key),
+        }
+    }
+
+    fn handle_search_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => { self.search.clear(); let _ = self.refresh_notes(""); self.focus = Focus::Composer; }
+            KeyCode::Enter => { self.focus = Focus::Rooms; self.status = format!("{} chats", self.rooms.len()); }
+            KeyCode::Up => { self.focus = Focus::Rooms; self.selected = self.selected.saturating_sub(1); }
+            KeyCode::Down => { self.focus = Focus::Rooms; if !self.rooms.is_empty() { self.selected = (self.selected + 1).min(self.rooms.len() - 1); } }
+            KeyCode::Backspace => { self.search.pop(); let _ = self.refresh_notes(&self.search.clone()); }
+            KeyCode::Char(ch) => { self.search.push(ch); let _ = self.refresh_notes(&self.search.clone()); }
+            _ => {}
+        }
+    }
+
+    fn handle_room_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => self.selected = self.selected.saturating_sub(1),
+            KeyCode::Down | KeyCode::Char('j') => if !self.rooms.is_empty() { self.selected = (self.selected + 1).min(self.rooms.len() - 1); },
+            KeyCode::Enter => { let index = self.selected; if let Err(error) = self.open_room(index) { self.status = error; } }
+            KeyCode::Esc => self.focus = Focus::Composer,
+            _ => self.focus = Focus::Composer,
+        }
+    }
+
+    fn handle_timeline_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => { self.stick_to_bottom = false; self.timeline_scroll = self.timeline_scroll.saturating_sub(1); }
+            KeyCode::Down | KeyCode::Char('j') => { self.timeline_scroll = self.timeline_scroll.saturating_add(1); }
+            KeyCode::PageUp => { self.stick_to_bottom = false; self.timeline_scroll = self.timeline_scroll.saturating_sub(8); }
+            KeyCode::PageDown => self.timeline_scroll = self.timeline_scroll.saturating_add(8),
+            KeyCode::Enter | KeyCode::Esc => self.focus = Focus::Composer,
+            KeyCode::Char('e') => self.toggle_bytecode(),
+            _ => self.focus = Focus::Composer,
+        }
+    }
+
+    fn handle_composer_key(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Enter => self.begin_compile(Operation::Run),
+            KeyCode::Char(ch) => self.insert_char(ch),
+            KeyCode::Backspace => self.backspace(),
+            KeyCode::Delete => self.delete_char(),
+            KeyCode::Up if self.composer_empty() && self.cursor_row == 0 && self.cursor_col == 0 => self.edit_last_sent(),
+            code @ (KeyCode::Left | KeyCode::Right | KeyCode::Up | KeyCode::Down | KeyCode::Home | KeyCode::End) => self.move_cursor(code),
+            KeyCode::Esc => self.focus = Focus::Rooms,
+            _ => {}
         }
     }
 
     fn handle_modal_key(&mut self, key: KeyEvent) {
         if key.kind == KeyEventKind::Release { return; }
-        if key.code == KeyCode::Esc { self.modal = None; self.pending = None; return; }
+        if key.code == KeyCode::Esc { self.modal = None; return; }
         if key.code == KeyCode::Enter {
             let Some(modal) = self.modal.take() else { return; };
             match modal.kind {
-                InputKind::Search => {
-                    if let Err(error) = self.refresh_notes(&modal.value) { self.output = vec![error]; }
-                    self.selected_note = 0;
-                    self.focus = Focus::Notes;
-                    self.status = format!("{} notes", self.notes.len());
-                }
                 InputKind::ImagePath => match self.insert_image(&modal.value) {
-                    Ok(()) => { self.focus = Focus::Document; }
-                    Err(error) => { self.output = vec![error]; self.status = "Image not added".to_string(); }
+                    Ok(()) => self.focus = Focus::Composer,
+                    Err(error) => self.status = error,
                 },
-                InputKind::Clarification(_question) => {
-                    let answer = modal.value.trim().to_string();
-                    if answer.is_empty() { self.status = "Clarification skipped".to_string(); return; }
-                    if let Some(mut context) = self.pending.take() {
-                        context.interpretation = Some(answer);
-                        context.clarification_rounds += 1;
-                        self.start_worker(context);
-                    }
-                }
                 InputKind::UnplacedImages { operation, ids } => {
                     if modal.value.trim().eq_ignore_ascii_case("remove") {
                         let before = self.images.len();
                         self.images.retain(|image| !ids.contains(&image.id));
                         let removed = before - self.images.len();
                         self.mark_dirty();
-                        self.output = vec![format!("Removed {removed} unplaced image attachment(s).")];
-                        if let Some(operation) = operation {
-                            self.begin_compile(operation);
-                        }
-                    } else {
-                        self.status = "Image removal cancelled".to_string();
-                    }
+                        self.status = format!("Removed {removed} unplaced image attachment(s).");
+                        if let Some(operation) = operation { self.begin_compile(operation); }
+                    } else { self.status = "Image removal cancelled".to_string(); }
                 }
                 InputKind::BackupPath => {
                     let input = PathBuf::from(modal.value.trim().trim_matches('"'));
                     let destination = if input.is_absolute() { input } else { self.startdir.join(input) };
-                    match self.bridge(json!({"action":"backup", "destination":destination})) {
-                        Ok(_) => { self.status = "Backup saved".to_string(); self.output = vec![format!("Notes backed up to {}", destination.display())]; }
-                        Err(error) => { self.status = "Backup failed".to_string(); self.output = vec![error]; }
+                    match self.bridge(json!({"action": "backup", "destination": destination})) {
+                        Ok(_) => self.status = format!("Notes backed up to {}", destination.display()),
+                        Err(error) => self.status = error,
                     }
                 }
                 InputKind::Delete => {
                     if modal.value.trim().eq_ignore_ascii_case("delete") {
                         if let Some(id) = self.entry_id.clone() {
-                            match self.bridge(json!({"action":"delete", "id":id})) {
-                                Ok(_) => { self.dirty = false; self.entry_id = None; self.new_note(); let _ = self.refresh_notes(""); self.status = "Note deleted".to_string(); }
-                                Err(error) => { self.output = vec![error]; self.status = "Delete failed".to_string(); }
+                            match self.bridge(json!({"action": "delete", "id": id})) {
+                                Ok(_) => {
+                                    self.dirty = false;
+                                    self.entry_id = None;
+                                    self.messages.clear();
+                                    self.lines = vec![Vec::new()];
+                                    let _ = self.refresh_notes("");
+                                    if self.rooms.is_empty() { self.new_chat(); } else if let Err(error) = self.open_room(0) { self.status = error; }
+                                    self.status = "Chat deleted".to_string();
+                                }
+                                Err(error) => self.status = error,
                             }
-                        } else { self.new_note(); }
+                        } else { self.new_chat(); }
                     } else { self.status = "Delete cancelled".to_string(); }
                 }
             }
@@ -726,43 +1042,102 @@ impl App {
         }
     }
 
+    fn handle_mouse(&mut self, mouse: MouseEvent) {
+        match mouse.kind {
+            MouseEventKind::ScrollUp => self.scroll_at(mouse.column, mouse.row, -3),
+            MouseEventKind::ScrollDown => self.scroll_at(mouse.column, mouse.row, 3),
+            MouseEventKind::Down(MouseButton::Left) => self.click(mouse.column, mouse.row),
+            _ => {}
+        }
+    }
+
+    fn scroll_at(&mut self, column: u16, row: u16, delta: i32) {
+        if contains(self.hits.timeline, column, row) || contains(self.hits.composer, column, row) {
+            if delta < 0 { self.stick_to_bottom = false; self.timeline_scroll = self.timeline_scroll.saturating_sub(delta.unsigned_abs() as usize); }
+            else { self.timeline_scroll = self.timeline_scroll.saturating_add(delta as usize); }
+            self.focus = Focus::Timeline;
+        } else if self.hits.rooms.iter().any(|(rect, _)| contains(*rect, column, row)) || contains(self.hits.search, column, row) {
+            if delta < 0 { self.room_scroll = self.room_scroll.saturating_sub(1); }
+            else { self.room_scroll = self.room_scroll.saturating_add(1); }
+        }
+    }
+
+    fn click(&mut self, column: u16, row: u16) {
+        if let Some((_, id)) = self.hits.bytecode.iter().find(|(y, _)| *y == row) {
+            let id = id.clone();
+            if !self.expanded.insert(id.clone()) { self.expanded.remove(&id); }
+            self.focus = Focus::Timeline;
+            return;
+        }
+        if let Some((_, index)) = self.hits.rooms.iter().find(|(rect, _)| contains(*rect, column, row)).cloned() {
+            self.selected = index;
+            if let Err(error) = self.open_room(index) { self.status = error; }
+            return;
+        }
+        if contains(self.hits.search, column, row) { self.focus = Focus::Search; return; }
+        if contains(self.hits.composer, column, row) { self.focus = Focus::Composer; return; }
+        if contains(self.hits.timeline, column, row) { self.focus = Focus::Timeline; }
+    }
+
+    fn quit(&mut self) {
+        if self.dirty {
+            if let Err(error) = self.save() {
+                self.status = format!("Could not save before quitting: {error}");
+                return;
+            }
+        }
+        self.quitting = true;
+    }
+
     fn auto_save(&mut self) {
+        if self.offline { return; }
         if self.dirty && self.dirty_since.map(|time| time.elapsed() >= Duration::from_millis(800)).unwrap_or(false) {
             if let Err(error) = self.save() {
-                self.output = vec![format!("Could not save: {error}")];
-                self.status = "Not saved".to_string();
-                self.dirty_since = Some(std::time::Instant::now());
+                self.status = format!("Could not save: {error}");
+                self.dirty_since = Some(Instant::now());
             }
         }
     }
 }
 
-fn text(value: &Value, key: &str) -> String {
-    value.get(key).and_then(Value::as_str).unwrap_or("").to_string()
+fn contains(rect: Rect, column: u16, row: u16) -> bool {
+    column >= rect.x && column < rect.x.saturating_add(rect.width) && row >= rect.y && row < rect.y.saturating_add(rect.height)
 }
 
+fn room_from_value(entry: &Value) -> Room {
+    Room {
+        id: text(entry, "id"), title: text(entry, "title"), preview: text(entry, "preview"),
+        status: { let status = text(entry, "status"); if status.is_empty() { "draft".into() } else { status } },
+        last_activity: { let stamp = text(entry, "last_activity"); if stamp.is_empty() { text(entry, "updated_at") } else { stamp } },
+        unread: entry.get("unread").and_then(Value::as_i64).unwrap_or(0) != 0,
+        pinned: entry.get("pinned").and_then(Value::as_i64).unwrap_or(0) != 0,
+    }
+}
+
+fn message_from_value(entry: &Value) -> ChatMessage {
+    ChatMessage {
+        id: text(entry, "id"), role: text(entry, "role"), kind: text(entry, "kind"), body: text(entry, "body"),
+        detail: entry.get("detail").cloned().unwrap_or(json!({})),
+        created_at: text(entry, "created_at"),
+        parent_id: entry.get("parent_id").and_then(Value::as_str).unwrap_or("").to_string(),
+    }
+}
+
+fn message(id: &str, role: &str, kind: &str, body: &str, detail: Value, created_at: &str, parent: &str) -> ChatMessage {
+    ChatMessage { id: id.into(), role: role.into(), kind: kind.into(), body: body.into(), detail, created_at: created_at.into(), parent_id: parent.into() }
+}
+
+fn text(value: &Value, key: &str) -> String { value.get(key).and_then(Value::as_str).unwrap_or("").to_string() }
+
 fn split_lines(source: &str) -> Vec<Vec<char>> {
+    if source.is_empty() { return vec![Vec::new()]; }
     source.split('\n').map(|line| line.chars().collect()).collect()
 }
 
-fn parse_images(document: &str, program: &str) -> Vec<ImageAttachment> {
+fn parse_images(document: &str) -> Vec<ImageAttachment> {
     let parsed = serde_json::from_str::<Value>(document).unwrap_or(Value::Null);
-    let mut images = Vec::new();
-    if parsed.get("version").and_then(Value::as_u64) == Some(2) {
-        if let Some(items) = parsed.get("images").and_then(Value::as_array) {
-            for item in items {
-                let path = item.get("path").and_then(Value::as_str).unwrap_or("");
-                if path.is_empty() { continue; }
-                let id = item.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-                if id.is_empty() { continue; }
-                images.push(ImageAttachment {
-                    id,
-                    path: PathBuf::from(path),
-                    caption: item.get("caption").and_then(Value::as_str).unwrap_or("Image").to_string(),
-                });
-            }
-        }
-    } else if parsed.get("version").and_then(Value::as_u64) == Some(1) {
+    if parsed.get("version").and_then(Value::as_u64) == Some(1) {
+        let mut images = Vec::new();
         if let Some(blocks) = parsed.get("blocks").and_then(Value::as_array) {
             let mut id = 0_u64;
             for block in blocks {
@@ -777,9 +1152,81 @@ fn parse_images(document: &str, program: &str) -> Vec<ImageAttachment> {
                 }
             }
         }
+        return images;
     }
-    let _ = program;
+    images_from_detail(&parsed)
+}
+
+fn images_from_detail(detail: &Value) -> Vec<ImageAttachment> {
+    let mut images = Vec::new();
+    let items = detail.get("images").and_then(Value::as_array).or_else(|| {
+        if detail.get("version").and_then(Value::as_u64) == Some(2) { detail.get("images").and_then(Value::as_array) } else { None }
+    });
+    if let Some(items) = items {
+        for item in items {
+            let path = item.get("path").and_then(Value::as_str).unwrap_or("");
+            let id = item.get("id").and_then(Value::as_str).unwrap_or("");
+            if path.is_empty() || id.is_empty() { continue; }
+            images.push(ImageAttachment { id: id.to_string(), path: PathBuf::from(path), caption: item.get("caption").and_then(Value::as_str).unwrap_or("Image").to_string() });
+        }
+    }
     images
+}
+
+fn paths_from_detail(detail: &Value) -> Vec<PathBuf> {
+    images_from_detail(detail).into_iter().map(|image| image.path).collect()
+}
+
+fn bot_from_result(result: &Value, source: &str, operation: Operation) -> (String, Value, String) {
+    let status = result.get("status").and_then(Value::as_str).unwrap_or("unsupported").to_string();
+    let mut lines = Vec::new();
+    if status == "compiled" {
+        lines.push(match operation { Operation::Compile => "Compiled successfully.".to_string(), Operation::Run => "Ran successfully.".to_string() });
+        if let Some(text) = result.get("interpretation_source").and_then(Value::as_str) {
+            if !text.is_empty() { lines.push(format!("Interpretation:\n{text}")); }
+        }
+        if matches!(operation, Operation::Run) {
+            let stdout = result.get("runtime").and_then(|runtime| runtime.get("stdout")).and_then(Value::as_str).unwrap_or("");
+            lines.push(if stdout.is_empty() { "Program finished with no printed output.".to_string() } else { stdout.trim_end().to_string() });
+        }
+    } else if status == "needs_clarification" {
+        if let Some(questions) = result.get("clarifications").and_then(Value::as_array) {
+            for question in questions {
+                if let Some(text) = question.get("question").and_then(Value::as_str) { lines.push(text.to_string()); }
+            }
+        }
+        if lines.is_empty() { lines.push("The compiler needs clarification.".to_string()); }
+    } else {
+        lines.push("Could not compile this program.".to_string());
+        if let Some(diagnostics) = result.get("diagnostics").and_then(Value::as_array) {
+            for diagnostic in diagnostics {
+                if let Some(text) = diagnostic.get("message").and_then(Value::as_str) {
+                    let prefix = diagnostic.get("span").map(|span| span_label(source, span)).unwrap_or_default();
+                    lines.push(if prefix.is_empty() { text.to_string() } else { format!("{prefix} {text}") });
+                }
+            }
+        }
+    }
+    let bytecode = result.get("target_code").map(|value| serde_json::to_string_pretty(value).unwrap_or_default()).unwrap_or_default();
+    let detail = json!({
+        "status": status,
+        "operation": match operation { Operation::Compile => "compile", Operation::Run => "run" },
+        "stdout": result.get("runtime").and_then(|runtime| runtime.get("stdout")).and_then(Value::as_str).unwrap_or(""),
+        "diagnostics": result.get("diagnostics").cloned().unwrap_or(json!([])),
+        "clarifications": result.get("clarifications").cloned().unwrap_or(json!([])),
+        "bytecode": bytecode,
+    });
+    (lines.join("\n"), detail, status)
+}
+
+fn span_label(source: &str, span: &Value) -> String {
+    let start = span.get("start").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let end = span.get("end").and_then(Value::as_u64).unwrap_or(start as u64) as usize;
+    let chars: Vec<char> = source.chars().collect();
+    let start = start.min(chars.len());
+    let line = chars.iter().take(start).filter(|ch| **ch == '\n').count() + 1;
+    let column = chars.iter().take(start).rev().take_while(|ch| **ch != '\n').count() + 1;
+    format!("line {line}:{column} (chars {start}-{end})")
 }
 
 fn invoke_compiler(python: &Path, workdir: &Path, context: &CompileContext) -> Result<Value, String> {
@@ -787,17 +1234,12 @@ fn invoke_compiler(python: &Path, workdir: &Path, context: &CompileContext) -> R
     let mut process = Command::new(python);
     process.args(["-X", "utf8", "-m", "shipmblang", command, "--file", "-", "--pipeline", "direct", "--memory", "off", "--format", "json"]);
     for image in &context.images { process.arg("--image").arg(image); }
-    if let Some(interpretation) = &context.interpretation {
-        process.arg("--interpretation").arg(interpretation);
-    }
-    let mut child = process.current_dir(workdir).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped())
-        .spawn().map_err(|error| format!("Could not start ShipMBLang: {error}"))?;
-    if let Some(mut input) = child.stdin.take() {
-        input.write_all(context.source.as_bytes()).map_err(|error| error.to_string())?;
-    }
+    if let Some(interpretation) = &context.interpretation { process.arg("--interpretation").arg(interpretation); }
+    let mut child = process.current_dir(workdir).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()
+        .map_err(|error| format!("Could not start ShipMBLang: {error}"))?;
+    if let Some(mut input) = child.stdin.take() { input.write_all(context.source.as_bytes()).map_err(|error| error.to_string())?; }
     let output = child.wait_with_output().map_err(|error| error.to_string())?;
-    let parsed = serde_json::from_slice::<Value>(&output.stdout);
-    match parsed {
+    match serde_json::from_slice::<Value>(&output.stdout) {
         Ok(result) => Ok(result),
         Err(error) => {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -806,183 +1248,87 @@ fn invoke_compiler(python: &Path, workdir: &Path, context: &CompileContext) -> R
     }
 }
 
-fn format_result(result: &Value, operation: Operation) -> Vec<String> {
-    let mut lines = Vec::new();
-    let status = result.get("status").and_then(Value::as_str).unwrap_or("unsupported");
-    if status == "compiled" {
-        lines.push(match operation { Operation::Compile => "Compiled successfully.".to_string(), Operation::Run => "Ran successfully.".to_string() });
-        if let Some(interpretation) = result.get("interpretation_source").and_then(Value::as_str) {
-            lines.push(String::new());
-            lines.push("Compiler interpretation:".to_string());
-            lines.extend(interpretation.lines().map(str::to_string));
-        }
-        if matches!(operation, Operation::Run) {
-            let stdout = result.get("runtime").and_then(|runtime| runtime.get("stdout")).and_then(Value::as_str).unwrap_or("");
-            lines.push(String::new());
-            lines.push(if stdout.is_empty() { "Program finished with no printed output.".to_string() } else { format!("Output: {stdout}") });
-        }
-        if let Some(target) = result.get("target_code") {
-            lines.push(String::new());
-            lines.push("Bytecode:".to_string());
-            lines.extend(serde_json::to_string_pretty(target).unwrap_or_default().lines().map(str::to_string));
-        }
-    } else {
-        lines.push(if status == "needs_clarification" { "The compiler needs clarification.".to_string() } else { "Could not compile this document.".to_string() });
-        if let Some(questions) = result.get("clarifications").and_then(Value::as_array) {
-            for question in questions {
-                if let Some(text) = question.get("question").and_then(Value::as_str) { lines.push(format!("? {text}")); }
-            }
-        }
-        if let Some(diagnostics) = result.get("diagnostics").and_then(Value::as_array) {
-            for diagnostic in diagnostics {
-                if let Some(text) = diagnostic.get("message").and_then(Value::as_str) { lines.push(format!("• {text}")); }
-            }
-        }
-    }
-    if lines.is_empty() { lines.push(serde_json::to_string_pretty(result).unwrap_or_else(|_| "No compiler output.".to_string())); }
-    lines
+pub(crate) fn activity_label(stamp: &str, now: &str) -> String {
+    let day = date_prefix(stamp);
+    let today = date_prefix(now);
+    let clock = clock_label(stamp);
+    if day == today {
+        if clock.is_empty() { "Today".into() } else { clock }
+    } else if day == yesterday(&today) {
+        if clock.is_empty() { "Yesterday".into() } else { format!("Yesterday {clock}") }
+    } else if day.is_empty() {
+        String::new()
+    } else if clock.is_empty() { day } else { format!("{day} {clock}") }
 }
 
-fn editor_area(frame: &mut Frame, area: Rect, app: &mut App) {
-    let block = Block::default().title(format!(" Document  ·  {} ", app.title())).borders(Borders::ALL)
-        .border_style(if app.focus == Focus::Document { Style::default().fg(Color::Cyan) } else { Style::default().fg(Color::DarkGray) });
-    let inner = block.inner(area);
-    frame.render_widget(block, area);
-    let height = inner.height as usize;
-    let text_width = inner.width.saturating_sub(7) as usize;
-    if height == 0 || text_width == 0 { return; }
-    if app.cursor_row < app.scroll_y { app.scroll_y = app.cursor_row; }
-    if app.cursor_row >= app.scroll_y + height { app.scroll_y = app.cursor_row + 1 - height; }
-    if app.cursor_col < app.scroll_x { app.scroll_x = app.cursor_col; }
-    if app.cursor_col >= app.scroll_x + text_width { app.scroll_x = app.cursor_col + 1 - text_width; }
-    let mut rendered = Vec::new();
-    for index in app.scroll_y..(app.scroll_y + height).min(app.lines.len()) {
-        let line = &app.lines[index];
-        let mut spans = vec![Span::styled(format!("{:>4} ", index + 1), Style::default().fg(Color::DarkGray))];
-        let visible = &line[app.scroll_x.min(line.len())..];
-        let visible = &visible[..visible.len().min(text_width)];
-        let mut position = 0;
-        while position < visible.len() {
-            let global = app.scroll_x + position;
-            if position + 8 <= visible.len() && visible[position..position + 8].iter().collect::<String>() == "[[image:" {
-                if let Some(end_rel) = visible[position + 8..].windows(2).position(|pair| pair == [']', ']']) {
-                    let end = position + 8 + end_rel + 2;
-                    let token = visible[position..end].iter().collect::<String>();
-                    spans.push(Span::styled(token, Style::default().fg(Color::LightCyan).bg(Color::Rgb(25, 49, 61))));
-                    position = end;
-                    continue;
-                }
-            }
-            let ch = visible[position];
-            let style = if app.focus == Focus::Document && index == app.cursor_row && global == app.cursor_col {
-                Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)
-            } else if app.focus == Focus::Document && index == app.cursor_row && global + 1 == app.cursor_col {
-                Style::default().fg(Color::White).bg(Color::Rgb(40, 48, 56))
-            } else { Style::default().fg(Color::White) };
-            spans.push(Span::styled(ch.to_string(), style));
-            position += 1;
-        }
-        if app.focus == Focus::Document && index == app.cursor_row && app.cursor_col >= app.scroll_x + visible.len() {
-            spans.push(Span::styled(" ", Style::default().fg(Color::Black).bg(Color::Cyan)));
-        }
-        rendered.push(Line::from(spans));
-    }
-    frame.render_widget(Paragraph::new(rendered), inner);
+pub(crate) fn day_label(stamp: &str, now: &str) -> String {
+    let day = date_prefix(stamp);
+    let today = date_prefix(now);
+    if day.is_empty() { return String::new(); }
+    if day == today { "Today".into() } else if day == yesterday(&today) { "Yesterday".into() } else { day }
 }
 
-fn draw(frame: &mut Frame, app: &mut App) {
-    let outer = Layout::default().direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(8), Constraint::Length(8), Constraint::Length(2)]).split(frame.area());
-    let header = Line::from(vec![
-        Span::styled(" ShipMBLang ", Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::styled("  Documents  /  ", Style::default().fg(Color::Gray)),
-        Span::styled(app.title(), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-        Span::styled("    ", Style::default()),
-        Span::styled(if app.dirty { "Unsaved" } else { app.status.as_str() }, Style::default().fg(if app.dirty { Color::Yellow } else { Color::Green })),
-    ]);
-    frame.render_widget(Paragraph::new(header).block(Block::default().borders(Borders::BOTTOM).border_style(Style::default().fg(Color::DarkGray))), outer[0]);
-    let middle = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Percentage(24), Constraint::Percentage(76)]).split(outer[1]);
-    let mut note_lines = vec![Line::from(Span::styled("Your documents", Style::default().fg(Color::Gray)))];
-    let visible_notes = middle[0].height.saturating_sub(3) as usize;
-    for (index, note) in app.notes.iter().enumerate().skip(app.selected_note.saturating_sub(visible_notes.saturating_sub(1))).take(visible_notes) {
-        let style = if index == app.selected_note { Style::default().fg(Color::Black).bg(Color::Cyan).add_modifier(Modifier::BOLD) } else { Style::default().fg(Color::White) };
-        note_lines.push(Line::from(Span::styled(truncate(&note.title, middle[0].width.saturating_sub(4) as usize), style)));
-        if middle[0].width > 14 { note_lines.push(Line::from(Span::styled(format!("  {}", note.date), Style::default().fg(Color::DarkGray)))); }
-    }
-    frame.render_widget(Paragraph::new(note_lines).block(Block::default().title(" Notes ").borders(Borders::ALL)
-        .border_style(if app.focus == Focus::Notes { Style::default().fg(Color::Cyan) } else { Style::default().fg(Color::DarkGray) })), middle[0]);
-    editor_area(frame, middle[1], app);
-
-    let lower = Layout::default().direction(Direction::Horizontal).constraints([Constraint::Percentage(24), Constraint::Percentage(76)]).split(outer[2]);
-    let mut image_lines = vec![Line::from(Span::styled("Inline image cards", Style::default().fg(Color::Gray)))];
-    let mut seen = HashMap::<String, usize>::new();
-    for (order, id) in app.ordered_image_ids().iter().enumerate() {
-        if let Some(attachment) = app.images.iter().find(|image| &image.id == id) {
-            let references = seen.entry(id.clone()).or_insert(0);
-            *references += 1;
-            let duplicate = if *references > 1 { " · duplicate marker" } else { "" };
-            image_lines.push(Line::from(Span::styled(format!("{}. {}{}", order + 1, truncate(&attachment.caption, lower[0].width.saturating_sub(5) as usize), duplicate), Style::default().fg(if *references > 1 { Color::Yellow } else { Color::LightCyan }))));
-            image_lines.push(Line::from(Span::styled(truncate(&attachment.path.to_string_lossy(), lower[0].width.saturating_sub(5) as usize), Style::default().fg(Color::DarkGray))));
-        }
-    }
-    for attachment in &app.images {
-        if !seen.contains_key(&attachment.id) {
-            image_lines.push(Line::from(Span::styled(format!("Unplaced · {}", truncate(&attachment.caption, lower[0].width.saturating_sub(5) as usize)), Style::default().fg(Color::Yellow))));
-            image_lines.push(Line::from(Span::styled(format!("{} · Ctrl+R to remove", truncate(&attachment.path.to_string_lossy(), lower[0].width.saturating_sub(5) as usize)), Style::default().fg(Color::DarkGray))));
-        }
-    }
-    if app.images.is_empty() { image_lines.push(Line::from(Span::styled("Ctrl+I to insert an image", Style::default().fg(Color::DarkGray)))); }
-    frame.render_widget(Paragraph::new(image_lines).wrap(Wrap { trim: true }).block(Block::default().title(" Images ").borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray))), lower[0]);
-    let output_lines = app.output.iter().map(|line| Line::from(line.as_str())).collect::<Vec<_>>();
-    frame.render_widget(Paragraph::new(output_lines).wrap(Wrap { trim: false }).block(Block::default().title(" Compiler / Output ").borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray))), lower[1]);
-    let footer = Line::from(vec![
-        Span::styled(" Ctrl+S ", Style::default().fg(Color::Cyan)), Span::raw("Save  "),
-        Span::styled("Ctrl+N ", Style::default().fg(Color::Cyan)), Span::raw("New  "),
-        Span::styled("Ctrl+O ", Style::default().fg(Color::Cyan)), Span::raw("Search  "),
-        Span::styled("Ctrl+I ", Style::default().fg(Color::Cyan)), Span::raw("Image  "),
-        Span::styled("Ctrl+R ", Style::default().fg(Color::Cyan)), Span::raw("Remove unplaced  "),
-        Span::styled("Ctrl+B ", Style::default().fg(Color::Cyan)), Span::raw("Backup  "),
-        Span::styled("Ctrl+Enter ", Style::default().fg(Color::Cyan)), Span::raw("Compile  "),
-        Span::styled("F5 ", Style::default().fg(Color::Cyan)), Span::raw("Run  "),
-        Span::styled("Tab ", Style::default().fg(Color::Cyan)), Span::raw("Switch panel  "),
-        Span::styled("Ctrl+Q ", Style::default().fg(Color::Cyan)), Span::raw("Quit"),
-    ]);
-    frame.render_widget(Paragraph::new(footer).alignment(Alignment::Center), outer[3]);
-    if let Some(modal) = &app.modal { draw_modal(frame, modal); }
+pub(crate) fn clock_label(stamp: &str) -> String {
+    if stamp.len() >= 16 && stamp.as_bytes().get(10) == Some(&b'T') { stamp[11..16].to_string() } else { String::new() }
 }
 
-fn draw_modal(frame: &mut Frame, modal: &Modal) {
-    let area = centered(frame.area(), 76, 7);
-    frame.render_widget(Clear, area);
-    let (title, prompt) = match &modal.kind {
-        InputKind::Search => ("Find a document", "Search title or text; Enter to filter, Esc to cancel".to_string()),
-        InputKind::ImagePath => ("Insert image", "Enter a local PNG, JPEG, GIF, WebP or BMP path".to_string()),
-        InputKind::Clarification(question) => ("Compiler clarification", format!("{question}\nEnter the complete clarified program in English.")),
-        InputKind::UnplacedImages { ids, .. } => ("Remove unplaced images", format!("Attachments without markers: {}. Type REMOVE to detach them; Esc cancels.", ids.join(", "))),
-        InputKind::BackupPath => ("Back up notes", "Enter a destination path for a SQLite backup".to_string()),
-        InputKind::Delete => ("Delete document", "Type DELETE and press Enter to permanently delete this note".to_string()),
-    };
-    let content = vec![Line::from(prompt), Line::from(""), Line::from(Span::styled(format!("› {}", modal.value), Style::default().fg(Color::Yellow)))];
-    frame.render_widget(Paragraph::new(content).wrap(Wrap { trim: true }).block(Block::default().title(format!(" {title} ")).borders(Borders::ALL).border_style(Style::default().fg(Color::Cyan))), area);
+pub(crate) fn date_prefix(stamp: &str) -> String {
+    if stamp.len() >= 10 && stamp.as_bytes()[4] == b'-' && stamp.as_bytes()[7] == b'-' { stamp[..10].to_string() } else { String::new() }
 }
 
-fn centered(area: Rect, width: u16, height: u16) -> Rect {
-    Rect { x: area.x + area.width.saturating_sub(width) / 2, y: area.y + area.height.saturating_sub(height) / 2, width: width.min(area.width), height: height.min(area.height) }
+pub(crate) fn yesterday(ymd: &str) -> String {
+    let parts: Vec<i64> = ymd.split('-').filter_map(|part| part.parse().ok()).collect();
+    if parts.len() != 3 { return String::new(); }
+    let days = days_from_civil(parts[0], parts[1] as u32, parts[2] as u32);
+    let (year, month, day) = civil_from_days(days - 1);
+    format!("{year:04}-{month:02}-{day:02}")
 }
 
-fn truncate(text: &str, max: usize) -> String {
-    let chars: Vec<char> = text.chars().collect();
-    if chars.len() <= max { text.to_string() } else if max > 1 { format!("{}…", chars[..max - 1].iter().collect::<String>()) } else { "…".to_string() }
+fn utc_now_iso() -> String {
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64;
+    let days = secs.div_euclid(86_400);
+    let tod = secs.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}+00:00", tod / 3600, (tod % 3600) / 60, tod % 60)
+}
+
+fn days_from_civil(year: i64, month: u32, day: u32) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let yoe = (year - era * 400) as u64;
+    let month_index = if month > 2 { month as u64 - 3 } else { month as u64 + 9 };
+    let doy = (153 * month_index + 2) / 5 + day as u64 - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe as i64 - 719468
+}
+
+fn civil_from_days(mut z: i64) -> (i32, u32, u32) {
+    z += 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let year = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let month_index = (5 * doy + 2) / 153;
+    let day = (doy - (153 * month_index + 2) / 5 + 1) as u32;
+    let month = if month_index < 10 { month_index + 3 } else { month_index - 9 };
+    let year = if month <= 2 { year + 1 } else { year };
+    (year as i32, month as u32, day)
 }
 
 fn run_tui(mut terminal: Terminal<CrosstermBackend<io::Stdout>>, mut app: App) -> Result<(), Box<dyn Error>> {
     loop {
-        terminal.draw(|frame| draw(frame, &mut app))?;
+        terminal.draw(|frame| ui::draw(frame, &mut app))?;
         app.receive_worker();
         app.auto_save();
         if app.quitting { break; }
         if event::poll(Duration::from_millis(100))? {
-            if let Event::Key(key) = event::read()? { app.handle_key(key); }
+            match event::read()? {
+                Event::Key(key) => app.handle_key(key),
+                Event::Mouse(mouse) => app.handle_mouse(mouse),
+                Event::Resize(_, _) => {}
+                _ => {}
+            }
         }
     }
     if app.dirty { let _ = app.save(); }
@@ -991,13 +1337,77 @@ fn run_tui(mut terminal: Terminal<CrosstermBackend<io::Stdout>>, mut app: App) -
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse().map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error))?;
-    let app = App::new(args).map_err(|error| io::Error::new(io::ErrorKind::Other, error.to_string()))?;
+    if args.version {
+        println!("shipmblang-editor {EDITOR_VERSION}");
+        return Ok(());
+    }
+    let mut app = if args.demo { App::demo(args.theme.as_deref().unwrap_or("dark"), args.ascii, args.select.unwrap_or(0)) } else { App::new(&args)? };
+    if args.ascii { app.glyphs = glyphs(true); }
+    if let Some(theme) = args.theme.as_deref() {
+        app.light = theme == "light";
+        app.palette = palette(app.light);
+    }
+    if args.smoke || args.dump.is_some() {
+        if let Some(path) = &args.dump { ui::write_dump(&mut app, path, 100, 36)?; }
+        let text = ui::render_text(&mut app, 100, 36)?;
+        if args.smoke { println!("shipmblang editor smoke ok"); }
+        println!("{text}");
+        return Ok(());
+    }
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;
     let terminal = Terminal::new(CrosstermBackend::new(stdout))?;
     let result = run_tui(terminal, app);
     disable_raw_mode()?;
-    execute!(io::stdout(), LeaveAlternateScreen)?;
+    execute!(io::stdout(), LeaveAlternateScreen, DisableMouseCapture)?;
     result
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frame(theme: &str, ascii: bool, select: usize) -> String {
+        let mut app = App::demo(theme, ascii, select);
+        ui::render_text(&mut app, 100, 36).unwrap()
+    }
+
+    #[test]
+    fn dark_chat_frame_shows_the_conversation() {
+        let text = frame("dark", false, 0);
+        assert!(text.contains("ShipMB"), "{text}");
+        assert!(text.contains("Today"), "{text}");
+        assert!(text.contains("Show the sum"), "{text}");
+        assert!(text.contains("Which declared"), "{text}");
+        assert!(text.contains("Enter"), "{text}");
+        assert!(text.contains("bytecode"), "{text}");
+        assert!(text.contains("Yesterday"), "{text}");
+    }
+
+    #[test]
+    fn light_frame_shows_the_image_attachment() {
+        let text = frame("light", false, 2);
+        assert!(text.contains("[[image:1]]"), "{text}");
+        assert!(text.contains("park.png"), "{text}");
+        assert!(text.contains("ShipMB"), "{text}");
+        assert!(text.contains("Yesterday"), "{text}");
+    }
+
+    #[test]
+    fn ascii_frame_uses_plain_badges_and_borders() {
+        let text = frame("dark", true, 0);
+        assert!(text.contains("ASK"), "{text}");
+        assert!(text.contains("OK"), "{text}");
+        assert!(text.contains('+'), "{text}");
+        assert!(!text.contains('▸'), "{text}");
+    }
+
+    #[test]
+    fn yesterday_crosses_month_and_leap_day() {
+        assert_eq!(yesterday("2026-10-23"), "2026-10-22");
+        assert_eq!(yesterday("2026-03-01"), "2026-02-28");
+        assert_eq!(yesterday("2024-03-01"), "2024-02-29");
+        assert_eq!(civil_from_days(0), (1970, 1, 1));
+    }
 }
