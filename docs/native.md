@@ -17,13 +17,24 @@ shipmblang setup --vision
 shipmblang photo.shipmb --format text
 ```
 
+That sentence is the `describe` operation. The bundled runtime asks "What is in
+this image?" and stops after 16 tokens. `VisionEngine` in
+`shipmblang/_compiler/vision.py` sends that budget when the engine is created,
+and `VisionExecutor.invoke` does not pass a larger `max_tokens` for `describe`.
+Sixteen tokens is a short phrase. A model that starts a longer sentence stops
+mid-sentence. The same budget covers yes/no and count answers, and it is the
+budget the 2-second latency check measures. This repository does not edit
+`shipmblang/_compiler`, so the program path keeps 16 tokens. Compile-time
+image prose is a different call and may use 64 or 256 tokens.
+
 The first run asks before it downloads. `shipmblang setup --vision --yes` skips the
 question. Compilation does not load the library. Running a vision program does.
 If the library is missing, the run exits 2 and tells you to run
 `shipmblang setup --vision`.
 
-Linux is verified. Windows is a follow-up pull request. macOS comes later.
-The commands below were run on Linux.
+Linux is verified. Windows x64 is supported with Visual Studio 2022 and the
+static C runtime. The Windows section below is the procedure for that platform.
+macOS comes later. The commands in the first half of this page were run on Linux.
 
 ## Weights
 
@@ -138,6 +149,72 @@ per core), ten different 448×448 PNGs, the same short question, `max_tokens`
 | --- | --- |
 | median | 1582.58 ms |
 | nearest-rank p95 | 1665.45 ms (index 9) |
+
+## Windows x64
+
+The Windows build uses the Visual Studio generator. `cl` does not need to be
+on `PATH`. `python tools/build_vision.py` asks `vswhere` for the newest Visual
+Studio or Build Tools install that has the MSVC x64 toolset and configures
+with `-G "Visual Studio 17 2022" -A x64` (the year and major version come from
+vswhere). A Developer shell that already has both `cl` and `ninja` on `PATH`
+(`VSCMD_VER` or `VCToolsInstallDir` is set) uses the Ninja generator instead.
+
+The generator is multi-config, so the build passes `--config Release`. The
+products are `build\Release\shipmb_vision.dll` and
+`build\bin\Release\llama-quantize.exe` or
+`build\_deps\llamacpp-build\tools\quantize\Release\llama-quantize.exe`. The
+script copies `shipmb_vision.dll` to `shipmblang\_compiler\native\`, which is
+the path `vision.py` opens, and copies `llama-quantize.exe` to
+`shipmblang\_compiler\native\bin\`. License files and the weight pins are
+copied beside the DLL. That directory is build output and is not committed.
+
+```powershell
+python tools\build_vision.py
+ctest --test-dir native\shipmb_vision\build -C Release --output-on-failure
+```
+
+CMake fetches llama.cpp with `core.autocrlf=false` and applies
+`patches/llama.cpp-b11846-shipmb.patch` from `cmake/pin-llama.cmake` before it
+adds the subdirectory. That replaces the single-argument `FetchContent_Populate`
+call, which current CMake warns about under CMP0169. `.gitattributes` keeps the
+patch and the files under `fixtures/` byte-for-byte on a checkout with
+`core.autocrlf=true`, and it keeps the C++ sources LF.
+
+The library and `llama-quantize.exe` link the static multithreaded CRT
+(`/MT`, CMake `MultiThreaded`). ggml and llama are already static libraries.
+A static CRT is the right choice here for three reasons. The DLL is loaded
+with `ctypes` by an absolute path, and Windows does not search that directory
+for dependent DLLs, so dropping `VCRUNTIME140.dll` next to it does not help
+unless every host calls `os.add_dll_directory`. The quantize tool is a
+separate process spawned from the source tree and from the frozen executable,
+and it would otherwise need a matching copy of the redistributable beside the
+exe. The C ABI does not free memory across the Python/DLL boundary, so the
+DLL's static CRT can live inside the process that Python built with the
+dynamic CRT. `dumpbin /dependents` on `shipmb_vision.dll` and
+`llama-quantize.exe` should not list `MSVCP140.dll`, `VCRUNTIME140.dll`, or
+`VCRUNTIME140_1.dll`. `api-ms-win-crt-*.dll` or `KERNEL32.dll` are Windows
+components, not the Visual C++ redistributable. The frozen `shipmblang.exe`
+still depends on the VC runtime because the PyInstaller bootloader and Python
+do. That is separate from the vision library.
+
+`shipmblang setup --vision` writes the cache to `%LOCALAPPDATA%\shipmblang\vision`
+(then `%USERPROFILE%\AppData\Local\shipmblang\vision`, then `shipmblang\vision`),
+the same directories the native library reads. Downloads and quantization take
+an exclusive lock file so a second setup stops instead of appending to the
+same partial. The partial is published with `os.replace` after it is closed,
+which is atomic on NTFS, and a sharing violation from a scanner is retried.
+Paths use the `\\?\` prefix so a cache directory longer than `MAX_PATH` still
+opens. Ctrl+C flushes the partial download and leaves it in place. Ctrl+C
+during quantization terminates `llama-quantize.exe` and deletes that partial,
+because a half-written GGUF is not resumed. The quantize tool is always run
+as `llama-quantize.exe` by its full path.
+
+`python tools\build_standalone.py` packs `shipmb_vision.dll`,
+`llama-quantize.exe`, the pins, and the license files into `dist\shipmblang.exe`.
+On startup the frozen program sets `SHIPMB_VISION_BRIDGE` to the DLL under
+`_MEIPASS` and calls `os.add_dll_directory` on that directory before
+`vision.py` loads it. Weights are not packed. `shipmblang setup --vision` on
+the target machine fills the cache.
 
 ## Private native compiler
 

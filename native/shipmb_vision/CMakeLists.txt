@@ -1,4 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
+if(CMAKE_HOST_WIN32)
+  # MSBuild schedules projects itself unless this is set before project().
+  list(APPEND CMAKE_VS_GLOBALS UseMultiToolTask=true)
+  list(APPEND CMAKE_VS_GLOBALS EnforceProcessCountAcrossBuilds=true)
+  # Static CRT (/MT, /MTd). CMP0091 is NEW because cmake_minimum_required(3.20)
+  # is above, before project(). The DLL and llama-quantize then do not depend
+  # on MSVCP140, VCRUNTIME140, or VCRUNTIME140_1.
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>" CACHE STRING "" FORCE)
+endif()
 project(shipmb_vision_project VERSION 0.6.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -51,33 +60,22 @@ endif()
 
 set(SHIPMB_LLAMA_COMMIT "1a24df163920a4744a95373d178d790b72a9bb2f")
 set(SHIPMB_LLAMA_TAG "b11846")
+# Single-argument FetchContent_Populate is deprecated by CMP0169 and becomes an
+# error in a future CMake. PATCH_COMMAND runs in the source tree once, before
+# FetchContent_MakeAvailable adds the subdirectory. core.autocrlf=false keeps
+# the clone in LF so the LF patch matches on a Windows checkout.
 include(FetchContent)
 FetchContent_Declare(
   llamacpp
   GIT_REPOSITORY https://github.com/ggml-org/llama.cpp.git
   GIT_TAG ${SHIPMB_LLAMA_TAG}
-  GIT_SHALLOW TRUE)
-FetchContent_GetProperties(llamacpp)
-if(NOT llamacpp_POPULATED)
-  FetchContent_Populate(llamacpp)
-endif()
-execute_process(
-  COMMAND git -C "${llamacpp_SOURCE_DIR}" rev-parse HEAD
-  OUTPUT_VARIABLE SHIPMB_LLAMA_FETCHED
-  OUTPUT_STRIP_TRAILING_WHITESPACE
-  COMMAND_ERROR_IS_FATAL ANY)
-if(NOT SHIPMB_LLAMA_FETCHED STREQUAL SHIPMB_LLAMA_COMMIT)
-  message(FATAL_ERROR "Fetched llama.cpp ${SHIPMB_LLAMA_FETCHED}, expected ${SHIPMB_LLAMA_COMMIT}")
-endif()
-set(SHIPMB_LLAMA_PATCH_STAMP "${llamacpp_BINARY_DIR}/shipmb-b11846.patch-applied")
-if(NOT EXISTS "${SHIPMB_LLAMA_PATCH_STAMP}")
-  execute_process(
-    COMMAND git -C "${llamacpp_SOURCE_DIR}" apply --whitespace=nowarn
-            "${CMAKE_CURRENT_SOURCE_DIR}/patches/llama.cpp-b11846-shipmb.patch"
-    COMMAND_ERROR_IS_FATAL ANY)
-  file(WRITE "${SHIPMB_LLAMA_PATCH_STAMP}" "${SHIPMB_LLAMA_COMMIT}\n")
-endif()
-add_subdirectory("${llamacpp_SOURCE_DIR}" "${llamacpp_BINARY_DIR}")
+  GIT_SHALLOW TRUE
+  GIT_CONFIG core.autocrlf=false core.eol=lf
+  PATCH_COMMAND ${CMAKE_COMMAND}
+    -DEXPECTED=${SHIPMB_LLAMA_COMMIT}
+    -DPATCH_FILE=${CMAKE_CURRENT_SOURCE_DIR}/patches/llama.cpp-b11846-shipmb.patch
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/pin-llama.cmake)
+FetchContent_MakeAvailable(llamacpp)
 
 add_library(shipmb_vision SHARED
   src/shipmb_vision.cpp
@@ -137,4 +135,32 @@ if(BUILD_TESTING)
       target_link_options(${vision_tool} PRIVATE "/STACK:8388608")
     endforeach()
   endif()
+endif()
+
+# llama.cpp does not set MSVC_RUNTIME_LIBRARY. Apply /MT after every target
+# exists so a later default of /MD cannot mix into the DLL or llama-quantize.
+function(shipmb_force_static_crt directory)
+  get_property(targets DIRECTORY "${directory}" PROPERTY BUILDSYSTEM_TARGETS)
+  foreach(tgt IN LISTS targets)
+    get_target_property(imported "${tgt}" IMPORTED)
+    if(imported)
+      continue()
+    endif()
+    get_target_property(alias "${tgt}" ALIASED_TARGET)
+    if(alias)
+      continue()
+    endif()
+    get_target_property(kind "${tgt}" TYPE)
+    if(kind STREQUAL "INTERFACE_LIBRARY" OR kind STREQUAL "UTILITY")
+      continue()
+    endif()
+    set_property(TARGET "${tgt}" PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+  endforeach()
+  get_property(children DIRECTORY "${directory}" PROPERTY SUBDIRECTORIES)
+  foreach(child IN LISTS children)
+    shipmb_force_static_crt("${child}")
+  endforeach()
+endfunction()
+if(MSVC)
+  shipmb_force_static_crt("${CMAKE_CURRENT_SOURCE_DIR}")
 endif()

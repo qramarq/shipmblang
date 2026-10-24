@@ -50,3 +50,7 @@ The header also exports `smb_vision_runtime`. `vision.py` does not load that sym
 llama.cpp itself is not included. The real MiniCPM-V GGUF weights are not included. `scripts/make_tiny_fixture.py` regenerates the tiny fixture; it looks for `third_party/llama.cpp/convert_hf_to_gguf.py` and needs NumPy. The library build does not run that script. The committed fixture is already in `fixtures/minicpmv46-tiny/` (about 1.8 MB).
 
 To also build `llama-quantize` (the tool that reproduces `mmproj-model-q8_0.gguf` from the f16 projector), configure with `-DSHIPMB_VISION_QUANTIZE=ON`.
+
+## Windows
+
+Use `python tools/build_vision.py` from the repository root. It selects the Visual Studio 2022 x64 generator through `vswhere` (or Ninja when `cl` and `ninja` are already on `PATH` inside a Developer shell), builds the `Release` configuration, and copies `shipmb_vision.dll` to `shipmblang/_compiler/native/`. The runtime is the static CRT. `ctest` needs `-C Release` for the Visual Studio generator. See `docs/native.md`.

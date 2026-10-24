@@ -2,19 +2,23 @@
 
 import hashlib
 import io
+import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 import urllib.error
 from unittest.mock import patch
 
 from shipmblang import setup_tools
 from shipmblang.standalone import activate_packed_vision_library
-from shipmblang.vision_build import default_compilers
+from shipmblang.vision_build import cmake_build_command, default_compilers, find_built_library, library_filename, quantize_filename, windows_cmake_args
 from shipmblang.vision_setup import (
-    FilePin, VisionPins, VisionSetupError, download_verified, setup_vision, vision_model_dir,
+    FilePin, VisionPins, VisionSetupError, download_lock_path, download_verified,
+    extended_path, load_pins, replace_verified, setup_vision, vision_model_dir,
 )
 
 
@@ -308,6 +312,221 @@ class RealPinTests(unittest.TestCase):
         self.assertIn("afe9accb78d2995d214cd912920c9c92f4015faa", pins.llm.url)
         self.assertIn("afe9accb78d2995d214cd912920c9c92f4015faa", pins.f16.url)
         self.assertIsNone(pins.q8.url)
+
+    def test_crlf_pin_files_still_parse(self):
+        root = Path(__file__).resolve().parents[1] / "native" / "shipmb_vision"
+        with tempfile.TemporaryDirectory() as directory:
+            copy = Path(directory)
+            for name in ("pins.json", "weight_pins.json"):
+                text = (root / name).read_text(encoding="utf-8")
+                (copy / name).write_bytes(text.replace("\n", "\r\n").encode("utf-8"))
+            pins = load_pins(copy)
+        self.assertEqual(pins.llm.sha256, "6b0c74962c44bc6bf4b655b9b02c13eda9d5a0491543ae976d1ac18e4b7892e2")
+
+    def test_vendored_patch_and_fixture_text_stay_lf(self):
+        root = Path(__file__).resolve().parents[1] / "native" / "shipmb_vision"
+        patch = (root / "patches" / "llama.cpp-b11846-shipmb.patch").read_bytes()
+        golden = (root / "fixtures" / "minicpmv46-tiny" / "golden.json").read_bytes()
+        self.assertNotIn(b"\r", patch)
+        self.assertTrue(golden.startswith(b"{"))
+        self.assertNotIn(b"\r", golden)
+
+
+class WindowsPathAndLockTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.cache = Path(self.temp.name)
+
+    def test_extended_path_prefixes_drive_and_unc(self):
+        with patch.object(os, "name", "nt"), patch("shipmblang.vision_setup.os.path.abspath", return_value="C:\\models\\vision\\file.gguf"):
+            self.assertEqual(extended_path(Path("file.gguf")), "\\\\?\\C:\\models\\vision\\file.gguf")
+        with patch.object(os, "name", "nt"), patch("shipmblang.vision_setup.os.path.abspath", return_value="\\\\server\\share\\file.gguf"):
+            self.assertEqual(extended_path(Path("file.gguf")), "\\\\?\\UNC\\server\\share\\file.gguf")
+        with patch.object(os, "name", "nt"), patch("shipmblang.vision_setup.os.path.abspath", return_value="\\\\?\\C:\\already"):
+            self.assertEqual(extended_path(Path("already")), "\\\\?\\C:\\already")
+
+    def test_download_into_a_long_path(self):
+        deep = self.cache
+        while len(str(deep)) < 300:
+            deep = deep / ("nest" * 10)
+        payload = b"long-path-bytes"
+        pin = _pin("model.gguf", payload, "http://example.test/model")
+        dest = deep / pin.filename
+        with patch("sys.stdout", io.StringIO()):
+            status = download_verified(pin, dest, opener=lambda url, headers: Response(200, payload), offline=False)
+        self.assertEqual(status, "downloaded")
+        with open(extended_path(dest), "rb") as handle:
+            self.assertEqual(handle.read(), payload)
+
+    def test_interrupt_keeps_a_resumable_partial(self):
+        payload = b"0123456789abcdef"
+        pin = _pin("model.gguf", payload, "http://example.test/model")
+        calls = []
+
+        class Interrupt(Response):
+            def read(self, size):
+                if self._off >= 4:
+                    raise KeyboardInterrupt
+                return super().read(min(size, 4 - self._off))
+
+        def opener(url, headers):
+            calls.append(dict(headers))
+            if len(calls) == 1:
+                return Interrupt(200, payload)
+            start = int(headers["Range"].split("=", 1)[1].rstrip("-"))
+            return Response(206, payload[start:])
+
+        with patch("sys.stdout", io.StringIO()), self.assertRaises(KeyboardInterrupt):
+            download_verified(pin, self.cache / pin.filename, opener=opener, offline=False)
+        partial = self.cache / (pin.filename + ".partial")
+        self.assertFalse((self.cache / pin.filename).exists())
+        self.assertEqual(partial.read_bytes(), payload[:4])
+        with patch("sys.stdout", io.StringIO()):
+            status = download_verified(pin, self.cache / pin.filename, opener=opener, offline=False)
+        self.assertEqual(status, "downloaded")
+        self.assertEqual((self.cache / pin.filename).read_bytes(), payload)
+        self.assertEqual(calls[1]["Range"], "bytes=4-")
+
+    def test_a_held_lock_refuses_the_second_setup(self):
+        payload = b"0123456789"
+        pin = _pin("model.gguf", payload, "http://example.test/model")
+        dest = self.cache / pin.filename
+        lock = download_lock_path(dest)
+        script = textwrap.dedent(
+            """
+            import sys
+            from pathlib import Path
+            from shipmblang.vision_setup import exclusive_lock
+            with exclusive_lock(Path(sys.argv[1]), "model.gguf"):
+                sys.stdout.write("held\\n")
+                sys.stdout.flush()
+                sys.stdin.read()
+            """
+        )
+        process = subprocess.Popen(
+            [sys.executable, "-c", script, str(lock)],
+            cwd=Path(__file__).resolve().parents[1],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            line = process.stdout.readline()
+            self.assertEqual(line, "held\n")
+            def opener(*_args):
+                raise AssertionError("locked setup used the network")
+            with patch("sys.stdout", io.StringIO()), self.assertRaises(VisionSetupError) as raised:
+                download_verified(pin, dest, opener=opener, offline=False)
+            self.assertIn("already preparing", str(raised.exception))
+        finally:
+            # Let the holder exit by itself. A venv python.exe is a launcher, so
+            # terminate() can leave the real interpreter holding the lock file.
+            process.stdin.close()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=10)
+            if process.stdout is not None:
+                process.stdout.close()
+
+    def test_replace_retries_a_sharing_violation(self):
+        src = self.cache / "partial"
+        dest = self.cache / "final"
+        src.write_bytes(b"abc")
+        calls = {"n": 0}
+        real = os.replace
+
+        def flaky(origin, target):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                error = PermissionError(5, "denied")
+                error.winerror = 5
+                raise error
+            real(origin, target)
+
+        with patch("shipmblang.vision_setup._sharing_violation", return_value=True), patch("shipmblang.vision_setup.os.replace", flaky), patch("shipmblang.vision_setup.time.sleep"):
+            replace_verified(src, dest)
+        self.assertEqual(dest.read_bytes(), b"abc")
+        self.assertFalse(src.exists())
+        self.assertEqual(calls["n"], 2)
+
+
+class WindowsBuildPlanTests(unittest.TestCase):
+    def test_dev_shell_uses_ninja(self):
+        def which(name):
+            return {"cl": "C:\\cl.exe", "ninja": "C:\\ninja.exe"}.get(name)
+
+        with patch("shipmblang.vision_build.shutil.which", side_effect=which), patch.dict(os.environ, {"VSCMD_VER": "17.14"}, clear=True):
+            args, multi = windows_cmake_args()
+        self.assertEqual(args[:2], ["-G", "Ninja"])
+        self.assertIn("-DCMAKE_C_COMPILER=cl", args)
+        self.assertFalse(multi)
+
+    def test_vswhere_selects_the_vs2022_generator(self):
+        payload = json.dumps([{
+            "installationPath": "C:\\Program Files\\Microsoft Visual Studio\\2022\\Community",
+            "installationVersion": "17.14.9",
+            "catalog": {"productLineVersion": "2022"},
+        }])
+        completed = subprocess.CompletedProcess(args=[], returncode=0, stdout=payload, stderr="")
+
+        def which(name):
+            return None
+
+        with patch("shipmblang.vision_build.shutil.which", side_effect=which), patch("shipmblang.vision_build.vswhere_executable", return_value=Path("vswhere")), patch("shipmblang.vision_build.subprocess.run", return_value=completed), patch.dict(os.environ, {}, clear=True):
+            args, multi = windows_cmake_args()
+        self.assertEqual(args, ["-G", "Visual Studio 17 2022", "-A", "x64"])
+        self.assertTrue(multi)
+        self.assertEqual(cmake_build_command(Path("build"), 4, True), ["cmake", "--build", "build", "--parallel", "4", "--config", "Release"])
+
+    def test_release_output_wins_over_debug(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            name = library_filename()
+            debug = root / "Debug" / name
+            release = root / "Release" / name
+            debug.parent.mkdir()
+            release.parent.mkdir()
+            debug.write_bytes(b"d")
+            release.write_bytes(b"r")
+            self.assertEqual(find_built_library(root), release)
+            quant = quantize_filename()
+            (root / "Debug" / quant).write_bytes(b"d")
+            (root / "Release" / quant).write_bytes(b"r")
+            from shipmblang.vision_build import _best_artifact
+            self.assertEqual(_best_artifact([root / "Debug" / quant, root / "Release" / quant]).parent.name, "Release")
+
+
+class PackedDllDirectoryTests(unittest.TestCase):
+    def test_windows_loader_remembers_the_packed_directory(self):
+        added = []
+
+        def add(path):
+            added.append(path)
+            return object()
+
+        from shipmblang.standalone import vision_library_filename
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            library = root / "shipmblang" / "_compiler" / "native" / vision_library_filename()
+            library.parent.mkdir(parents=True)
+            library.write_bytes(b"packed")
+            environ = os.environ.copy()
+            environ.pop("SHIPMB_VISION_BRIDGE", None)
+            from shipmblang import standalone
+            with patch.object(sys, "frozen", True, create=True), patch.object(sys, "_MEIPASS", str(root), create=True), patch.dict(os.environ, environ, clear=True):
+                standalone._DLL_DIRECTORIES.clear()
+                activate_packed_vision_library()
+                self.assertEqual(os.environ["SHIPMB_VISION_BRIDGE"], str(library))
+            with patch.object(os, "name", "nt"), patch.object(os, "add_dll_directory", add, create=True):
+                standalone._DLL_DIRECTORIES.clear()
+                standalone.remember_dll_directory(library)
+                self.assertEqual(added, [os.path.abspath(str(library.parent))])
+                standalone.remember_dll_directory(library)
+                self.assertEqual(len(added), 1)
 
 
 if __name__ == "__main__":

@@ -50,8 +50,8 @@ Package 0.6.0. The bundled compiler snapshot is 0.6.0 from compiler commit
   executable.
 - **Native vision.** In-process MiniCPM-V 4.6. `shipmblang setup --vision`
   installs it. See [Native vision](#native-vision) and
-  [the vision guide](docs/native.md). Linux is verified. Windows is a
-  follow-up pull request. macOS comes later.
+  [the vision guide](docs/native.md). Linux is verified. Windows x64 build,
+  setup, and run steps are in that section. macOS comes later.
 - **Chat-room notebook.** `shipmblang notebook` and `shipmblang editor` open
   saved notes as rooms.
 - **`shipmblang lsp` and editors.** Diagnostics, hover, and compile/run over
@@ -136,7 +136,8 @@ shipmblang photo.shipmb --format text
 
 Compilation does not load the library. Running the program does. If the
 library is missing, the run exits 2 and tells you to run
-`shipmblang setup --vision`.
+`shipmblang setup --vision`. The printed answer uses at most 16 tokens, so a
+longer sentence can stop mid-sentence.
 
 ### Standalone executable
 
@@ -151,11 +152,46 @@ The target is a warm nearest-rank 95th percentile under 2 seconds. Repeating
 one image can set `cached` and skip the image encode; that faster number is
 not the target. Ten different 448×448 images, each with `cached` false, on
 the 4-core Linux machine used here: median 1582.58 ms, nearest-rank p95
-1665.45 ms.
+1665.45 ms. On a Windows laptop (Ryzen AI 7 350, 8 cores / 16 threads) the
+same uncached check was median 1222 ms and nearest-rank p95 1247 ms.
+
+### Windows
+
+Windows x64 uses Visual Studio 2022 or Build Tools with the MSVC x64 toolset.
+`cl` does not need to be on `PATH`. `python tools\build_vision.py` asks
+`vswhere` for that install, configures the Visual Studio generator with
+`-A x64`, and builds Release. A Developer shell that already has `cl`,
+`ninja`, and `VSCMD_VER` or `VCToolsInstallDir` uses Ninja. The script copies
+`shipmb_vision.dll` to `shipmblang\_compiler\native\` and `llama-quantize.exe`
+to `shipmblang\_compiler\native\bin\`. Both link the static C runtime.
+
+```powershell
+python tools\build_vision.py
+ctest --test-dir native\shipmb_vision\build -C Release --output-on-failure
+shipmblang setup --vision
+```
+
+Setup writes the three weight files to `%LOCALAPPDATA%\shipmblang\vision`,
+then `%USERPROFILE%\AppData\Local\shipmblang\vision`. Write image paths in
+the program with forward slashes. A backslash inside quotes is an escape.
+
+```text
+Look at "C:/Users/me/photo.png" and tell me what is in it.
+```
+
+```powershell
+shipmblang photo.shipmb --format text
+python tools\build_standalone.py
+```
+
+`dist\shipmblang.exe` packs the DLL, `llama-quantize.exe`, and the license
+files. The weights stay in the cache. Run `shipmblang setup --vision` on the
+machine that will run vision programs.
 
 ### Platforms and licenses
 
-Linux is verified. Windows is a follow-up pull request. macOS comes later.
+Linux is verified. Windows x64 is supported with Visual Studio 2022 and the
+static C runtime. macOS comes later.
 
 The MiniCPM-V weights are Apache-2.0. llama.cpp is MIT
 (`native/shipmb_vision/licenses/llama.cpp-MIT.txt`). Other notices are in
@@ -174,7 +210,8 @@ ffprobe), VLC, and Ollama when they are missing. Those tools are not copied
 into the executable. A build made after `python tools/build_vision.py` also
 packs the CPU vision library, `llama-quantize`, and the vision license files.
 The weights stay outside the executable. Run `shipmblang setup --vision` for
-them. Linux vision is verified. Windows vision is a follow-up pull request.
+them. Linux vision is verified. Windows x64 vision is built from this
+repository with Visual Studio 2022; see [Native vision](#native-vision).
 macOS vision comes later.
 
 On Windows, from the unpacked artifact:

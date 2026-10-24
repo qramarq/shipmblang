@@ -9,11 +9,13 @@ searches. A second run that already matches the pins does not download again.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 import hashlib
 import http.client
 import json
 import os
 from pathlib import Path
+import stat
 import subprocess
 import sys
 import time
@@ -25,6 +27,7 @@ from dataclasses import dataclass
 HF_REPO = "openbmb/MiniCPM-V-4.6-gguf"
 USER_AGENT = "shipmblang-setup"
 CHUNK = 1024 * 1024
+_SHARING_VIOLATIONS = {5, 32, 33}
 
 
 class VisionSetupError(RuntimeError):
@@ -74,20 +77,190 @@ def vision_model_dir(env: dict | None = None, platform: str | None = None) -> Pa
     return Path(home) / ".cache" / "shipmblang" / "vision"
 
 
+def extended_path(path: Path) -> str:
+    """Absolute path. On Windows, the ``\\\\?\\`` prefix so NTFS past MAX_PATH works.
+
+    ``os.replace``, ``open``, and ``CreateFileW`` honor that prefix without the
+    long-path registry policy. The prefix is not added for an already extended
+    path. UNC paths become ``\\\\?\\UNC\\server\\share``.
+    """
+    if os.name != "nt":
+        return os.fspath(path)
+    text = os.path.abspath(os.fspath(path))
+    if text.startswith("\\\\?\\"):
+        return text
+    if text.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + text[2:]
+    return "\\\\?\\" + text
+
+
+def _fs_path(path: Path) -> str:
+    return extended_path(path)
+
+
+def _stat(path: Path):
+    return os.stat(_fs_path(path))
+
+
+def _is_file(path: Path) -> bool:
+    try:
+        return stat.S_ISREG(_stat(path).st_mode)
+    except OSError:
+        return False
+
+
+def ensure_dir(path: Path) -> None:
+    os.makedirs(_fs_path(path), exist_ok=True)
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
-    with path.open("rb") as handle:
+    with open(_fs_path(path), "rb") as handle:
         for chunk in iter(lambda: handle.read(CHUNK), b""):
             digest.update(chunk)
     return digest.hexdigest()
 
 
 def matches_pin(path: Path, pin: FilePin) -> bool:
-    if not path.is_file():
+    if not _is_file(path):
         return False
-    if path.stat().st_size != pin.size:
+    if _stat(path).st_size != pin.size:
         return False
     return _sha256(path) == pin.sha256
+
+
+def download_lock_path(dest: Path) -> Path:
+    return dest.with_name(dest.name + ".lock")
+
+
+def _sharing_violation(error: BaseException) -> bool:
+    return os.name == "nt" and getattr(error, "winerror", None) in _SHARING_VIOLATIONS
+
+
+def _remove_file(path: Path) -> None:
+    delay = 0.05
+    last: Exception | None = None
+    for _ in range(20):
+        try:
+            os.remove(_fs_path(path))
+            return
+        except FileNotFoundError:
+            return
+        except OSError as error:
+            last = error
+            if not _sharing_violation(error):
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.5)
+    raise VisionSetupError(f"Could not remove {path.name} because another program has it open ({last}).")
+
+
+def replace_verified(src: Path, dest: Path) -> None:
+    """``os.replace`` on the same directory. Retries when NTFS still has the file open.
+
+    The partial file must already be closed. Replacing an open destination
+    raises sharing violation (WinError 32) or access denied (WinError 5) until
+    the scanner drops its handle. The replace itself is atomic on NTFS.
+    """
+    delay = 0.05
+    last: Exception | None = None
+    for _ in range(20):
+        try:
+            os.replace(_fs_path(src), _fs_path(dest))
+            return
+        except OSError as error:
+            last = error
+            if not _sharing_violation(error):
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.5)
+    raise VisionSetupError(
+        f"Could not replace {dest.name} because another program has it open ({last}). "
+        "Close that program and run `shipmblang setup --vision` again."
+    )
+
+
+@contextmanager
+def exclusive_lock(path: Path, label: str):
+    """One setup process writes a given weight. A second one stops instead of appending."""
+    ensure_dir(path.parent)
+    if os.name == "nt":
+        handle = _windows_lock(path, label)
+        try:
+            yield
+        finally:
+            _windows_unlock(handle)
+        return
+    import fcntl
+    descriptor = os.open(os.fspath(path), os.O_CREAT | os.O_RDWR, 0o644)
+    try:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as error:
+            raise VisionSetupError(_lock_message(label)) from error
+        yield
+    finally:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
+
+
+def _lock_message(label: str) -> str:
+    return (
+        f"Another `shipmblang setup --vision` is already preparing {label}. "
+        "Wait for it to finish, then run the command again."
+    )
+
+
+def _windows_lock(path: Path, label: str):
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, wintypes.LPVOID,
+        wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE,
+    ]
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    generic = 0x80000000 | 0x40000000
+    handle = kernel32.CreateFileW(_fs_path(path), generic, 0, None, 4, 0x80, None)
+    value = ctypes.cast(handle, ctypes.c_void_p).value
+    invalid = ctypes.c_void_p(-1).value
+    if value in (None, invalid):
+        error = ctypes.get_last_error()
+        if error in _SHARING_VIOLATIONS:
+            raise VisionSetupError(_lock_message(label))
+        raise VisionSetupError(f"Could not lock {label} (Windows error {error}).")
+    return handle
+
+
+def _windows_unlock(handle) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.CloseHandle(handle)
+
+
+def _run_tool(command: list[str]) -> int:
+    """Run llama-quantize. Ctrl+C stops the child and does not leave it running."""
+    kwargs: dict = {}
+    if os.name == "nt":
+        kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+    process = subprocess.Popen(command, **kwargs)
+    try:
+        return process.wait()
+    except KeyboardInterrupt:
+        process.terminate()
+        try:
+            process.wait(timeout=30)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=30)
+        raise
 
 
 def _hf_url(repo: str, revision: str, filename: str) -> str:
@@ -193,29 +366,11 @@ def _response_status(response) -> int:
     return int(status or 0)
 
 
-def download_verified(pin: FilePin, dest: Path, *, opener, offline: bool) -> str:
-    """Download ``pin`` to ``dest`` with resume, then check size and SHA-256.
-
-    Returns ``present`` when the cached file already matches, or ``downloaded``.
-    """
-    if pin.url is None:
-        raise VisionSetupError(f"{pin.filename} is produced locally and is not downloaded.")
-    if matches_pin(dest, pin):
-        print(f"{pin.filename}: already installed ({pin.size} bytes, sha256 {pin.sha256})", flush=True)
-        return "present"
-    if dest.exists():
-        dest.unlink()
-    if offline:
-        raise VisionSetupError(_offline_message(pin.filename, dest))
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    partial = dest.with_name(dest.name + ".partial")
-    if partial.is_file() and partial.stat().st_size == pin.size and _sha256(partial) == pin.sha256:
-        os.replace(partial, dest)
-        print(f"{pin.filename}: verified resumed download ({pin.size} bytes, sha256 {pin.sha256})", flush=True)
-        return "downloaded"
-    if partial.is_file() and partial.stat().st_size > pin.size:
-        partial.unlink()
-    resume = partial.stat().st_size if partial.is_file() else 0
+def _write_download(pin: FilePin, partial: Path, opener) -> None:
+    """Resume ``partial`` under the caller's lock. Ctrl+C flushes and keeps it."""
+    if _is_file(partial) and _stat(partial).st_size > pin.size:
+        _remove_file(partial)
+    resume = _stat(partial).st_size if _is_file(partial) else 0
     headers = {"User-Agent": USER_AGENT}
     if resume:
         headers["Range"] = f"bytes={resume}-"
@@ -245,64 +400,119 @@ def download_verified(pin: FilePin, dest: Path, *, opener, offline: bool) -> str
                 )
             done = resume
             state: dict = {}
-            with partial.open(mode) as handle:
-                while True:
-                    chunk = response.read(CHUNK)
-                    if not chunk:
-                        break
-                    handle.write(chunk)
-                    done += len(chunk)
-                    _progress(pin.filename, done, pin.size, state)
+            with open(_fs_path(partial), mode) as handle:
+                try:
+                    while True:
+                        chunk = response.read(CHUNK)
+                        if not chunk:
+                            break
+                        handle.write(chunk)
+                        done += len(chunk)
+                        _progress(pin.filename, done, pin.size, state)
+                finally:
+                    handle.flush()
+                    try:
+                        os.fsync(handle.fileno())
+                    except OSError:
+                        pass
     except VisionSetupError:
         raise
     except urllib.error.HTTPError as error:
         raise VisionSetupError(f"Could not download {pin.filename}: HTTP {error.code} from {pin.url}.") from error
     except (urllib.error.URLError, TimeoutError, ConnectionError, http.client.IncompleteRead) as error:
         raise VisionSetupError(_network_message(pin.filename, error)) from error
-    if not partial.is_file() or partial.stat().st_size != pin.size or _sha256(partial) != pin.sha256:
-        got_size = partial.stat().st_size if partial.is_file() else 0
-        got_hash = _sha256(partial) if partial.is_file() else ""
-        partial.unlink(missing_ok=True)
-        raise VisionSetupError(
-            f"{pin.filename} failed verification. Expected {pin.size} bytes and sha256 {pin.sha256}; "
-            f"got {got_size} bytes and sha256 {got_hash or 'missing'}."
-        )
-    os.replace(partial, dest)
+
+
+def download_verified(pin: FilePin, dest: Path, *, opener, offline: bool) -> str:
+    """Download ``pin`` to ``dest`` with resume, then check size and SHA-256.
+
+    Returns ``present`` when the cached file already matches, or ``downloaded``.
+    A second process that finds the lock stops. Ctrl+C leaves the partial file
+    closed and flushed so the next run can resume. The finished file is
+    published with ``os.replace``, which is atomic on NTFS.
+    """
+    if pin.url is None:
+        raise VisionSetupError(f"{pin.filename} is produced locally and is not downloaded.")
+    if matches_pin(dest, pin):
+        print(f"{pin.filename}: already installed ({pin.size} bytes, sha256 {pin.sha256})", flush=True)
+        return "present"
+    if offline:
+        raise VisionSetupError(_offline_message(pin.filename, dest))
+    ensure_dir(dest.parent)
+    partial = dest.with_name(dest.name + ".partial")
+    with exclusive_lock(download_lock_path(dest), pin.filename):
+        if matches_pin(dest, pin):
+            print(f"{pin.filename}: already installed ({pin.size} bytes, sha256 {pin.sha256})", flush=True)
+            return "present"
+        if _is_file(dest):
+            _remove_file(dest)
+        if _is_file(partial) and _stat(partial).st_size == pin.size and _sha256(partial) == pin.sha256:
+            replace_verified(partial, dest)
+            print(f"{pin.filename}: verified resumed download ({pin.size} bytes, sha256 {pin.sha256})", flush=True)
+            return "downloaded"
+        _write_download(pin, partial, opener)
+        if not _is_file(partial) or _stat(partial).st_size != pin.size or _sha256(partial) != pin.sha256:
+            got_size = _stat(partial).st_size if _is_file(partial) else 0
+            got_hash = _sha256(partial) if _is_file(partial) else ""
+            if _is_file(partial):
+                _remove_file(partial)
+            raise VisionSetupError(
+                f"{pin.filename} failed verification. Expected {pin.size} bytes and sha256 {pin.sha256}; "
+                f"got {got_size} bytes and sha256 {got_hash or 'missing'}."
+            )
+        replace_verified(partial, dest)
     print(f"{pin.filename}: verified ({pin.size} bytes, sha256 {pin.sha256})", flush=True)
     return "downloaded"
 
 
 def quantize_projector(f16: Path, dest: Path, pin: FilePin, quantize_bin: Path) -> str:
-    """Run llama-quantize Q8_0 with no extra flags and check the pin."""
+    """Run llama-quantize Q8_0 with no extra flags and check the pin.
+
+    The tool is an executable (``llama-quantize.exe`` on Windows) invoked by
+    absolute path, not by searching PATH. Ctrl+C terminates it and deletes the
+    partial output, which is not a resumable download.
+    """
     if matches_pin(dest, pin):
         print(f"{pin.filename}: already quantized ({pin.size} bytes, sha256 {pin.sha256})", flush=True)
         return "present"
-    if dest.exists():
-        dest.unlink()
-    partial = dest.with_name(dest.name + ".partial")
-    if partial.exists():
-        partial.unlink()
-    if not quantize_bin.is_file():
+    if not _is_file(quantize_bin):
         raise VisionSetupError(
             "llama-quantize was not found. Build it with `python tools/build_vision.py` "
             "(that passes -DSHIPMB_VISION_QUANTIZE=ON) or set SHIPMB_LLAMA_QUANTIZE."
         )
-    command = [str(quantize_bin), str(f16), str(partial), "Q8_0"]
-    print("Quantizing the projector: " + " ".join(command), flush=True)
-    completed = subprocess.run(command, check=False)
-    if completed.returncode != 0:
-        partial.unlink(missing_ok=True)
-        raise VisionSetupError(f"llama-quantize exited {completed.returncode}.")
-    if not matches_pin(partial, pin):
-        got_size = partial.stat().st_size if partial.is_file() else 0
-        got_hash = _sha256(partial) if partial.is_file() else ""
-        partial.unlink(missing_ok=True)
-        raise VisionSetupError(
-            f"{pin.filename} failed verification after quantization. "
-            f"Expected {pin.size} bytes and sha256 {pin.sha256}; "
-            f"got {got_size} bytes and sha256 {got_hash or 'missing'}."
-        )
-    os.replace(partial, dest)
+    ensure_dir(dest.parent)
+    partial = dest.with_name(dest.name + ".partial")
+    with exclusive_lock(download_lock_path(dest), pin.filename):
+        if matches_pin(dest, pin):
+            print(f"{pin.filename}: already quantized ({pin.size} bytes, sha256 {pin.sha256})", flush=True)
+            return "present"
+        if _is_file(dest):
+            _remove_file(dest)
+        if _is_file(partial):
+            _remove_file(partial)
+        command = [_fs_path(quantize_bin), _fs_path(f16), _fs_path(partial), "Q8_0"]
+        print("Quantizing the projector: " + " ".join(command), flush=True)
+        try:
+            code = _run_tool(command)
+        except KeyboardInterrupt:
+            if _is_file(partial):
+                _remove_file(partial)
+            raise
+        if code != 0:
+            if _is_file(partial):
+                _remove_file(partial)
+            raise VisionSetupError(f"llama-quantize exited {code}.")
+        if not matches_pin(partial, pin):
+            got_size = _stat(partial).st_size if _is_file(partial) else 0
+            got_hash = _sha256(partial) if _is_file(partial) else ""
+            if _is_file(partial):
+                _remove_file(partial)
+            raise VisionSetupError(
+                f"{pin.filename} failed verification after quantization. "
+                f"Expected {pin.size} bytes and sha256 {pin.sha256}; "
+                f"got {got_size} bytes and sha256 {got_hash or 'missing'}."
+            )
+        replace_verified(partial, dest)
     print(f"{pin.filename}: verified ({pin.size} bytes, sha256 {pin.sha256})", flush=True)
     return "quantized"
 
@@ -336,11 +546,11 @@ def _confirm(cache: Path, pins: VisionPins, assume_yes: bool, input_fn) -> bool:
 def _status_line(path: Path, pin: FilePin) -> str:
     if matches_pin(path, pin):
         return f"ok  {pin.filename}  {pin.size} bytes  {pin.sha256}"
-    if path.is_file():
-        return f"mismatch  {pin.filename}  cache has {path.stat().st_size} bytes, pin is {pin.size}"
+    if _is_file(path):
+        return f"mismatch  {pin.filename}  cache has {_stat(path).st_size} bytes, pin is {pin.size}"
     partial = path.with_name(path.name + ".partial")
-    if partial.is_file():
-        return f"partial  {pin.filename}  {partial.stat().st_size}/{pin.size} bytes"
+    if _is_file(partial):
+        return f"partial  {pin.filename}  {_stat(partial).st_size}/{pin.size} bytes"
     return f"missing  {pin.filename}"
 
 
@@ -362,7 +572,7 @@ def setup_vision(
     try:
         loaded = pins if pins is not None else load_pins()
         cache = cache_dir if cache_dir is not None else vision_model_dir(env)
-        cache.mkdir(parents=True, exist_ok=True)
+        ensure_dir(cache)
         from shipmblang import vision_build
 
         library = vision_build.existing_library()

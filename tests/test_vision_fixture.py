@@ -11,7 +11,7 @@ import unittest
 import zlib
 
 from shipmblang._compiler.vision import LLM_FILENAME, MMPROJ_FILENAME, MODEL_SHA256
-from shipmblang.vision_build import existing_library, library_filename, package_library_path
+from shipmblang.vision_build import existing_library, find_built_library, package_library_path
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -59,10 +59,9 @@ class TinyFixtureTests(unittest.TestCase):
     def test_library_answers_the_tiny_fixture(self):
         library = existing_library() or (package_library_path() if package_library_path().is_file() else None)
         if library is None:
-            build = ROOT / "native" / "shipmb_vision" / "build" / library_filename()
-            library = build if build.is_file() else None
+            library = find_built_library(ROOT / "native" / "shipmb_vision" / "build")
         if library is None:
-            self.skipTest("libshipmb_vision is not built. Run python tools/build_vision.py.")
+            self.skipTest("shipmb_vision is not built. Run python tools/build_vision.py.")
         from shipmblang._compiler.vision import VisionEngine
 
         golden = json.loads((FIXTURE / "golden.json").read_text(encoding="utf-8"))
@@ -99,7 +98,7 @@ class RealWeightTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             image = Path(directory) / "sample.png"
             _png(image, 448, 448, seed=0)
-            source = f'Look at "{image}" and tell me what is in it.'
+            source = f'Look at "{image.as_posix()}" and tell me what is in it.'
             result = run_direct_program(source, memory=False, model_provider=None)
             self.assertEqual(result.get("status"), "compiled", result.get("diagnostics"))
             stdout = result.get("runtime", {}).get("stdout", "")

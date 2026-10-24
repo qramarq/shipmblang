@@ -1,7 +1,15 @@
 #include "sha256.hpp"
 
+#include <filesystem>
 #include <fstream>
 #include <stdexcept>
+
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#endif
 
 namespace {
 uint32_t rotr(uint32_t x, uint32_t n) { return (x >> n) | (x << (32 - n)); }
@@ -95,7 +103,16 @@ std::string Sha256::hex() const {
 }
 
 std::string sha256_file(const std::string &path) {
+#if defined(_WIN32)
+    // Callers pass UTF-8, including a \\?\ prefix for long paths. The narrow
+    // ifstream constructor would treat that string as the ANSI code page.
+    int chars = MultiByteToWideChar(CP_UTF8, 0, path.data(), (int)path.size(), nullptr, 0);
+    std::wstring wide(chars > 0 ? chars : 0, L'\0');
+    if (chars > 0) MultiByteToWideChar(CP_UTF8, 0, path.data(), (int)path.size(), wide.data(), chars);
+    std::ifstream in(std::filesystem::path(wide), std::ios::binary);
+#else
     std::ifstream in(path, std::ios::binary);
+#endif
     if (!in) throw std::runtime_error("Unable to read " + path);
     Sha256 h;
     char buf[1 << 20];
