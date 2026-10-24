@@ -48,10 +48,10 @@ Package 0.6.0. The bundled compiler snapshot is 0.6.0 from compiler commit
 - **`shipmblang setup`.** Installs missing Rust, FFmpeg (with ffprobe), VLC,
   and Ollama from their official sources. Those tools are not copied into the
   executable.
-- **Native vision.** `shipmblang setup --vision` downloads the pinned MiniCPM-V
-  4.6 weights, checks their hashes, quantizes the projector, and builds
-  `libshipmb_vision` when a compiler is available. See
-  [native vision](docs/native.md). Windows and macOS were not verified.
+- **Native vision.** In-process MiniCPM-V 4.6. `shipmblang setup --vision`
+  installs it. See [Native vision](#native-vision) and
+  [the vision guide](docs/native.md). Linux is verified. Windows x64 build,
+  setup, and run steps are in that section. macOS comes later.
 - **Chat-room notebook.** `shipmblang notebook` and `shipmblang editor` open
   saved notes as rooms.
 - **`shipmblang lsp` and editors.** Diagnostics, hover, and compile/run over
@@ -59,6 +59,143 @@ Package 0.6.0. The bundled compiler snapshot is 0.6.0 from compiler commit
   `shipmblang.executablePath` to the standalone executable.
 - **Compiler sync.** Pull requests keep `shipmblang/_compiler/` aligned with
   shipmblang-compiler. See [compiler sync](docs/compiler-sync.md).
+
+## Native vision
+
+Native vision runs MiniCPM-V 4.6 inside the `shipmblang` process. There is no
+separate server. After setup, a vision program does not use the network.
+Paths, pins, and the build are in [the vision guide](docs/native.md).
+
+### Install
+
+```sh
+shipmblang setup --vision
+```
+
+That command downloads two files from
+`huggingface.co/openbmb/MiniCPM-V-4.6-gguf` at revision
+`afe9accb78d2995d214cd912920c9c92f4015faa`, checks each size and SHA-256, then
+builds the runtime projector locally:
+
+| File | Bytes | Where it comes from |
+| --- | --- | --- |
+| `MiniCPM-V-4_6-Q4_K_M.gguf` | 529101504 | Hugging Face |
+| `mmproj-model-f16.gguf` | 1108746944 | Hugging Face |
+| `mmproj-model-q8_0.gguf` | 726599744 | `llama-quantize` of the f16 file, type `Q8_0`, no extra flags |
+
+The q8 file is not on Hugging Face. Setup checks its size and SHA-256
+(`cc6e95b117ade93ca9dfc5a81998d14a19b9ae8ce4eb44658a20b55407a7d54f`) after
+quantizing. On Linux the three files go in `$XDG_CACHE_HOME/shipmblang/vision`
+when that variable is set, otherwise `~/.cache/shipmblang/vision`.
+`SHIPMB_VISION_MODEL_DIR` overrides the directory. A second run that already
+matches the pins does not download or quantize again.
+
+`shipmblang setup --vision --yes` skips the prompt. A terminal without `--yes`
+asks first. A non-interactive run that still has work to do exits 2 and tells
+you to add `--yes`. `--check` prints the cache and the library, does not
+download or build, and exits 1 when the library, the language model, or the
+q8 projector is missing. `--dry-run` prints the plan and changes nothing.
+`--offline` does not use the network: it reuses weights already in the cache
+and fails if one is missing. `--offline` is valid only together with
+`--vision`. `--vision` does not accept `--only`, `--skip`, `--pull-models`,
+or `--model`.
+
+Setup uses a library already next to the program or packed in the executable.
+Otherwise it builds `native/shipmb_vision` when CMake, git, and a C++ compiler
+are installed. `SHIPMB_VISION_BRIDGE`, when set, is the shared library
+`vision.py` loads. When it is unset, the loader uses
+`libshipmb_vision.so` beside `vision.py` (`libshipmb_vision.dylib` on macOS,
+`shipmb_vision.dll` on Windows).
+
+### Build the library
+
+The sources are `native/shipmb_vision/`. You need CMake, git, and a compiler.
+The script uses gcc and g++ when both are on `PATH`, because `/usr/bin/c++`
+is Clang on some machines and then cannot link libstdc++. Pass `--cc` and
+`--cxx` together to choose another pair. The first configure clones llama.cpp
+tag `b11846` and needs the network for that clone.
+
+```sh
+python tools/build_vision.py
+```
+
+The shared library is copied to `shipmblang/_compiler/native/`, which is where
+`vision.py` looks.
+
+### Run a program
+
+Save this as `photo.shipmb`. The path is a PNG, JPEG, GIF, or BMP:
+
+```text
+Look at "photo.png" and tell me what is in it.
+```
+
+```sh
+shipmblang photo.shipmb --format text
+```
+
+Compilation does not load the library. Running the program does. If the
+library is missing, the run exits 2 and tells you to run
+`shipmblang setup --vision`. The printed answer uses at most 16 tokens, so a
+longer sentence can stop mid-sentence.
+
+### Standalone executable
+
+`python tools/build_standalone.py` packs the CPU library, `llama-quantize`,
+and the vision license files when the library has already been built. The
+weights stay outside the executable. Run `shipmblang setup --vision` on the
+machine that will run vision programs.
+
+### Latency
+
+The target is a warm nearest-rank 95th percentile under 2 seconds. Repeating
+one image can set `cached` and skip the image encode; that faster number is
+not the target. Ten different 448×448 images, each with `cached` false, on
+the 4-core Linux machine used here: median 1582.58 ms, nearest-rank p95
+1665.45 ms. On a Windows laptop (Ryzen AI 7 350, 8 cores / 16 threads) the
+same uncached check was median 1222 ms and nearest-rank p95 1247 ms.
+
+### Windows
+
+Windows x64 uses Visual Studio 2022 or Build Tools with the MSVC x64 toolset.
+`cl` does not need to be on `PATH`. `python tools\build_vision.py` asks
+`vswhere` for that install, configures the Visual Studio generator with
+`-A x64`, and builds Release. A Developer shell that already has `cl`,
+`ninja`, and `VSCMD_VER` or `VCToolsInstallDir` uses Ninja. The script copies
+`shipmb_vision.dll` to `shipmblang\_compiler\native\` and `llama-quantize.exe`
+to `shipmblang\_compiler\native\bin\`. Both link the static C runtime.
+
+```powershell
+python tools\build_vision.py
+ctest --test-dir native\shipmb_vision\build -C Release --output-on-failure
+shipmblang setup --vision
+```
+
+Setup writes the three weight files to `%LOCALAPPDATA%\shipmblang\vision`,
+then `%USERPROFILE%\AppData\Local\shipmblang\vision`. Write image paths in
+the program with forward slashes. A backslash inside quotes is an escape.
+
+```text
+Look at "C:/Users/me/photo.png" and tell me what is in it.
+```
+
+```powershell
+shipmblang photo.shipmb --format text
+python tools\build_standalone.py
+```
+
+`dist\shipmblang.exe` packs the DLL, `llama-quantize.exe`, and the license
+files. The weights stay in the cache. Run `shipmblang setup --vision` on the
+machine that will run vision programs.
+
+### Platforms and licenses
+
+Linux is verified. Windows x64 is supported with Visual Studio 2022 and the
+static C runtime. macOS comes later.
+
+The MiniCPM-V weights are Apache-2.0. llama.cpp is MIT
+(`native/shipmb_vision/licenses/llama.cpp-MIT.txt`). Other notices are in
+`native/shipmb_vision/NOTICE`.
 
 ## Standalone executable
 
@@ -73,7 +210,9 @@ ffprobe), VLC, and Ollama when they are missing. Those tools are not copied
 into the executable. A build made after `python tools/build_vision.py` also
 packs the CPU vision library, `llama-quantize`, and the vision license files.
 The weights stay outside the executable. Run `shipmblang setup --vision` for
-them. Windows and macOS vision builds were not verified.
+them. Linux vision is verified. Windows x64 vision is built from this
+repository with Visual Studio 2022; see [Native vision](#native-vision).
+macOS vision comes later.
 
 On Windows, from the unpacked artifact:
 
@@ -145,7 +284,7 @@ Flags below are the ones the CLI accepts. `run` defaults to `--format json`.
 | `shipmblang setup --yes --skip ollama` | Install without asking. `--skip` leaves components untouched. `--yes` does not download an Ollama model. |
 | `shipmblang setup --only rust,ffmpeg` | Limit the command to those components. Names are `rust`, `ffmpeg` (includes ffprobe), `vlc`, and `ollama`. |
 | `shipmblang setup --pull-models --model NAME` | After Ollama is available, run `ollama pull NAME`. There is no default model. |
-| `shipmblang setup --vision` | Download the pinned MiniCPM-V 4.6 weights, quantize the projector, and build or reuse `libshipmb_vision`. `--yes` skips the prompt. `--offline` does not use the network. `--check` reports what is missing. |
+| `shipmblang setup --vision` | Install native MiniCPM-V 4.6. See [Native vision](#native-vision). `--yes` skips the prompt. `--check` and `--dry-run` do not download. `--offline` does not use the network. |
 | `shipmblang lsp` | Language server on stdin/stdout. `shipmblang lsp --check` prints `lsp ok`. |
 | `shipmblang --version` | Print `shipmblang 0.6.0`. `-V` is the same flag. |
 | `shipmblang --help` | Print the command list. `-h` is the same flag. |

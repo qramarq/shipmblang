@@ -32,9 +32,9 @@ question. Compilation does not load the library. Running a vision program does.
 If the library is missing, the run exits 2 and tells you to run
 `shipmblang setup --vision`.
 
-Windows x64 is supported with Visual Studio 2022 and the static C runtime. The
-commands in the first half of this page were run on Linux. macOS is not covered
-here. The Windows section below is the procedure for that platform.
+Linux is verified. Windows x64 is supported with Visual Studio 2022 and the
+static C runtime. The Windows section below is the procedure for that platform.
+macOS comes later. The commands in the first half of this page were run on Linux.
 
 ## Weights
 
@@ -131,9 +131,24 @@ Real-weight checks are opt-in:
 SHIPMB_VISION_WEIGHTS=1 python -m unittest tests.test_vision_fixture.RealWeightTests
 ```
 
-Warm latency is the library's `elapsed_ms` after the engine is loaded. The
-target is a nearest-rank 95th percentile under 2000 ms. Nearest rank uses
-`index = max(0, round(0.95 * len(warm) + 0.5) - 1)` on the sorted warm samples.
+The latency target is a warm nearest-rank 95th percentile under 2000 ms.
+`elapsed_ms` is the library clock from bitmap creation through the answer,
+after the weights are loaded. Nearest rank uses
+`index = max(0, round(0.95 * len(samples) + 0.5) - 1)` on the sorted samples.
+
+The library keeps prefixes for the last few images. A repeat of one of those
+images sets `cached` to true and skips the image encode, so that repeat is
+not this measurement. Use a different image for every sample and keep rows
+whose `cached` flag is false.
+
+On the 4-core Linux machine used for this check (Intel Xeon, KVM, one thread
+per core), ten different 448×448 PNGs, the same short question, `max_tokens`
+16, and `cached` false on every row:
+
+| | |
+| --- | --- |
+| median | 1582.58 ms |
+| nearest-rank p95 | 1665.45 ms (index 9) |
 
 ## Windows x64
 
