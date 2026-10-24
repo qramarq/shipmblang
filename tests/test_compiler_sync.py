@@ -1,3 +1,4 @@
+import ast
 import hashlib
 import json
 import subprocess
@@ -46,6 +47,34 @@ def commit_all(repo, message):
     git(repo, 'add', '-A')
     git(repo, 'commit', '-m', message)
     return git(repo, 'rev-parse', 'HEAD').strip()
+
+
+def bundled_compiler_version(snapshot):
+    """Version string declared by the vendored compiler source. No network."""
+    found = []
+    for name in ('direct.py', '__init__.py'):
+        path = Path(snapshot) / name
+        if not path.is_file():
+            continue
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        for node in tree.body:
+            if isinstance(node, ast.Assign):
+                targets, value = node.targets, node.value
+            elif isinstance(node, ast.AnnAssign) and node.value is not None:
+                targets, value = [node.target], node.value
+            else:
+                continue
+            for target in targets:
+                if isinstance(target, ast.Name) and target.id in {'COMPILER_VERSION', '__version__'}:
+                    literal = ast.literal_eval(value)
+                    if not isinstance(literal, str) or not literal.strip():
+                        raise AssertionError(f'{name} {target.id} is not a version string')
+                    found.append(literal)
+    if not found:
+        raise AssertionError('bundled compiler does not declare COMPILER_VERSION or __version__')
+    if len(set(found)) != 1:
+        raise AssertionError(f'bundled compiler version strings disagree: {found}')
+    return found[0]
 
 
 def manifest_for(files, commit, patches=()):
@@ -338,6 +367,15 @@ class CompilerSyncTests(unittest.TestCase):
             self.assertNotIn(b'\r', (snapshot / name).read_bytes(), name)
         self.assertEqual(pin_for(manifest), compiler_snapshot())
         self.assertEqual(pin_for(manifest), json.loads((ROOT / 'apps/mobile/src/compiler-snapshot.json').read_text()))
+
+    def test_bundled_compiler_versions_agree(self):
+        snapshot = ROOT / 'shipmblang' / '_compiler'
+        manifest = json.loads((snapshot / 'BUNDLED.json').read_text(encoding='utf-8'))
+        pin = json.loads((ROOT / 'apps/mobile/src/compiler-snapshot.json').read_text(encoding='utf-8'))
+        source_version = bundled_compiler_version(snapshot)
+        self.assertEqual(manifest['version'], source_version)
+        self.assertEqual(pin['version'], source_version)
+        self.assertEqual(compiler_snapshot()['version'], source_version)
 
 
 if __name__ == '__main__':

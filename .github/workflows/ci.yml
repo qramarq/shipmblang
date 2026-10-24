@@ -30,6 +30,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e .
 
+      - name: Check bundled compiler versions agree
+        run: python -m unittest tests.test_compiler_sync.CompilerSyncTests.test_bundled_compiler_versions_agree
+
       - name: Run tests
         run: python -c "import faulthandler, unittest; faulthandler.dump_traceback_later(120, exit=True); unittest.main(module=None, argv=['unittest', 'discover', '-s', 'tests', '-v'])"
 
