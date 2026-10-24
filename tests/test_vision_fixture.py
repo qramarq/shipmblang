@@ -18,10 +18,10 @@ ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "native" / "shipmb_vision" / "fixtures" / "minicpmv46-tiny"
 
 
-def _png(path: Path, width: int, height: int) -> None:
+def _png(path: Path, width: int, height: int, seed: int = 0) -> None:
     rows = []
     for y in range(height):
-        pixel = bytes((y % 256, 48, 96))
+        pixel = bytes(((y + seed * 17) % 256, (48 + seed * 13) % 256, (96 + seed * 29) % 256))
         rows.append(b"\x00" + pixel * width)
     raw = b"".join(rows)
 
@@ -98,7 +98,7 @@ class RealWeightTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             image = Path(directory) / "sample.png"
-            _png(image, 448, 448)
+            _png(image, 448, 448, seed=0)
             source = f'Look at "{image}" and tell me what is in it.'
             result = run_direct_program(source, memory=False, model_provider=None)
             self.assertEqual(result.get("status"), "compiled", result.get("diagnostics"))
@@ -108,13 +108,18 @@ class RealWeightTests(unittest.TestCase):
             self.addCleanup(engine.close)
             question = "What is the main object in this image? Answer in one or two words."
             rows = []
-            for _ in range(11):
+            # The library caches image prefixes. Repeating one image sets cached
+            # and skips the encode. Each sample is a different picture.
+            for index in range(10):
+                sample = Path(directory) / f"sample-{index}.png"
+                _png(sample, 448, 448, seed=index + 1)
                 started = time.perf_counter()
-                payload = engine.query(image, question, max_tokens=16)
+                payload = engine.query(sample, question, max_tokens=16)
                 wall_ms = (time.perf_counter() - started) * 1000
                 self.assertTrue(payload.get("ok"), payload)
-                rows.append((payload.get("elapsed_ms"), wall_ms, payload.get("text")))
-            warm = [row[0] for row in rows[1:]]
+                self.assertIs(payload.get("cached"), False, payload)
+                rows.append((payload.get("elapsed_ms"), wall_ms, payload.get("cached"), payload.get("text")))
+            warm = [row[0] for row in rows]
             ordered = sorted(warm)
             if len(ordered) % 2:
                 median = ordered[len(ordered) // 2]
@@ -122,8 +127,8 @@ class RealWeightTests(unittest.TestCase):
                 median = (ordered[len(ordered) // 2 - 1] + ordered[len(ordered) // 2]) / 2
             p95, index = _nearest_rank_p95(warm)
             print(
-                f"warm elapsed_ms median={median} p95={p95} index={index} n={len(warm)} "
-                f"cold={rows[0][0]} cpu_count={os.cpu_count()} text={rows[-1][2]!r}",
+                f"uncached elapsed_ms median={median} p95={p95} index={index} n={len(warm)} "
+                f"cached={[row[2] for row in rows]} cpu_count={os.cpu_count()} text={rows[-1][3]!r}",
                 file=sys.stderr,
             )
             self.assertLess(p95, 2000, rows)
