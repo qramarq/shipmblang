@@ -14,6 +14,8 @@ int main(void) {
         fprintf(stderr, "runtime: %s\n", runtime ? runtime : "(null)");
         return fail("runtime did not report a CPU backend");
     }
+    /* Print before create/query. Those calls reuse the thread-local buffer. */
+    printf("%s\n", runtime);
     void *engine = smb_vision_create("{\"model_path\":\"/no/such/shipmb-vision-model.gguf\",\"mmproj_path\":\"/no/such/shipmb-vision-mmproj.gguf\"}");
     if (engine) return fail("create accepted missing weights");
     const char *err = smb_vision_last_error();
@@ -26,6 +28,5 @@ int main(void) {
     const char *stream = smb_vision_query_stream(NULL, "photo.jpg", "what is this?", NULL, NULL, NULL);
     if (!stream || !strstr(stream, "\"ok\":false")) return fail("null engine stream was not an error");
     smb_vision_free(NULL);
-    printf("%s\n", runtime);
     return 0;
 }
