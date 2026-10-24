@@ -216,6 +216,44 @@ On startup the frozen program sets `SHIPMB_VISION_BRIDGE` to the DLL under
 `vision.py` loads it. Weights are not packed. `shipmblang setup --vision` on
 the target machine fills the cache.
 
+## Portable Windows zip
+
+On Windows x64, `python tools/build_portable.py` writes
+`dist/shipmblang-<version>-windows-x64.zip`. The default zip has the
+executable, `shipmb_vision.dll`, `llama-quantize.exe`, and the VC runtime
+DLLs next to the executable. It has no model weights. The first
+`shipmblang setup --vision` downloads them into the normal cache.
+`--with-weights` also writes
+`dist/shipmblang-<version>-windows-x64-with-weights.zip` with the language
+model and the q8 projector, after checking those files against the pins.
+The f16 projector is not packed. `--check-weights` checks the cache and
+prints the weight sizes. It does not deflate a zip.
+
+The folder inside the zip is a PyInstaller onedir tree. `--onefile` would
+extract the interpreter to a temporary directory on every launch. The vision
+DLL and `llama-quantize.exe` stay Release builds. MinSizeRel (`/O1`) is not
+used: it can slow the ggml kernels, and the warm p95 under 2 seconds was
+measured for the Release library. UPX is not used. The archive is deflate
+level 9, with a Zip64 local header on every member so a multi-gigabyte
+`--with-weights` archive still extracts. User steps and the size table are
+in the README section
+[Portable Windows zip](../README.md#portable-windows-zip). The from-source
+Windows build above is unchanged.
+
+The laptop check is `tools/win_verify_portable.ps1`. It builds the default
+zip, extracts it, clears `PATH` down to `C:\Windows\System32` and
+`C:\Windows`, and points `LOCALAPPDATA` at an empty directory. It then runs
+`--version`, `examples/general_sum.shipmb`, and `setup --vision --check`
+(weights must be missing). It copies the three cached weight files into that
+empty cache, runs `setup --vision --yes` so the same hash checks run, then
+runs one vision program. Warm latency is measured in-process with the
+absolute Python, because each launch of the executable loads the model again.
+`-WithWeights` also builds the heavy zip. The default run does not.
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\admin\shipmb-worker\shipmblang\tools\win_verify_portable.ps1
+```
+
 ## Private native compiler
 
 The public repository also has a Windows launcher, build helper, and

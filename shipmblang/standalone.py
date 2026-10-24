@@ -62,8 +62,46 @@ def remember_dll_directory(path: str | Path | None) -> None:
     _DLL_DIRECTORIES.append((resolved, os.add_dll_directory(resolved)))
 
 
+def choose_vision_model_dir(env: dict | None = None, *, frozen: bool | None = None, executable: Path | None = None) -> tuple[str, Path | None]:
+    """Decide where frozen startup looks for vision weights.
+
+    An explicit ``SHIPMB_VISION_MODEL_DIR`` wins. Otherwise a frozen program
+    uses ``<exe>\\vision`` when that directory was shipped. Any other case
+    leaves the variable unset so setup uses the normal cache.
+    """
+    values = os.environ if env is None else env
+    override = (values.get("SHIPMB_VISION_MODEL_DIR") or "").strip()
+    if override:
+        return "env", Path(override)
+    if frozen is None:
+        frozen = is_standalone()
+    if not frozen:
+        return "cache", None
+    exe = Path(sys.executable) if executable is None else Path(executable)
+    bundled = exe.resolve().parent / "vision"
+    if bundled.is_dir():
+        return "bundled", bundled
+    return "cache", None
+
+
+def activate_bundled_vision_weights() -> Path | None:
+    """Set ``SHIPMB_VISION_MODEL_DIR`` to a shipped ``vision`` folder.
+
+    The native library and ``setup --vision`` both read that variable. It is
+    set only when the program is frozen, the variable is empty, and the folder
+    exists beside the executable.
+    """
+    source, path = choose_vision_model_dir()
+    if source != "bundled" or path is None:
+        return None
+    os.environ["SHIPMB_VISION_MODEL_DIR"] = str(path)
+    return path
+
+
 def activate_packed_vision_library() -> None:
     """Point vision.py at the packed library when the user did not choose one.
+
+    Also publishes a shipped ``vision`` directory before the library loads.
 
     vision.py opens SHIPMB_VISION_BRIDGE, otherwise native/<library> beside
     itself. PyInstaller extracts the packed file under sys._MEIPASS at that
@@ -71,6 +109,7 @@ def activate_packed_vision_library() -> None:
     frozen module's __file__ is not a real file next to the extracted library.
     On Windows the same call registers that directory with the loader.
     """
+    activate_bundled_vision_weights()
     bridge = os.environ.get("SHIPMB_VISION_BRIDGE")
     if bridge:
         remember_dll_directory(bridge)
