@@ -1,9 +1,12 @@
 # Windows x64 verification for the portable zip.
 # PowerShell 5. Run from any directory:
 #   powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\admin\shipmb-worker\shipmblang\tools\win_verify_portable.ps1
-#   powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\admin\shipmb-worker\shipmblang\tools\win_verify_portable.ps1 -Python C:\Python314\python.exe
+#   powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\admin\shipmb-worker\shipmblang\tools\win_verify_portable.ps1 -Python C:\Users\admin\shipmb-worker\venv\Scripts\python.exe
 #   powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\admin\shipmb-worker\shipmblang\tools\win_verify_portable.ps1 -WithWeights
 # -WithWeights also builds the heavy zip. The default run only checks the cached weights.
+# PyInstaller is pip-installed only into a virtualenv. Pass -Python for that venv.
+# A system interpreter is used only when PyInstaller is already importable. The script
+# will not pip-install into it. The default -Python is the machine Python at C:\Python314.
 # Writes C:\Users\admin\shipmb-worker\logs\win-verify-portable.txt
 
 param(
@@ -65,8 +68,21 @@ try {
         Note 'with_weights=skipped'
     }
 
-    & $Py -m pip install pyinstaller > (Join-Path $LogDir 'portable-pip.txt') 2>&1
-    Check 'pip install pyinstaller'
+    $pyKind = & $Py -c "import sys; print('venv' if sys.prefix != sys.base_prefix else 'system')"
+    Check 'detect python env'
+    $pyKind = "$pyKind".Trim()
+    Note "python_env=$pyKind"
+    if ($pyKind -eq 'venv') {
+        & $Py -m pip install pyinstaller > (Join-Path $LogDir 'portable-pip.txt') 2>&1
+        Check 'pip install pyinstaller'
+        Note 'pyinstaller=installed into venv'
+    } else {
+        & $Py -c "import PyInstaller" > (Join-Path $LogDir 'portable-pip.txt') 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "Refusing to pip-install PyInstaller into $Py because it is not a virtual environment. Create a venv and pass -Python, for example -Python C:\Users\admin\shipmb-worker\venv\Scripts\python.exe"
+        }
+        Note 'pyinstaller=already importable; skipped pip install because this is not a venv'
+    }
 
     $buildLog = Join-Path $LogDir 'portable-build.txt'
     $buildArgs = @('tools\build_portable.py')
@@ -147,9 +163,6 @@ try {
     foreach ($line in (Get-Content -ErrorAction Stop $checkLog)) {
         if ($line -like 'weights_ok *') {
             $realCache = $line.Substring(11).Trim()
-        }
-        if ($line -like 'SIZE *') {
-            Note $line
         }
     }
     if (-not $realCache) {

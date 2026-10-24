@@ -254,6 +254,14 @@ absolute Python, because each launch of the executable loads the model again.
 powershell -NoProfile -ExecutionPolicy Bypass -File C:\Users\admin\shipmb-worker\shipmblang\tools\win_verify_portable.ps1
 ```
 
+The script pip-installs PyInstaller only into a virtualenv. Pass `-Python`
+with that interpreter, for example
+`-Python C:\Users\admin\shipmb-worker\venv\Scripts\python.exe`. The default
+`-Python` is `C:\Python314\python.exe`. When that is not a venv, the script
+uses it only if PyInstaller is already importable and does not pip-install
+into it. The measured sizes and the portable-executable latency are in the
+README [size table](../README.md#size).
+
 ## Private native compiler
 
 The public repository also has a Windows launcher, build helper, and

@@ -63,8 +63,6 @@ def check_weights() -> int:
         return 1
     for line in pinned_size_lines():
         print(line, flush=True)
-    for line in not_built_weight_lines():
-        print(line, flush=True)
     print(f"weights_ok {cache}", flush=True)
     return 0
 
