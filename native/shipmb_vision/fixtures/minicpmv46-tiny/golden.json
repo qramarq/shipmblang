@@ -1,0 +1,17 @@
+{
+  "question": "cat",
+  "detailed": true,
+  "flash_attn": false,
+  "n_threads": 1,
+  "use_gpu": false,
+  "max_tokens": 1,
+  "image_tokens": 1,
+  "text": "yes",
+  "embedding_atol": 0.02,
+  "embedding_rtol": 0.01,
+  "seed": 46,
+  "insert_layer_id": 0,
+  "vision_heads": 4,
+  "scale_resolution": 56,
+  "patch_size": 14
+}

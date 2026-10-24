@@ -1,0 +1,55 @@
+{
+  "source_commit": "4972b2f7ff69bc9f0f1105afc02ef4d3d59ef2f5",
+  "compiler_version": "0.6.0",
+  "language_model": {
+    "filename": "MiniCPM-V-4_6-Q4_K_M.gguf",
+    "pinned_by": "vision.py LLM_FILENAME and MODEL_SHA256",
+    "huggingface_repo": "openbmb/MiniCPM-V-4.6-gguf",
+    "huggingface_revision": "afe9accb78d2995d214cd912920c9c92f4015faa",
+    "huggingface_revision_note": "vision.py does not store a revision. The weights download uses https://huggingface.co/openbmb/MiniCPM-V-4.6-gguf/resolve/main/MiniCPM-V-4_6-Q4_K_M.gguf. That main branch resolves to this commit, and the file etag equals MODEL_SHA256.",
+    "sha256": "6b0c74962c44bc6bf4b655b9b02c13eda9d5a0491543ae976d1ac18e4b7892e2",
+    "bytes": 529101504
+  },
+  "mmproj": {
+    "filename": "mmproj-model-q8_0.gguf",
+    "quant": "q8_0",
+    "pinned_by": "vision.py MMPROJ_FILENAME. The sha256 and byte size are native/vision/pins.json mmproj_q8_0; vision.py does not store them.",
+    "sha256": "cc6e95b117ade93ca9dfc5a81998d14a19b9ae8ce4eb44658a20b55407a7d54f",
+    "bytes": 726599744,
+    "huggingface_repo": null,
+    "note": "This is not the Hugging Face projector. It is produced by llama-quantize from llama.cpp b11846 with type Q8_0 and no extra flags, from mmproj-model-f16.gguf. Twenty-seven ffn_down tensors stay F16 because their dimension 4304 is not divisible by 32."
+  },
+  "mmproj_f16_source": {
+    "filename": "mmproj-model-f16.gguf",
+    "quant": "f16",
+    "used_by_vision_py": false,
+    "huggingface_repo": "openbmb/MiniCPM-V-4.6-gguf",
+    "huggingface_revision": "afe9accb78d2995d214cd912920c9c92f4015faa",
+    "sha256": "ca931d861d0801d9003e50697cd764721a334107c0e0415a51168ee1938462de",
+    "bytes": 1108746944,
+    "download": "https://huggingface.co/openbmb/MiniCPM-V-4.6-gguf/resolve/main/mmproj-model-f16.gguf"
+  },
+  "env": {
+    "SHIPMB_VISION_BRIDGE": "Optional path vision.py passes to ctypes.CDLL. When unset, vision.py loads native/libshipmb_vision.so beside vision.py (libshipmb_vision.dylib on macOS, shipmb_vision.dll on Windows).",
+    "SHIPMB_VISION_MODEL_DIR": "Optional directory the library searches for the two weight filenames. When unset or empty, the cache path below is used.",
+    "SHIPMB_MODEL_PROVIDER": "Set to shipmb_vision to use the resident library as the compile-time image-prose provider. The default is none. openai_compatible and ollama remain the text-only providers and use SHIPMB_MODEL_BASE_URL, SHIPMB_MODEL_NAME, and SHIPMB_MODEL_API_KEY."
+  },
+  "cache_paths": {
+    "linux": "$XDG_CACHE_HOME/shipmblang/vision when XDG_CACHE_HOME is set and non-empty, otherwise $HOME/.cache/shipmblang/vision. An empty HOME becomes ./.cache/shipmblang/vision.",
+    "macos": "$HOME/Library/Caches/shipmblang/vision",
+    "windows": "%LOCALAPPDATA%\\shipmblang\\vision, otherwise %USERPROFILE%\\AppData\\Local\\shipmblang\\vision, otherwise shipmblang/vision",
+    "filenames": [
+      "MiniCPM-V-4_6-Q4_K_M.gguf",
+      "mmproj-model-q8_0.gguf"
+    ],
+    "missing_weights_error": "Vision weights are not installed. Run `shipmblang setup --vision`."
+  },
+  "latency": {
+    "target": "warm 95th percentile under 2 s",
+    "recorded_on_the_8_core_cpu_used_to_choose_the_settings": {
+      "warm_median_s": 1.02,
+      "warm_p95_s_at_most": 1.15
+    },
+    "how_measured": "shipmb_vision_bench loads the engine once, then calls smb_vision_query once per iteration. elapsed_ms in each result is steady_clock milliseconds from bitmap creation through that query's answer, not model load. The check uses a 448x448 PNG, config {\"warmup\": true, \"flash_attn\": true, \"max_tokens\": 16}, question \"What is the main object in this image? Answer in one or two words.\", and 4 iterations. The first row is cold. The remaining rows are sorted by elapsed_ms. Nearest-rank p95 uses index = max(0, round(0.95 * len(warm) + 0.5) - 1). The gate fails when that p95 is >= 2000 ms. Detailed mode has no latency promise. Compile-time prose may ask for 256 tokens; that budget is not this 2 s gate."
+  }
+}

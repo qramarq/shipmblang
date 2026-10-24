@@ -115,6 +115,13 @@ def build_executable(editor: Path | None, dist: Path) -> Path:
     ]
     if editor is not None:
         command.extend(["--add-data", f"{editor}{os.pathsep}shipmblang/native/ratatui-editor"])
+    if str(ROOT) not in sys.path:
+        sys.path.insert(0, str(ROOT))
+    from shipmblang.vision_build import standalone_datas
+
+    for origin, destination in standalone_datas():
+        command.extend(["--add-data", f"{origin}{os.pathsep}{destination}"])
+        print(f"vision packed: {origin} -> {destination}", flush=True)
     command.append(str(ROOT / "tools" / "standalone_entry.py"))
     environment = os.environ.copy()
     environment["PYTHONPATH"] = str(ROOT) + os.pathsep + environment.get("PYTHONPATH", "")

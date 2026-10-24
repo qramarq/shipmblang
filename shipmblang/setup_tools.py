@@ -1147,11 +1147,38 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--skip", action="append", default=[], help="Comma-separated components to leave untouched.")
     parser.add_argument("--pull-models", action="store_true", help="Pull an Ollama model. Requires --model, or a typed name when interactive.")
     parser.add_argument("--model", default="", help="Ollama model name used with --pull-models. There is no default model.")
+    parser.add_argument(
+        "--vision", action="store_true",
+        help=(
+            "Download the pinned MiniCPM-V 4.6 weights, quantize the projector locally, "
+            "and build or reuse the native vision library."
+        ),
+    )
+    parser.add_argument(
+        "--offline", action="store_true",
+        help="With --vision, do not use the network. Reuse cached weights and fail if they are missing.",
+    )
     return parser
 
 
 def main(argv=None, *, input_fn=input, host_fn=inspect_host, detect_fn=detect, execute_fn=execute_plan, service_fn=ollama_api_up) -> int:
     args = build_parser().parse_args(argv)
+    if args.offline and not args.vision:
+        print("shipmblang: --offline is only valid with setup --vision.", file=sys.stderr)
+        return 2
+    if args.vision:
+        if args.only or args.skip or args.pull_models or args.model:
+            print(
+                "shipmblang: setup --vision does not take --only, --skip, --pull-models, or --model.",
+                file=sys.stderr,
+            )
+            return 2
+        from .vision_setup import setup_vision
+
+        return setup_vision(
+            offline=args.offline, check=args.check, dry_run=args.dry_run,
+            assume_yes=args.yes, input_fn=input_fn,
+        )
     try:
         selected = select_components(split_names(args.only), split_names(args.skip))
         model = validate_model_name(args.model) if args.model else ""

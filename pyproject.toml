@@ -62,4 +62,17 @@ include = ["driplm", "driplm.*", "shiplang", "shiplang.*", "shipmblang", "shipmb
 
 [tool.setuptools.package-data]
 "shipmblang" = ["note_starters.json", "native/ratatui-editor/Cargo.toml", "native/ratatui-editor/Cargo.lock", "native/ratatui-editor/src/*.rs"]
-"shipmblang._compiler" = ["BUNDLED.json", "hyperframes/node/*.mjs", "hyperframes/node/*.json", "hyperframes/vendor/*"]
+"shipmblang._compiler" = [
+    "BUNDLED.json",
+    "hyperframes/node/*.mjs",
+    "hyperframes/node/*.json",
+    "hyperframes/vendor/*",
+    "native/libshipmb_vision.so",
+    "native/libshipmb_vision.dylib",
+    "native/shipmb_vision.dll",
+    "native/LICENSE",
+    "native/NOTICE",
+    "native/licenses/*",
+    "native/pins.json",
+    "native/weight_pins.json",
+]

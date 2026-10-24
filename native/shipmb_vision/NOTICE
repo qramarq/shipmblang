@@ -1,0 +1,18 @@
+Third-party notices for this shipmb_vision export
+
+The C and C++ sources under include/, src/, and tests/ are covered by the
+LICENSE file at the root of this archive.
+
+nlohmann/json 3.11.3
+  vendor/json.hpp
+  MIT. See vendor/JSON-LICENSE.MIT and the SPDX header in the file.
+
+llama.cpp tag b11846, commit 1a24df163920a4744a95373d178d790b72a9bb2f
+  Not shipped in this archive. The build fetches it from
+  https://github.com/ggml-org/llama.cpp
+  MIT. See licenses/llama.cpp-MIT.txt.
+  stb_image.h used to decode PNG, JPEG, GIF, and BMP is the copy in that
+  fetched tree (vendor/stb).
+
+The files in fixtures/minicpmv46-tiny/ are a generated test model, not the
+MiniCPM-V 4.6 weights.
