@@ -12,10 +12,40 @@ from .notebook_store import NotebookStore, default_database
 def handle(store: NotebookStore, request: dict) -> dict:
     action = request.get("action")
     if action == "list":
-        return {"ok": True, "entries": store.list(str(request.get("query", "")))}
+        return {"ok": True, "entries": store.list(str(request.get("query", ""))),
+                "now": store.now(), "theme": store.get_pref("theme", "dark")}
     if action == "get":
         entry = store.get(str(request.get("id", "")))
         return {"ok": True, "entry": entry}
+    if action == "timeline":
+        entry_id = str(request.get("id", ""))
+        return {"ok": True, "messages": store.messages(entry_id), "now": store.now()}
+    if action == "append":
+        detail = request.get("detail", "")
+        if not isinstance(detail, str):
+            detail = json.dumps(detail or {}, ensure_ascii=False)
+        parent = request.get("parent_id") or None
+        message = store.add_message(
+            entry_id=str(request.get("id") or request.get("entry_id") or ""),
+            role=str(request.get("role", "user")),
+            kind=str(request.get("kind", "message")),
+            body=str(request.get("body", "")),
+            detail=detail,
+            parent_id=parent,
+            status=request.get("status"),
+        )
+        return {"ok": True, "message": message, "entries": store.list("")}
+    if action == "read":
+        store.mark_read(str(request.get("id", "")))
+        return {"ok": True}
+    if action == "pin":
+        store.set_pinned(str(request.get("id", "")), bool(request.get("pinned")))
+        return {"ok": True, "entries": store.list("")}
+    if action == "preference":
+        key = str(request.get("key", "theme"))
+        if "value" in request:
+            store.set_pref(key, str(request.get("value", "")))
+        return {"ok": True, "value": store.get_pref(key, "")}
     if action == "save":
         document = request.get("document")
         if not isinstance(document, str):

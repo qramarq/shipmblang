@@ -61,12 +61,24 @@ example `shipmblang program.shipmb --format text`. The same shorthand works in
 the installed Python console script. `compile`, `run`, `editor`, `notebook`,
 `hyperframes`, and the older commands keep their previous parsing.
 
-`shipmblang editor` and `shipmblang notebook` open the Ratatui editor. In a
-build made with `--require-editor`, the editor binary is inside the executable
-and Cargo is not used. The editor calls back into the same executable for notes
-and compilation. A build without that binary still asks for Rust and Cargo, as
-a source install does on first launch. If Cargo is missing, the message tells
-you to run `shipmblang setup`. The executable does not install anything by itself.
+`shipmblang editor` and `shipmblang notebook` open the Ratatui chat-room
+notebook. In a build made with `--require-editor`, the editor binary is inside
+the executable and Cargo is not used. The editor calls back into the same
+executable for notes and compilation. A build without that binary still asks
+for Rust and Cargo, as a source install does on first launch. If Cargo is
+missing, the message tells you to run `shipmblang setup`. The executable does
+not install anything by itself.
+
+```sh
+./dist/shipmblang --version
+./dist/shipmblang editor --version
+./dist/shipmblang editor --smoke --demo
+./dist/shipmblang lsp --check
+```
+
+`--smoke` prints `shipmblang editor smoke ok` and one frame, then exits. The
+same executable is the language server (`shipmblang lsp`) and the compile/run
+fallback for other editors. See [editors](editors.md).
 
 ## Install Rust, FFmpeg, VLC, and Ollama
 
@@ -215,8 +227,8 @@ shipmblang setup --dry-run
   stay outside the file. `shipmblang setup` installs them from the sources in
   the section above. Node.js is still separate. HyperFrames compilation writes
   a project with no Node process; rendering still needs Node.
-- **The Tk sticky-note window.** `notebook` and `editor` open the terminal
-  editor. The older Tk notes window is not packed.
+- **The Tk sticky-note window.** `notebook` and `editor` open the chat-room
+  notebook. The older Tk notes window is not packed.
 
 Linux builds expect a glibc new enough for the Ubuntu runner that produced the
 artifact. The executable does not look up a system Python.

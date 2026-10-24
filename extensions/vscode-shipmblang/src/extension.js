@@ -2,8 +2,11 @@ const vscode = require('vscode');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { buildArgs, runProcess, parseResult, utf16Offset } = require('./runner');
+const { runProcess, parseResult, utf16Offset, commandFor, lspCommand, stripPythonModule, launchSpec } = require('./runner');
+const { startLanguageSession } = require('./lspClient');
 let programDiagnostics;
+let lspDiagnostics;
+let languageClient;
 const generations = new Map();
 
 let output;
@@ -15,8 +18,13 @@ const LEGACY_EXTENSION_IDS = ['shiplang', 'drip'];
 function activate(context) {
   output = vscode.window.createOutputChannel('ShipMBLang');
   programDiagnostics = vscode.languages.createDiagnosticCollection('shipmblang');
-  context.subscriptions.push(programDiagnostics, vscode.workspace.onDidChangeTextDocument(event => programDiagnostics.delete(event.document.uri)),
-    vscode.workspace.onDidCloseTextDocument(document => { programDiagnostics.delete(document.uri); generations.delete(document.uri.toString()); }));
+  lspDiagnostics = vscode.languages.createDiagnosticCollection('shipmblang-lsp');
+  const clearDiagnostics = (uri) => {
+    programDiagnostics.delete(uri);
+    lspDiagnostics.delete(uri);
+  };
+  context.subscriptions.push(programDiagnostics, lspDiagnostics, vscode.workspace.onDidChangeTextDocument(event => clearDiagnostics(event.document.uri)),
+    vscode.workspace.onDidCloseTextDocument(document => { clearDiagnostics(document.uri); generations.delete(document.uri.toString()); }));
   codeLensEmitter = new vscode.EventEmitter();
 
   context.subscriptions.push(output, codeLensEmitter);
@@ -45,7 +53,16 @@ function activate(context) {
   }));
   context.subscriptions.push(vscode.languages.registerCodeLensProvider({ scheme: 'file' }, new ShipLangCodeLensProvider()));
   context.subscriptions.push(vscode.languages.registerHoverProvider({ scheme: 'file' }, new ShipLangHoverProvider()));
+  context.subscriptions.push(vscode.languages.registerHoverProvider({ language: 'shipmblang' }, new ShipLangLspHoverProvider()));
   context.subscriptions.push(vscode.languages.onDidChangeDiagnostics(() => codeLensEmitter.fire()));
+  languageClient = new ShipLangLanguageClient();
+  context.subscriptions.push(languageClient);
+  context.subscriptions.push(vscode.workspace.onDidChangeConfiguration(event => {
+    if (event.affectsConfiguration('shipmblang.executablePath') || event.affectsConfiguration('shipmblang.pythonPath') || event.affectsConfiguration('shipmblang.lsp')) {
+      languageClient.restart();
+    }
+  }));
+  languageClient.start();
 
   context.workspaceState.update('shipmblang.extensionPath', context.extensionPath);
 }
@@ -83,6 +100,145 @@ class ShipLangCodeLensProvider {
         arguments: [document.uri, diagnostic]
       });
     });
+  }
+}
+
+class ShipLangLanguageClient {
+  constructor() {
+    this.session = null;
+    this.ready = Promise.resolve(false);
+    this.opened = new Set();
+    this.subscriptions = [];
+  }
+
+  dispose() {
+    this.stop();
+  }
+
+  restart() {
+    this.stop();
+    this.start();
+  }
+
+  stop() {
+    for (const subscription of this.subscriptions) subscription.dispose();
+    this.subscriptions = [];
+    this.opened.clear();
+    if (this.session) this.session.stop();
+    this.session = null;
+    this.ready = Promise.resolve(false);
+  }
+
+  start() {
+    if (getConfigurationValue('lsp', true) === false) return;
+    const launched = lspCommand(launchOptions());
+    const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+    this.session = startLanguageSession({
+      command: launched.command,
+      args: launched.args,
+      cwd: folder ? folder.uri.fsPath : undefined,
+      output,
+      onDiagnostics: (params) => this.publish(params),
+    });
+    this.ready = this.session.request('initialize', {
+      processId: process.pid,
+      capabilities: { textDocument: { hover: { contentFormat: ['markdown', 'plaintext'] }, publishDiagnostics: {} } },
+      rootUri: folder ? folder.uri.toString() : null,
+    }).then((result) => {
+      this.session.notify('initialized', {});
+      const name = result && result.serverInfo && result.serverInfo.name;
+      output.appendLine(`ShipMBLang language server: ${name || 'shipmblang'}`);
+      for (const document of vscode.workspace.textDocuments) this.open(document);
+      this.subscriptions.push(vscode.workspace.onDidOpenTextDocument(document => this.open(document)));
+      this.subscriptions.push(vscode.workspace.onDidChangeTextDocument(event => this.change(event.document)));
+      this.subscriptions.push(vscode.workspace.onDidCloseTextDocument(document => this.close(document)));
+      return true;
+    }).catch((error) => {
+      output.appendLine(`ShipMBLang language server unavailable: ${error.message}`);
+      return false;
+    });
+  }
+
+  tracked(document) {
+    return document && document.languageId === 'shipmblang';
+  }
+
+  open(document) {
+    if (!this.session || !this.tracked(document) || this.opened.has(document.uri.toString())) return;
+    this.opened.add(document.uri.toString());
+    this.notify('textDocument/didOpen', {
+      textDocument: { uri: document.uri.toString(), languageId: 'shipmblang', version: document.version, text: document.getText() },
+    });
+  }
+
+  change(document) {
+    if (!this.session || !this.opened.has(document.uri.toString())) return;
+    this.notify('textDocument/didChange', {
+      textDocument: { uri: document.uri.toString(), version: document.version },
+      contentChanges: [{ text: document.getText() }],
+    });
+  }
+
+  close(document) {
+    const uri = document.uri.toString();
+    if (!this.session || !this.opened.has(uri)) return;
+    this.opened.delete(uri);
+    this.notify('textDocument/didClose', { textDocument: { uri } });
+    lspDiagnostics.delete(document.uri);
+  }
+
+  notify(method, params) {
+    try {
+      if (this.session) this.session.notify(method, params);
+    } catch (error) {
+      output.appendLine(error.message);
+    }
+  }
+
+  publish(params) {
+    if (!params || !params.uri) return;
+    const uri = vscode.Uri.parse(params.uri);
+    const items = (params.diagnostics || []).map((item) => {
+      const range = item.range || { start: {}, end: {} };
+      const diagnostic = new vscode.Diagnostic(
+        new vscode.Range(range.start.line || 0, range.start.character || 0, range.end.line || 0, range.end.character || 0),
+        item.message || 'Compiler diagnostic',
+        item.severity === 1 ? vscode.DiagnosticSeverity.Error : vscode.DiagnosticSeverity.Warning);
+      diagnostic.source = item.source || 'shipmblang';
+      diagnostic.code = item.code || undefined;
+      return diagnostic;
+    });
+    lspDiagnostics.set(uri, items);
+  }
+
+  async hover(document, position) {
+    const alive = await this.ready;
+    if (!alive || !this.session || !this.opened.has(document.uri.toString())) return undefined;
+    const result = await this.session.request('textDocument/hover', {
+      textDocument: { uri: document.uri.toString() },
+      position: { line: position.line, character: position.character },
+    });
+    if (!result || !result.contents) return undefined;
+    const value = typeof result.contents === 'string' ? result.contents : (result.contents.value || '');
+    if (!value) return undefined;
+    const markdown = new vscode.MarkdownString(value, true);
+    const lspRange = result.range;
+    const range = lspRange
+      ? new vscode.Range(lspRange.start.line || 0, lspRange.start.character || 0, lspRange.end.line || 0, lspRange.end.character || 0)
+      : new vscode.Range(position, position);
+    return new vscode.Hover(markdown, range);
+  }
+}
+
+class ShipLangLspHoverProvider {
+  async provideHover(document, position) {
+    if (!languageClient) return undefined;
+    try {
+      return await languageClient.hover(document, position);
+    } catch (error) {
+      output.appendLine(error.message);
+      return undefined;
+    }
   }
 }
 
@@ -267,7 +423,6 @@ async function callPrinturf(rawError, codeContext) {
   await fs.promises.writeFile(contextFile, codeContext, 'utf8');
 
   try {
-    const pythonPath = getConfigurationValue('pythonPath', 'python', undefined);
     const projectRoot = resolveProjectRoot(getConfigurationValue('projectRoot', getLegacyConfigurationValue('dripRoot', ''), undefined));
     const args = ['-m', 'shipmblang', 'printurf', '--error-file', errorFile, '--context-file', contextFile];
     const checkpoint = getConfigurationValue('checkpoint', '');
@@ -283,7 +438,7 @@ async function callPrinturf(rawError, codeContext) {
       args.push('--device', device);
     }
 
-    return await spawnShipLang(pythonPath, args, projectRoot, extractExplanation);
+    return await spawnShipLang(args, projectRoot, extractExplanation);
   } finally {
     fs.promises.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
   }
@@ -299,14 +454,14 @@ async function callNaturalShipLang(mode, source, document, rawError = '', codeCo
   await fs.promises.writeFile(contextFile, codeContext, 'utf8');
 
   try {
-    const pythonPath = getConfigurationValue('pythonPath', 'python', document && document.uri);
     const projectRoot = resolveProjectRoot(getConfigurationValue('projectRoot', getLegacyConfigurationValue('dripRoot', ''), document && document.uri), document);
-    const args = buildArgs(mode, sourceFile, workspaceRootForDocument(document), {
+    const launched = commandFor(mode, sourceFile, workspaceRootForDocument(document), {
+      ...launchOptions(document && document.uri),
       pipeline: getConfigurationValue('pipeline', 'direct', document.uri),
       profile: getConfigurationValue('profile', 'general', document.uri),
       memory: getConfigurationValue('memory', false, document.uri), errorFile, contextFile, interpretation
     });
-    const response = await runProcess(pythonPath, args, { cwd: projectRoot, token,
+    const response = await runProcess(launched.command, launched.args, { cwd: projectRoot, token,
       timeoutMs: getConfigurationValue('timeoutMs', 30000, document.uri) });
     if (response.stderr.trim()) output.appendLine(response.stderr.trim());
     return parseResult(response);
@@ -356,9 +511,24 @@ function workspaceRootForDocument(document) {
   return document.uri.scheme === 'file' ? path.dirname(document.uri.fsPath) : resolveProjectRoot('');
 }
 
-async function spawnShipLang(command, args, cwd, transform) {
+function launchOptions(uri) {
+  return {
+    executablePath: getConfigurationValue('executablePath', '', uri),
+    pythonPath: getConfigurationValue('pythonPath', 'python', uri),
+  };
+}
+
+function invocationFor(args, uri) {
+  const spec = launchSpec(launchOptions(uri));
+  if (spec.kind === 'executable') return { command: spec.command, args: stripPythonModule(args) };
+  const pythonArgs = args[0] === '-X' ? args : ['-X', 'utf8', ...args];
+  return { command: spec.command, args: pythonArgs };
+}
+
+async function spawnShipLang(args, cwd, transform, uri) {
   if (!vscode.workspace.isTrusted) throw new Error('Trust this workspace before running ShipMBLang.');
-  const result = await runProcess(command, ['-X', 'utf8', ...args], { cwd });
+  const launched = invocationFor(args, uri);
+  const result = await runProcess(launched.command, launched.args, { cwd });
   if (result.code !== 0) throw new Error(result.stderr || result.stdout || `ShipMBLang exited with code ${result.code}`);
   return transform(result.stdout);
 }
