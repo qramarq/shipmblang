@@ -32,7 +32,7 @@ def export_and_push(checkpoint_path, tokenizer_path, repo_id, token, local_dir="
     from huggingface_hub import HfApi
 
     # Load checkpoint
-    ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
     config = ckpt["config"]
     state_dict = ckpt["model_state_dict"]
 
