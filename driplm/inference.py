@@ -17,7 +17,7 @@ class DripInference:
         self.device = torch.device(device)
         self.tokenizer = Tokenizer.from_file(tokenizer_path)
 
-        ckpt = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
+        ckpt = torch.load(checkpoint_path, map_location=self.device, weights_only=True)
 
         # Load config.json from same directory as the model file
         config_dir = os.path.dirname(os.path.abspath(checkpoint_path))

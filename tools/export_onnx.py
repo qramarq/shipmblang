@@ -40,7 +40,7 @@ def export_onnx(checkpoint_path, tokenizer_path, output_path, quantize=True, pus
     import shutil
 
     # Load checkpoint
-    ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+    ckpt = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
 
     # Resolve config
     config_dir = os.path.dirname(os.path.abspath(checkpoint_path))
