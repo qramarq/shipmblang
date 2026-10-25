@@ -2,7 +2,7 @@
 
 Natural-language programs in a `.shipmb` file, compiled and run on your machine.
 Package 0.6.0. The bundled compiler snapshot is 0.6.0 from compiler commit
-`4972b2f7ff69bc9f0f1105afc02ef4d3d59ef2f5`. It changes only when the compiler sync updates it.
+`c33b0ef721a84ef24e2b320aa6ee805152569849`. It changes only when the compiler sync updates it.
 
 ## What's new in 0.6.0
 

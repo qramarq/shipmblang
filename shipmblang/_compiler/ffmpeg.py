@@ -12,11 +12,14 @@ import shutil
 import subprocess
 import threading
 import time
+from urllib.parse import unquote, urlparse
 
 MAX_OPERANDS = 4096
 MAX_TEXT = 1000000
 RESERVED = {'-i', '-y', '-n', '-stdin', '-nostdin', '-progress', '-filter_complex',
             '-filter_complex_script', '-report', '-h', '-help', '-version'}
+# Formats whose URL is a device name or filter expression, not a filesystem path.
+DEVICE_FORMATS = {'null', 'lavfi', 'dshow', 'avfoundation', 'v4l2', 'alsa', 'pulse', 'sdl', 'sdl2'}
 # Only rules with unambiguous scopes/arity are encoded here. The executable is
 # authoritative for its build-specific AVOptions and component compatibility.
 RULES = {
@@ -190,6 +193,24 @@ def executable_path(value, default):
     return str(Path(found).resolve())
 
 
+def _filesystem_path(url, allow_remote_file_url):
+    """Local path for a filename or file: URL. None when the URL is not a local file."""
+    if re.match(r'^[A-Za-z][A-Za-z0-9+.-]*:', url) and not re.match(r'^[A-Za-z]:[\\/]', url):
+        if not url.lower().startswith('file:'):
+            return None
+        parsed = urlparse(url)
+        host = parsed.netloc.lower()
+        if host and host != 'localhost':
+            if allow_remote_file_url:
+                return None
+            raise ValueError(f'FFmpeg file URL host is not local: {url}')
+        raw = unquote(parsed.path)
+        if re.match(r'^/[A-Za-z]:[\\/]', raw):
+            raw = raw[1:]
+        return Path(raw)
+    return Path(url)
+
+
 class FFmpegExecutionError(ValueError):
     def __init__(self, message, result=None):
         super().__init__(message)
@@ -197,36 +218,52 @@ class FFmpegExecutionError(ValueError):
 
 
 class FFmpegExecutor:
-    """Opt-in synchronous host operations. No subprocess is started by __init__."""
-    def __init__(self, ffmpeg_path=None, ffprobe_path=None, base_dir=None, timeout=None, *, cancel_event=None, on_progress=None):
+    """Opt-in synchronous host operations. No subprocess is started by __init__.
+
+    Local input and output paths stay inside base_dir unless allow_paths_outside_base is set.
+    """
+    def __init__(self, ffmpeg_path=None, ffprobe_path=None, base_dir=None, timeout=None, *,
+                 cancel_event=None, on_progress=None, allow_paths_outside_base=False):
         if timeout is not None and (type(timeout) not in (int, float) or not 0 < timeout < float('inf')):
             raise ValueError('FFmpeg timeout must be a positive number of seconds.')
+        if type(allow_paths_outside_base) is not bool:
+            raise ValueError('allow_paths_outside_base must be a boolean.')
         self.ffmpeg_path = ffmpeg_path or os.environ.get('SHIPMB_FFMPEG_PATH')
         self.ffprobe_path = ffprobe_path or os.environ.get('SHIPMB_FFPROBE_PATH')
         self.base_dir = str(Path(base_dir or Path.cwd()).resolve())
+        self.allow_paths_outside_base = allow_paths_outside_base
         self.timeout, self.cancel_event, self.on_progress = timeout, cancel_event, on_progress
+
+    def _media_path(self, url, options):
+        """Resolve a local media path and reject escapes from base_dir."""
+        if any(item['name'] == '-f' and item['value'] in DEVICE_FORMATS for item in options):
+            return None
+        path = _filesystem_path(url, self.allow_paths_outside_base)
+        if path is None:
+            return None
+        resolved = path.resolve() if path.is_absolute() else (Path(self.base_dir) / path).resolve()
+        if not self.allow_paths_outside_base:
+            try:
+                resolved.relative_to(Path(self.base_dir).resolve())
+            except ValueError:
+                raise ValueError(f'FFmpeg path resolves outside the base directory: {url}') from None
+        return resolved
 
     def execute(self, job):
         args = build_arguments(job)
         if self.cancel_event is not None and self.cancel_event.is_set():
             raise FFmpegExecutionError('FFmpeg cancelled.', {'kind': 'ffmpeg', 'status': 'cancelled', 'exit_code': None})
-        binary = executable_path(self.ffmpeg_path, 'ffmpeg')
-        from .ffmpeg_catalog import discover_catalog, validate_installed_options
-        catalog = discover_catalog(binary)
-        validate_installed_options(job, catalog)
         # stdout carries progress only; media pipe outputs would collide with it.
         if any(e['url'] in {'-', 'pipe:', 'pipe:0', 'pipe:1', 'pipe:2'} for e in job['inputs'] + job['outputs']):
             raise ValueError('Interactive/raw standard-stream media pipes require an external host adapter; use files or URLs.')
         args[0:0] = ['-progress', 'pipe:1', '-nostats']
         result = {'kind': 'ffmpeg', 'arguments': args, 'exit_code': None, 'stderr': '', 'progress': [], 'status': 'running'}
         def local_path(entry):
-            url = entry['url']
-            if any(o['name'] == '-f' and o['value'] in {'null', 'lavfi', 'dshow', 'avfoundation', 'v4l2', 'alsa', 'pulse', 'sdl', 'sdl2'} for o in entry['options']):
-                return None
-            if re.match(r'^[A-Za-z][A-Za-z0-9+.-]*:', url) and not re.match(r'^[A-Za-z]:[\\/]', url):
-                return None
-            path = Path(url)
-            return (Path(self.base_dir) / path).resolve() if not path.is_absolute() else path.resolve()
+            try:
+                return self._media_path(entry['url'], entry['options'])
+            except ValueError as error:
+                result['status'] = 'failed'
+                raise FFmpegExecutionError(str(error), result) from error
         input_paths = {p for entry in job['inputs'] if (p := local_path(entry)) is not None}
         output_paths = set()
         for entry in job['outputs']:
@@ -244,6 +281,10 @@ class FFmpegExecutor:
                 result['status'] = 'failed'
                 raise FFmpegExecutionError(problem, result)
             output_paths.add(path)
+        binary = executable_path(self.ffmpeg_path, 'ffmpeg')
+        from .ffmpeg_catalog import discover_catalog, validate_installed_options
+        catalog = discover_catalog(binary)
+        validate_installed_options(job, catalog)
         stderr = bytearray()
         callback_errors = []
         try:
@@ -325,6 +366,7 @@ class FFmpegExecutor:
         """Explicit metadata operation, never implicitly called by compilation."""
         if not isinstance(source, str) or not source or '\0' in source:
             raise ValueError('Probe source must be nonempty text without NUL bytes.')
+        self._media_path(source, [])
         binary = executable_path(self.ffprobe_path, 'ffprobe')
         args = [binary, '-v', 'error', '-show_format', '-show_streams', '-of', 'json', _url(source)]
         try:

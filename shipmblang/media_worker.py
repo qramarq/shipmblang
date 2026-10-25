@@ -138,7 +138,8 @@ def run(path):
                 if time.monotonic() - last_progress[0] > .3 or value.get('progress') == 'end':
                     last_progress[0] = time.monotonic()
                     update(phase='converting', message='Converting media…', progress={k: str(v)[:100] for k, v in value.items() if k in {'out_time', 'speed', 'frame', 'progress'}})
-            executor = LocalFFmpeg(workspace, path, ffmpeg_path=tools['tools']['ffmpeg'], ffprobe_path=tools['tools']['ffprobe'], timeout=580, on_progress=progress)
+            # Inputs are imported note assets, which live outside this job directory.
+            executor = LocalFFmpeg(workspace, path, ffmpeg_path=tools['tools']['ffmpeg'], ffprobe_path=tools['tools']['ffprobe'], timeout=580, on_progress=progress, allow_paths_outside_base=True)
             update(phase='running', message='Running this revision…')
             from ._compiler.runtime import run_artifact
             runtime, diagnostics = run_artifact(result['target_code'], ffmpeg_executor=executor)
@@ -149,7 +150,8 @@ def run(path):
         outputs = []
         for file in (path / 'outputs').iterdir():
             if file.is_file():
-                media = FFmpegExecutor(ffprobe_path=tools['tools']['ffprobe'], timeout=20).probe(str(file))
+                # Output paths are absolute; this probe's base is the process directory.
+                media = FFmpegExecutor(ffprobe_path=tools['tools']['ffprobe'], timeout=20, allow_paths_outside_base=True).probe(str(file))
                 outputs.append({'id': uuid.uuid4().hex, 'name': file.name, 'size': file.stat().st_size,
                                 'duration': media.get('format', {}).get('duration'),
                                 'streams': [{k: s[k] for k in ('codec_type', 'codec_name', 'width', 'height') if k in s} for s in media.get('streams', [])]})
