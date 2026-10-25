@@ -12,7 +12,8 @@ from unittest.mock import patch
 
 from shipmblang.media_jobs import MediaJobs, new_request_id, TERMINAL
 from shipmblang.media_worker import LocalFFmpeg
-from shipmblang.media_workspace import Workspace, conversion_starter, TITLE_STARTER, tool_status
+from shipmblang._compiler import ffmpeg as ffmpeg_mod
+from shipmblang.media_workspace import Workspace, conversion_starter, TITLE_STARTER, tool_status, write_json
 from shipmblang.mobile_service import create_app
 from shipmblang.notebook_runtime import compiler_snapshot
 
@@ -90,6 +91,43 @@ class MediaTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             adapter.execute(base)
         self.assertEqual((directory / 'outputs/test.mp4').read_bytes(), b'preserved')
+
+    def test_worker_reads_inputs_from_note_assets(self):
+        workspace = self.jobs.workspace('note')
+        payload = b'\x89PNG\r\n\x1a\n' + b'x' * 8
+        asset = workspace.import_stream(io.BytesIO(payload), 'frame.png', len(payload))
+        asset_file = workspace.input_path(asset['path'])
+        request_id = new_request_id()
+        path = workspace.root / 'jobs' / request_id
+        path.mkdir()
+        request = {'project': 'note', 'source': conversion_starter(asset), 'mode': 'program', 'check': False,
+                   'compiler': compiler_snapshot(), 'root': str(self.root), 'timeout': 600}
+        write_json(path / 'request.json', request)
+        write_json(path / 'status.json', {'id': request_id, 'project': 'note', 'state': 'running', 'phase': 'checking',
+                                          'compiler': request['compiler'], 'message': '', 'outputs': [], 'diagnostics': []})
+        (path / 'ready').touch()
+        seen = []
+        real_path = ffmpeg_mod.FFmpegExecutor._media_path
+
+        def spy(executor, url, options):
+            seen.append(url)
+            return real_path(executor, url, options)
+
+        def stop(*args, **kwargs):
+            raise RuntimeError('stop-after-path-check')
+
+        with patch.object(ffmpeg_mod.FFmpegExecutor, '_media_path', spy), \
+             patch.object(ffmpeg_mod, 'executable_path', stop), \
+             patch('shipmblang.media_worker.tool_status', return_value={
+                 'conversion': True, 'rendering': False, 'playback': False,
+                 'tools': {'ffmpeg': 'ffmpeg', 'ffprobe': 'ffprobe', 'node': None}}):
+            from shipmblang.media_worker import run
+            run(path)
+        status = json.loads((path / 'status.json').read_text(encoding='utf-8'))
+        self.assertEqual(status['message'], 'stop-after-path-check', status)
+        self.assertIn(str(asset_file), seen)
+        self.assertTrue(asset_file.is_relative_to(workspace.root / 'assets'))
+        self.assertFalse(asset_file.is_relative_to(path))
 
     def test_cancellation_owns_descendant_process(self):
         from shipmblang.media_process import spawn
