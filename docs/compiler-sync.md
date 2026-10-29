@@ -66,7 +66,8 @@ into the compiler repository as `.github/workflows/notify-shipmblang.yml`.
 Create secret `SHIPMBLANG_DISPATCH_TOKEN` there (not in this repository): a
 fine-grained PAT with Contents read/write on `qramarq/shipmblang` only. A push
 to the compiler's default branch then sends `repository_dispatch`
-`compiler-updated`. Without that file, inbound sync still runs every 30 minutes.
+`compiler-updated`. Without that file, compiler syncing is done locally via
+`tools/compiler_sync.py`.
 
 ## How a change moves
 
@@ -86,10 +87,11 @@ from `source_commit`, it also opens or updates `sync/local-patches` in this
 repository. That pull request changes only `BUNDLED.json` and
 `apps/mobile/src/compiler-snapshot.json`.
 
-Inbound (`.github/workflows/sync-compiler-downstream.yml`) runs every 30
-minutes, on Run workflow, and on `repository_dispatch` type `compiler-updated`.
-It plans a three-way merge of the snapshot, `source_commit`, and the compiler
-default-branch HEAD:
+Compiler syncing is done locally via `tools/compiler_sync.py`.
+Inbound (`.github/workflows/sync-compiler-downstream.yml`) is not on a
+30-minute schedule; Run workflow and `repository_dispatch` type
+`compiler-updated` remain. It plans a three-way merge of the snapshot,
+`source_commit`, and the compiler default-branch HEAD:
 
 - Same normalized text: keep the bytes already in the snapshot. `source_commit`
   advances and `local_patches` becomes `[]`. This is the usual result right
@@ -168,7 +170,7 @@ content edits:
 - `target.py`
 - `vlc_english.py`
 
-The same run, or the next inbound schedule, records that list in
+The same run, or the next inbound sync, records that list in
 `local_patches` without rewriting the compiler bytes. After the compiler pull
 request merges, inbound opens a ShipMBLang pull request that advances
 `source_commit` and clears `local_patches`. Review that pull request
@@ -176,10 +178,11 @@ request merges, inbound opens a ShipMBLang pull request that advances
 
 ## How to disable
 
-Actions → the workflow → ⋯ → Disable workflow. Removing the secret makes the
-jobs fail, and the inbound schedule will fail every 30 minutes until the
-workflow is disabled. Set `COMPILER_SYNC_AUTOMERGE` to `false` to keep opening
-compiler pull requests without merging them.
+Actions → the workflow → ⋯ → Disable workflow. Scheduled inbound runs are
+already off; compiler syncing is done locally via `tools/compiler_sync.py`.
+A manual run fails if `SHIPMBLANG_COMPILER_TOKEN` is unset. Set
+`COMPILER_SYNC_AUTOMERGE` to `false` to keep opening compiler pull requests
+without merging them.
 
 ## Manual equivalent
 

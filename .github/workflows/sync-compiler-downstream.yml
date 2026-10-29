@@ -1,5 +1,9 @@
+# Scheduled runs are off because compiler syncing is done locally with
+# tools/compiler_sync.py. To re-enable, restore the schedule trigger
+# (cron: "*/30 * * * *") and set SHIPMBLANG_COMPILER_TOKEN.
+#
 # Pull shipmblang-compiler's default branch back into the vendored snapshot.
-# Schedule, manual dispatch, and repository_dispatch only. pull_request is
+# Manual workflow_dispatch and repository_dispatch only. pull_request is
 # absent so a fork cannot read SHIPMBLANG_COMPILER_TOKEN. Local edits that
 # upstream has not changed are kept and listed in local_patches; they are not
 # overwritten. source_commit advances when the snapshot is adopted.
@@ -7,8 +11,6 @@
 name: Sync compiler downstream
 
 on:
-  schedule:
-    - cron: "*/30 * * * *"
   workflow_dispatch:
   repository_dispatch:
     types: [compiler-updated]
