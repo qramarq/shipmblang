@@ -10,6 +10,8 @@ asks MSVC for ``/O1``. That can slow the ggml kernels, and a warm p95 under
 build to MinSizeRel.
 
 The archive uses deflate level 9 and Zip64. UPX is not used.
+``tools/bla_harden.py`` runs after this module assembles the folder. It does
+not change the zip writer, the VC runtime DLLs, or the pinned weight files.
 """
 
 from __future__ import annotations

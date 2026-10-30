@@ -240,6 +240,17 @@ in the README section
 [Portable Windows zip](../README.md#portable-windows-zip). The from-source
 Windows build above is unchanged.
 
+`tools/bla_harden.py` then runs on that folder, before the zip is written.
+It calls `npx --yes bla-agents@latest protect` at the balanced preset, with
+seed `shipmblang-portable`, on `shipmblang.exe`, `shipmb_vision.dll`, and
+`llama-quantize.exe`, and replaces each file only after `bla verify` passes.
+The vision library sources are not changed. The DLL is still the Release
+build, and the target PC still does not need Python or the Visual C++
+redistributable. The build machine needs Node.js 22.13+ or 24.x and npm,
+because that is how `bla-agents` runs. A trailer larger than 256 KiB fails
+the build. The size table in the README is the measurement from before this
+step; the next Windows build prints the new `SIZE` lines.
+
 The laptop check is `tools/win_verify_portable.ps1`. It builds the default
 zip, extracts it, clears `PATH` down to `C:\Windows\System32` and
 `C:\Windows`, and points `LOCALAPPDATA` at an empty directory. It then runs

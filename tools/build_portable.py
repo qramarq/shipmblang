@@ -12,11 +12,18 @@ It does not run PyInstaller and it does not deflate the weights.
 
 This command produces the exe zip on Windows x64. On any other system it
 exits 2 unless ``--check-weights`` is set.
+
+After the folder is assembled, ``tools/bla_harden.py`` runs BLA at the
+balanced preset on ``shipmblang.exe``, ``shipmb_vision.dll``, and
+``llama-quantize.exe``. The Visual C++ runtime DLLs, pinned weight files, and
+the Zip64 writer stay unchanged. The build machine needs Node.js 22.13+ or
+24.x and npm. The unzipped folder does not.
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 from pathlib import Path
 import shutil
@@ -113,12 +120,14 @@ def build(dist: Path, *, with_weights: bool) -> None:
     folder_name = portable_dir_name(version)
     folder = dist / folder_name
     assemble_portable_tree(onedir, folder, with_weights=False, vc_dlls=vc_dlls, version=version)
+    harden_portable_tree(folder)
     archive = dist / zip_filename(version)
     write_portable_zip(folder, archive, root_name=folder_name)
     lines = report_zip(archive, "default")
     if with_weights:
         stage = dist / f"{folder_name}-with-weights-stage"
         assemble_portable_tree(onedir, stage, with_weights=True, vc_dlls=vc_dlls, version=version)
+        harden_portable_tree(stage)
         heavy = dist / zip_filename(version, with_weights=True)
         write_portable_zip(stage, heavy, root_name=folder_name)
         shutil.rmtree(stage)
@@ -128,6 +137,17 @@ def build(dist: Path, *, with_weights: bool) -> None:
         lines.extend(not_built_weight_lines())
     print(f"portable_zip {archive}", flush=True)
     _emit(lines)
+
+
+def harden_portable_tree(folder: Path) -> None:
+    """Run ``tools/bla_harden.py`` on an assembled folder before it is zipped."""
+    script = repo_root() / "tools" / "bla_harden.py"
+    spec = importlib.util.spec_from_file_location("bla_harden", script)
+    if spec is None or spec.loader is None:
+        raise PortableBuildError(f"Cannot load {script}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    module.harden_tree(folder)
 
 
 def main(argv: list[str] | None = None) -> int:
