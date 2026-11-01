@@ -89,7 +89,10 @@ def write_stream(stream, text: str, *, max_bytes: int = 240, lang: str | None = 
 
 
 def frame_compiler_text(msg_id: int, text: str, *, max_frame: int = 150) -> list[bytes]:
-    """Frame a compiler message. LSP keeps its own Content-Length frames."""
+    """Frame a compiler message with the 8-byte voiceboi-chunk header.
+
+    LSP keeps its own Content-Length frames.
+    """
     return frame_message(msg_id, text, max_frame=max_frame)
 
 

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Text frames use the 8-byte little-endian voiceboi-chunk header. The high 16 bits of the former uint32 message id are the first two payload bytes of a message's first frame. Flat sequence numbers and the message-wide frame count are derived from the sentence and chunk fields. Flag 0x04 is rejected and is never set on a text chunk.
 - `run --plain` and `compile --run --plain` print program stdout. Compile and runtime failures write `file:line:col: message` to stderr and exit nonzero. The default JSON result is unchanged.
 - OpenIDEA 0.1.33: the plugin in `extensions/openidea-shipmblang` is listed, and `.shipmb` stays Plain Text until `languages/shipmblang.toml` is copied into the user languages directory. Install, the stale `shipmblang.exe` on `PATH`, and run steps are in [editors](docs/editors.md).
 

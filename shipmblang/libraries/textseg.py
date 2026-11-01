@@ -3,6 +3,9 @@
 The bundled compiler owns the implementation. A program calls it with the
 compiler's text forms, such as ``the graphemes of "cafe"``. This module
 re-exports those functions so existing Python imports keep working.
+
+Frames use the 8-byte little-endian voiceboi-chunk header. The two bytes
+that used to widen the message id to a uint32 lead the first frame's payload.
 """
 
 from shipmblang._compiler.textseg import (

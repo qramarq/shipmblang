@@ -3,6 +3,7 @@
 import contextlib
 import io
 import os
+import struct
 import sys
 import types
 import unittest
@@ -10,6 +11,7 @@ from unittest.mock import Mock, patch
 
 from shipmblang._compiler import textseg as compiler_textseg
 from shipmblang.libraries.textseg import (
+    HEADER_SIZE,
     crc16_ccitt,
     chunk_text,
     frame_message,
@@ -33,6 +35,13 @@ WAVE = "\U0001F44B\U0001F3FD"
 
 def _join(parts):
     return "".join(parts)
+
+
+def _frame_body(frames):
+    parsed = [parse_frame(frame) for frame in frames]
+    parts = [parsed[0]["payload"][2:]]
+    parts.extend(item["payload"] for item in parsed[1:])
+    return b"".join(parts)
 
 
 class GraphemeTests(unittest.TestCase):
@@ -210,27 +219,129 @@ class ChunkTests(unittest.TestCase):
 class FrameTests(unittest.TestCase):
     def test_ccitt_and_round_trip(self):
         self.assertEqual(crc16_ccitt(b"123456789"), 0x29B1)
+        self.assertEqual(HEADER_SIZE, 8)
         payload = "你" * 80 + " " + FAMILY
         frames = frame_message(7, payload)
         self.assertGreater(len(frames), 1)
         self.assertTrue(all(len(frame) <= 150 for frame in frames))
         parsed = [parse_frame(frame) for frame in frames]
-        self.assertEqual([item["seq"] for item in parsed], list(range(len(frames))))
-        self.assertTrue(all(item["total"] == len(frames) and item["msg_id"] == 7 for item in parsed))
+        self.assertEqual([item["chunk_idx"] for item in parsed], list(range(len(frames))))
+        self.assertTrue(all(
+            item["sentence_idx"] == 0 and item["total"] == len(frames) and item["msg_id"] == 7
+            for item in parsed
+        ))
+        self.assertTrue(all(item["flags"] == 0x01 for item in parsed))
+        self.assertEqual(parsed[0]["payload"][:2], b"\x00\x00")
         self.assertEqual(unframe_message(frames).decode("utf-8"), payload)
         broken = bytearray(frames[0])
         broken[-1] ^= 0xFF
         with self.assertRaises(ValueError):
             parse_frame(bytes(broken))
 
+    def test_header_is_eight_bytes_and_little_endian(self):
+        frames = frame_message(7, "Hi")
+        self.assertEqual(len(frames), 1)
+        frame = frames[0]
+        self.assertEqual(len(frame) - len(parse_frame(frame)["payload"]), 8)
+        self.assertEqual(frame[0:2], b"\x07\x00")
+        self.assertEqual(list(frame[2:6]), [0, 0, 1, 0x01])
+        self.assertEqual(int.from_bytes(frame[6:8], "little"), crc16_ccitt(frame[8:]))
+        msg_id, sentence_idx, chunk_idx, total, flags, crc = struct.unpack("<HBBBBH", frame[:8])
+        self.assertEqual((msg_id, sentence_idx, chunk_idx, total, flags), (7, 0, 0, 1, 0x01))
+        self.assertEqual(crc, crc16_ccitt(frame[8:]))
+        self.assertEqual(frame[8:10], b"\x00\x00")
+        self.assertEqual(frame[10:], b"Hi")
+        self.assertEqual(unframe_message(frames), b"Hi")
+
+    def test_high_message_id_bytes_lead_the_first_payload(self):
+        frames = frame_message(0x12345678, "AB")
+        self.assertEqual(frames[0][:2], struct.pack("<H", 0x5678))
+        self.assertEqual(frames[0][8:10], struct.pack("<H", 0x1234))
+        self.assertEqual(parse_frame(frames[0])["msg_id"], 0x5678)
+        self.assertEqual(parse_frame(frames[0])["payload"][2:], b"AB")
+        self.assertEqual(unframe_message(frames), b"AB")
+        preserved = struct.unpack_from("<H", frames[0], 8)[0]
+        self.assertEqual((preserved << 16) | frames[0][0] | (frames[0][1] << 8), 0x12345678)
+        nulled = frame_message(4, b"\x00\x00Hi")
+        self.assertEqual(unframe_message(nulled), b"\x00\x00Hi")
+
+    def test_encoder_never_sets_control_and_decoder_rejects_it(self):
+        frames = frame_message(9, "One. Two sentences.")
+        self.assertTrue(all((frame[5] & 0x04) == 0 for frame in frames))
+        self.assertTrue(all(frame[5] in (0x00, 0x01) for frame in frames))
+        self.assertEqual(parse_frame(frames[0])["flags"] & 0x01, 0)
+        self.assertEqual(parse_frame(frames[-1])["flags"] & 0x01, 0x01)
+        control = bytearray(frames[0])
+        control[5] |= 0x04
+        with self.assertRaises(ValueError) as caught:
+            parse_frame(bytes(control))
+        self.assertIn("control", str(caught.exception))
+        with self.assertRaises(ValueError):
+            unframe_message([bytes(control), *frames[1:]])
+
+    def test_cuts_stay_on_utf8_and_grapheme_boundaries(self):
+        text = "é" * 5 + FAMILY
+        frames = frame_message(1, text, max_frame=HEADER_SIZE + 2 + 3)
+        self.assertGreater(len(frames), 1)
+        body = _frame_body(frames)
+        self.assertEqual(body, text.encode("utf-8"))
+        for frame in frames:
+            piece = parse_frame(frame)["payload"]
+            if frame is frames[0]:
+                piece = piece[2:]
+            piece.decode("utf-8")
+        self.assertEqual(unframe_message(frames).decode("utf-8"), text)
+        whole = frame_message(3, FAMILY, max_frame=HEADER_SIZE + 2 + 4)
+        self.assertEqual(len(whole), 1)
+        self.assertGreater(len(whole[0]), HEADER_SIZE + 2 + 4)
+        self.assertEqual(unframe_message(whole).decode("utf-8"), FAMILY)
+
+    def test_sentences_have_their_own_chunk_totals(self):
+        frames = frame_message(5, "Hi. Yo.")
+        parsed = [parse_frame(frame) for frame in frames]
+        self.assertEqual([item["sentence_idx"] for item in parsed], [0, 1])
+        sentences_seen = {item["sentence_idx"] for item in parsed}
+        self.assertEqual(sentences_seen, set(range(max(sentences_seen) + 1)))
+        for item in parsed:
+            siblings = [other for other in parsed if other["sentence_idx"] == item["sentence_idx"]]
+            self.assertEqual(item["total"], len(siblings))
+            self.assertEqual([other["chunk_idx"] for other in siblings], list(range(len(siblings))))
+        self.assertEqual(unframe_message(frames).decode("utf-8"), "Hi. Yo.")
+        longer = ("你" * 80) + "。End."
+        longer_frames = frame_message(7, longer)
+        longer_parsed = [parse_frame(frame) for frame in longer_frames]
+        self.assertGreater(longer_parsed[0]["total"], 1)
+        self.assertGreater(longer_parsed[-1]["sentence_idx"], 0)
+        self.assertEqual(longer_parsed[-1]["flags"] & 0x01, 0x01)
+        self.assertEqual(longer_parsed[0]["flags"] & 0x01, 0)
+        self.assertEqual(unframe_message(longer_frames).decode("utf-8"), longer)
+
     def test_empty_and_binary_payloads(self):
         empty = frame_message(1, "")
         self.assertEqual(len(empty), 1)
+        self.assertEqual(len(empty[0]), HEADER_SIZE + 2)
         self.assertEqual(unframe_message(empty), b"")
         blob = bytes(range(256)) * 2
         frames = frame_message(2, blob)
         self.assertTrue(all(len(frame) <= 150 for frame in frames))
+        budget = 150 - HEADER_SIZE
+        first = budget - 2
+        self.assertEqual(frames[0][8:], b"\x00\x00" + blob[:first])
+        self.assertEqual(frames[1][8:], blob[first:first + budget])
         self.assertEqual(unframe_message(frames), blob)
+
+    def test_uint8_sentence_and_chunk_limits(self):
+        with self.assertRaises(ValueError):
+            frame_message(1, "a" * (2 + 255 * 4), max_frame=HEADER_SIZE + 4)
+        with self.assertRaises(ValueError):
+            frame_message(1, "A. " * 257)
+
+    def test_audio_flag_is_not_control(self):
+        frame = bytearray(frame_message(1, "Hi")[0])
+        frame[5] |= 0x02
+        parsed = parse_frame(bytes(frame))
+        self.assertEqual(parsed["flags"] & 0x02, 0x02)
+        self.assertEqual(unframe_message([bytes(frame)]), b"Hi")
 
 
 class ProductTests(unittest.TestCase):
@@ -317,6 +428,16 @@ class CompilerTextsegTests(unittest.TestCase):
         )
         self.assertEqual(sentence["status"], "compiled", sentence)
         self.assertEqual(sentence["runtime"]["stdout"], "[Dr. Smith left. , He stayed.]\n")
+        framed = run_direct_program('Show the frames of "Hi" for message 7.\n', memory=False, model_provider=None)
+        self.assertEqual(framed["status"], "compiled", framed)
+        text = framed["runtime"]["stdout"].strip()
+        self.assertTrue(text.startswith("[") and text.endswith("]"), text)
+        hex_frames = [item.strip() for item in text[1:-1].split(",")]
+        raw = [bytes.fromhex(item) for item in hex_frames]
+        self.assertTrue(all(len(frame) >= 8 for frame in raw))
+        self.assertEqual(struct.unpack_from("<HBBBB", raw[0])[:4], (7, 0, 0, 1))
+        self.assertEqual(raw[0][5] & 0x04, 0)
+        self.assertEqual(unframe_message(raw), b"Hi")
 
 
 if __name__ == "__main__":

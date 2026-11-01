@@ -9,7 +9,7 @@
     "diagnostics.py": "7b52b34543f0615666a5672f8bcc43627c27bb7d6088b08531e720ed0efc57e7",
     "direct.py": "05298ba6852bfbcdaca825e35d90799ae8d99b3d7114b40946d2307ca490ccbc",
     "english.py": "f3a7fe7f17954e39d9ec8757f1e4dbcf7ee558c7b992458af3bacc1881d4a5eb",
-    "english_model.py": "8e402582e1f31bd0dbb56a3259a3e8e54a30c388909a6ac3e0a6b08df3d1d882",
+    "english_model.py": "6f677b5b5b0a6620766ab95545feb8aa35bd596dea675ded704970052c97c3d0",
     "ffmpeg.py": "1ce359e798e54035a978b6ad4d5b9d8044526a5a272ca0c842b400bdcb4ac018",
     "ffmpeg_catalog.py": "2b18d08f6b3ca2a3c8b0b4021ed8c7e4c8f7b5ce8621ca297d946ab0523ebbd5",
     "general_codegen.py": "976e026eace4a60007a1a92aed159d5afc5498df0746c811d1c30ebd2ed6b012",
@@ -41,7 +41,7 @@
     "semantics.py": "29105daf24a23a962afa40ebb745244ee2800c8910505e886d0a4fbeab82751b",
     "source_format.py": "7bfe9a06892477f9e32ed4f1b387816ce0ffac44509b1f7ad22c13c84b3acb56",
     "target.py": "4ddd912a273b09359582bd72d287cc40915632e72147eaeea366fcdb026e4104",
-    "textseg.py": "d0329868669e9c6dac9349284f04e565df5fcab86cc847935a1bdd43a7a97451",
+    "textseg.py": "310ec11b18e8f4a1efd8399ed49791540f68578312fbab6ec85b2ca867f1f52b",
     "thesaurus.py": "bd35c83979c06987a546f558f969a2f09d28ca54f80f42a6235b6737bce5dcd2",
     "urban_slang.py": "4b15a3baf2b2e08318f50cb11ebc7966fa83ac9f9602f8fbfa9802c603538b4e",
     "vision.py": "cbdbeb2f4e8bc395f7411bf27e5a44077bdec2a52a92e0bbb8e0b58feb6309d4",
@@ -52,7 +52,10 @@
     "vlc_english.py": "5fa174893148e1862a0d437fac85f0f0cf9d4e79b1b18678aad45e4358f6ac90"
   },
   "source_commit": "8655435eb743d17d7a36ac187c5a140545463708",
-  "local_patches": [],
+  "local_patches": [
+    "english_model.py",
+    "textseg.py"
+  ],
   "components": {
     "hyperframes": {
       "distribution": "shipmbcompiler",
