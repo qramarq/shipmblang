@@ -87,7 +87,9 @@ program does not. A trailer larger than 256 KiB fails the build.
 
 ### Download
 
-There is no release download for this zip. Build it on a Windows x64 machine:
+The zip for this version is
+[v0.6.0-windows-x64](https://github.com/qramarq/shipmblang/releases/tag/v0.6.0-windows-x64).
+Build it on a Windows x64 machine:
 
 ```powershell
 python tools/build_portable.py
@@ -190,7 +192,7 @@ shipmblang photo.shipmb --format text
 ### Size
 
 Measured on Windows 11 (Ryzen AI 7 350, 8 cores / 16 threads) at commit
-`5c11711`. The rounded column uses MB = 10^6 bytes and GB = 10^9 bytes, to
+`dc508e1`. The rounded column uses MB = 10^6 bytes and GB = 10^9 bytes, to
 1 decimal. The exact column is the byte count. `python tools/build_portable.py`
 prints `SIZE <line>=<bytes>` using the name in the last column, once, for the
 zip it just wrote.
@@ -204,25 +206,26 @@ it is not in the zip and its count is 0. Values under 0.05 MB round to 0.0 MB.
 `vcruntime140_1.dll` is 49776 bytes.
 
 `disk_after_setup_bytes` is the unzipped default zip plus the three weight
-files. The `--with-weights` rows are from that same machine with
-`python tools/build_portable.py --with-weights`. A build without that flag
-prints `not_built` for those two lines and does not replace the numbers below.
+files. The `--with-weights` rows were not re-measured at `dc508e1`. They
+remain the numbers from that machine at commit `5c11711`. A build without
+that flag prints `not_built` for those two lines and does not replace the
+numbers below.
 
 Uncached vision queries from the portable executable on that machine: median
-1284 ms, nearest-rank p95 1420 ms.
+1239.5 ms, nearest-rank p95 1286.6 ms (n=11).
 
 | Piece | Size | Exact bytes | Script line |
 | --- | --- | --- | --- |
-| Default zip, compressed | 16.4 MB | 16398332 | `default_zip_bytes` |
-| Default zip, unzipped | 35.4 MB | 35395956 | `default_unzipped_bytes` |
+| Default zip, compressed | 15.8 MB | 15823703 | `default_zip_bytes` |
+| Default zip, unzipped | 34.4 MB | 34408053 | `default_unzipped_bytes` |
 | `--with-weights` zip, compressed | 1.2 GB | 1165980938 | `with_weights_zip_bytes` |
 | `--with-weights` zip, unzipped | 1.3 GB | 1291097277 | `with_weights_unzipped_bytes` |
-| Exe and Python runtime, uncompressed | 24.5 MB | 24531636 | `exe_and_python_uncompressed_bytes` |
-| Exe and Python runtime, compressed in the default zip | 11.9 MB | 11877361 | `exe_and_python_compressed_bytes` |
-| `shipmb_vision.dll`, uncompressed | 6.2 MB | 6152192 | `vision_dll_uncompressed_bytes` |
-| `shipmb_vision.dll`, compressed in the default zip | 2.5 MB | 2537908 | `vision_dll_compressed_bytes` |
-| `llama-quantize.exe`, uncompressed | 4.5 MB | 4541952 | `llama_quantize_uncompressed_bytes` |
-| `llama-quantize.exe`, compressed in the default zip | 1.9 MB | 1854541 | `llama_quantize_compressed_bytes` |
+| Exe and Python runtime, uncompressed | 23.3 MB | 23281523 | `exe_and_python_uncompressed_bytes` |
+| Exe and Python runtime, compressed in the default zip | 11.3 MB | 11259159 | `exe_and_python_compressed_bytes` |
+| `shipmb_vision.dll`, uncompressed | 6.3 MB | 6283297 | `vision_dll_uncompressed_bytes` |
+| `shipmb_vision.dll`, compressed in the default zip | 2.6 MB | 2561633 | `vision_dll_compressed_bytes` |
+| `llama-quantize.exe`, uncompressed | 4.7 MB | 4673057 | `llama_quantize_uncompressed_bytes` |
+| `llama-quantize.exe`, compressed in the default zip | 1.9 MB | 1877979 | `llama_quantize_compressed_bytes` |
 | VC runtime DLLs, uncompressed | 0.2 MB | 170176 | `vc_runtime_uncompressed_bytes` |
 | VC runtime DLLs, compressed in the default zip | 0.1 MB | 88258 | `vc_runtime_compressed_bytes` |
 | `vcruntime140.dll` | 0.1 MB | 120400 | `vc_vcruntime140_uncompressed_bytes` |
@@ -233,7 +236,7 @@ Uncached vision queries from the portable executable on that machine: median
 | `mmproj-model-q8_0.gguf` | 726.6 MB | 726599744 | `weight_q8_bytes` |
 | First-run download (language model + f16 projector) | 1.6 GB | 1637848448 | `download_bytes` |
 | Weight files on disk after setup | 2.4 GB | 2364448192 | `weights_on_disk_bytes` |
-| Disk after setup (unzipped default zip + those weight files) | 2.4 GB | 2399844148 | `disk_after_setup_bytes` |
+| Disk after setup (unzipped default zip + those weight files) | 2.4 GB | 2398856245 | `disk_after_setup_bytes` |
 
 ## Native vision
 
@@ -329,8 +332,8 @@ not the target. Ten different 448×448 images, each with `cached` false, on
 the 4-core Linux machine used here: median 1582.58 ms, nearest-rank p95
 1665.45 ms. On a Windows laptop (Ryzen AI 7 350, 8 cores / 16 threads) the
 same uncached check was median 1222 ms and nearest-rank p95 1247 ms. The
-portable executable on that laptop, uncached, was median 1284 ms and
-nearest-rank p95 1420 ms ([Size](#size)).
+portable executable on that laptop, uncached, was median 1239.5 ms and
+nearest-rank p95 1286.6 ms (n=11) ([Size](#size)).
 
 ### Windows
 
