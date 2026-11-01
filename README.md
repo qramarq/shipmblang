@@ -87,7 +87,9 @@ program does not. A trailer larger than 256 KiB fails the build.
 
 ### Download
 
-There is no release download for this zip. Build it on a Windows x64 machine:
+The zip for this version is
+[v0.6.0-windows-x64](https://github.com/qramarq/shipmblang/releases/tag/v0.6.0-windows-x64).
+Build it on a Windows x64 machine:
 
 ```powershell
 python tools/build_portable.py

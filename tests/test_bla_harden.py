@@ -253,15 +253,18 @@ class BuildOrderTests(unittest.TestCase):
         self.assertLess(source.index("harden_portable_tree(folder)"), source.index("write_portable_zip(folder"))
         self.assertLess(source.index("harden_portable_tree(stage)"), source.index("write_portable_zip(stage"))
 
-    def test_readme_mentions_the_step_without_a_url(self):
+    def test_readme_mentions_the_step_and_only_the_release_url(self):
         readme = Path(__file__).resolve().parents[1].joinpath("README.md").read_text(encoding="utf-8")
         start = readme.index("## Portable Windows zip")
         end = readme.index("\n## ", start + 1)
         section = readme[start:end]
         self.assertIn("bla-agents@latest", section)
         self.assertIn("balanced", section)
-        self.assertNotIn("http://", section)
-        self.assertNotIn("https://", section)
+        release = "https://github.com/qramarq/shipmblang/releases/tag/v0.6.0-windows-x64"
+        self.assertIn(release, section)
+        remainder = section.replace(release, "")
+        self.assertNotIn("http://", remainder)
+        self.assertNotIn("https://", remainder)
 
 
 if __name__ == "__main__":

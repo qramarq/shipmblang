@@ -103,8 +103,11 @@ class ManifestTests(unittest.TestCase):
         self.assertIn("726599744", section)
         self.assertIn("1637848448", section)
         self.assertIn("2364448192", section)
-        self.assertNotIn("http://", section)
-        self.assertNotIn("https://", section)
+        release = "https://github.com/qramarq/shipmblang/releases/tag/v0.6.0-windows-x64"
+        self.assertIn(release, section)
+        remainder = section.replace(release, "")
+        self.assertNotIn("http://", remainder)
+        self.assertNotIn("https://", remainder)
         self.assertIn("python tools/build_portable.py", section)
 
 
