@@ -2,6 +2,7 @@
 
 ## 0.6.0
 
+- Unicode sentence, word, and grapheme segmentation for CLI, LSP, and notebook text. Streaming chunks stay on a grapheme boundary. The bundled compiler snapshot is unchanged.
 - Grammar `general-english-0.10` (#34). The consolidated language update includes the everyday English forms that compile under that grammar.
 - Standalone executable and `shipmblang setup` (#35). One executable runs compile and run without a Python install. `shipmblang setup` installs missing Rust, FFmpeg (with ffprobe), VLC, and Ollama from their official sources. The artifact installer puts the executable on `PATH` and then runs setup.
 - Two-way compiler sync (#36). GitHub Actions open pull requests so `shipmblang/_compiler/` and shipmblang-compiler stay aligned. This package release does not replace the bundled compiler snapshot; that snapshot still arrives through the compiler sync.
