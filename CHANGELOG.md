@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- OpenIDEA plugin in `extensions/openidea-shipmblang`. It associates `.shipmb`, `.smb`, and `.shiplang` and starts `shipmblang lsp`. Install steps are in [editors](docs/editors.md).
+
 ## 0.6.0
 
 - Grammar `general-english-0.10` (#34). The consolidated language update includes the everyday English forms that compile under that grammar.

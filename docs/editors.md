@@ -10,7 +10,8 @@ Two interfaces work from a source install and from the standalone executable:
 also accepts `.shiplang`. Its TextMate grammar lives at
 `extensions/vscode-shipmblang/syntaxes/shipmblang.tmLanguage.json`
 (`scopeName` `source.shipmblang`) and can be reused by editors that load a
-TextMate grammar.
+TextMate grammar. OpenIDEA loads the language definition in
+`extensions/openidea-shipmblang`. See [OpenIDEA](#openidea).
 
 There is no document formatter in ShipMBLang. The language server does not
 advertise formatting.
@@ -286,6 +287,34 @@ In `Settings > Configure Kate > LSP Client > User Server Settings`:
 In the file-type configuration, map `*.shipmb`, `*.smb`, and `*.shiplang` to a
 mode named `ShipMBLang`. Kate can also run an external tool with
 `shipmblang compile --file %{Document:FileName} --pipeline direct --profile general --format json --memory off`.
+
+## OpenIDEA
+
+The contribution plugin in
+[`extensions/openidea-shipmblang`](../extensions/openidea-shipmblang/README.md)
+registers `.shipmb`, `.smb`, and `.shiplang` and starts `shipmblang lsp`.
+Install it with **Settings › Plugins › Install Plugin from Disk…** and choose
+that folder. For one project, symlink or copy the folder to
+`<project>/.openidea/plugins/shipmblang/` and reopen the project.
+
+`shipmblang` must be on `PATH`. When that executable is missing and `python`
+is installed, the plugin starts `python -X utf8 -m shipmblang lsp` instead.
+Point **Settings › Languages & Frameworks › Language Servers** at a standalone
+executable when the binary is not on `PATH`: select **shipmblang** and set its
+path, with arguments `lsp`. If the interpreter is `python3`, add a server
+whose command is `python3 -X utf8 -m shipmblang lsp` for language ShipMBLang,
+and turn off **shipmblang** and **shipmblang-python**.
+
+Without the plugin, that same page can still add `shipmblang lsp` for
+**Plain Text**, and **Settings › Editor › File Types** can add `*.shipmb`,
+`*.smb`, and `*.shiplang` to Plain Text. The server then also attaches to
+other Plain Text files. The plugin is what creates the ShipMBLang file type.
+
+Line comments are `#`. Indentation is 2 spaces. Highlighting borrows the
+CodeMirror mode `Properties files`, which colors those comments. The TextMate
+grammar stays with editors that load it; this plugin has no tree-sitter
+grammar. Diagnostics, hover, and `shipmblang.compile` / `shipmblang.run` come
+from the language server. `shipmblang lsp --check` prints `lsp ok`.
 
 ## Terminal fallback
 

@@ -529,8 +529,10 @@ Point any editor at the same executable. VS Code and Cursor use the extension in
 `extensions/vscode-shipmblang`: set `shipmblang.executablePath` to the standalone
 file, or leave it empty to use `shipmblang` on `PATH` and then
 `shipmblang.pythonPath`. `shipmblang.lsp` starts the language server for
-diagnostics and hover. Neovim, Vim, Emacs (eglot), Helix, Zed, Sublime Text,
-JetBrains (LSP4IJ or an external tool), Notepad++, and Kate snippets are in
+diagnostics and hover. OpenIDEA uses the plugin in
+`extensions/openidea-shipmblang` (Settings › Plugins › Install Plugin from Disk).
+Neovim, Vim, Emacs (eglot), Helix, Zed, Sublime Text,
+JetBrains (LSP4IJ or an external tool), OpenIDEA, Notepad++, and Kate snippets are in
 [editors](docs/editors.md). File extensions are `.shipmb`, `.smb`, and
 `.shiplang`. The TextMate grammar is
 `extensions/vscode-shipmblang/syntaxes/shipmblang.tmLanguage.json`.
