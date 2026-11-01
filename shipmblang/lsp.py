@@ -10,6 +10,8 @@ from importlib.metadata import PackageNotFoundError, version as package_version
 import json
 import sys
 
+from .text_runtime import present_hover, present_message
+
 
 COMPILE = "shipmblang.compile"
 RUN = "shipmblang.run"
@@ -241,7 +243,7 @@ def _diagnostic(source: str, diagnostic: dict, *, severity: int) -> dict:
                   "end": codepoint_to_utf16_position(source, end)},
         "severity": severity,
         "source": "shipmblang",
-        "message": diagnostic.get("message") or "Compiler diagnostic",
+        "message": present_message(diagnostic.get("message") or "Compiler diagnostic"),
         "code": diagnostic.get("code") or "",
     }
 
@@ -274,7 +276,7 @@ def hover_markdown(source: str, line: int, character: int) -> str:
         node = _smallest_node(result.get("syntax_tree"), offset)
         if node is not None:
             parts.append(f"Compiler node: `{node.get('kind')}`")
-    return "\n\n".join(part for part in parts if part)
+    return present_hover("\n\n".join(part for part in parts if part))
 
 
 def _overlaps(span: dict, start: int, end: int) -> bool:

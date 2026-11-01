@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 import re
+import sys
 from typing import Iterable, Protocol
 
 from .project_context import (
@@ -314,7 +315,9 @@ def main() -> None:
         print(json.dumps(report, indent=2))
         return
 
-    print(render_printurf_report(report, include_context=bool(args.paths)))
+    from shipmblang.text_runtime import write_stream
+
+    write_stream(sys.stdout, render_printurf_report(report, include_context=bool(args.paths)))
 
 
 def _load_engine_or_none(checkpoint: str, tokenizer: str, device: str) -> ChatEngine | None:
