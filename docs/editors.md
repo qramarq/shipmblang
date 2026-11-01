@@ -248,7 +248,7 @@ user-defined language server:
 For a one-shot compile without LSP4IJ, add an External Tool:
 
 - Program: `shipmblang`
-- Arguments: `run --file $FilePath$ --pipeline direct --profile general --memory off`
+- Arguments: `run --file $FilePath$ --pipeline direct --profile general --memory off --plain`
 - Working directory: `$ProjectFileDir$`
 
 Use `compile` instead of `run` for a compile-only tool. Save the file first.
