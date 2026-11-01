@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- OpenIDEA plugin in `extensions/openidea-shipmblang`. It associates `.shipmb`, `.smb`, and `.shiplang` and starts `shipmblang lsp`. Install steps are in [editors](docs/editors.md).
+- OpenIDEA 0.1.33: the plugin in `extensions/openidea-shipmblang` is listed, and `.shipmb` stays Plain Text until `languages/shipmblang.toml` is copied into the user languages directory. Install, the stale `shipmblang.exe` on `PATH`, and run steps are in [editors](docs/editors.md).
 
 ## 0.6.0
 

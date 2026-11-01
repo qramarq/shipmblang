@@ -123,6 +123,24 @@ class OpenIdeaPluginTests(unittest.TestCase):
         self.assertEqual(fallback["root-markers"], [".git"])
         self.assertTrue(fallback["install-hint"].strip())
 
+    def test_docs_describe_the_0_1_33_install(self):
+        readme = (PLUGIN / "README.md").read_text(encoding="utf-8")
+        editors = (ROOT / "docs" / "editors.md").read_text(encoding="utf-8")
+        terminals = (ROOT / "docs" / "terminal-and-ides.md").read_text(encoding="utf-8")
+        for text in (readme, editors, terminals):
+            self.assertIn("ai.l0ng.openidea", text)
+            self.assertIn("languages", text)
+            self.assertIn("lsp --check", text)
+            self.assertIn("Restricted Mode", text)
+        self.assertIn("%APPDATA%\\ai.l0ng.openidea\\languages", readme)
+        self.assertIn("where.exe shipmblang", readme)
+        self.assertIn("$FilePath$", readme)
+        self.assertIn("External Tools", readme)
+        self.assertIn(".openidea/run.toml", readme)
+        patch = PLUGIN / "upstream" / "0001-plugin-languages-start-language-servers.patch"
+        self.assertIn("set_plugin_languages", patch.read_text(encoding="utf-8"))
+        self.assertIn("apply_plugin_languages", patch.read_text(encoding="utf-8"))
+
     def test_line_comment_matches_the_compiler(self):
         from shipmblang._compiler.lexer import TOKEN_RE
 

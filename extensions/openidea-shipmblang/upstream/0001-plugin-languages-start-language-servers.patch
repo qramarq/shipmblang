@@ -1,0 +1,369 @@
+diff --git a/crates/ide-host/src/lib.rs b/crates/ide-host/src/lib.rs
+index 5937b97..0050486 100644
+--- a/crates/ide-host/src/lib.rs
++++ b/crates/ide-host/src/lib.rs
+@@ -117,6 +117,19 @@ impl Host {
+         self.projects.read().values().cloned().collect()
+     }
+ 
++    /// Installs the languages contributed by live plugins into the shared
++    /// registry and every open project. Built-in and user-directory languages
++    /// keep their ids. Projects whose detection changed re-open their documents
++    /// so the matching language servers start or stop.
++    pub fn apply_plugin_languages(&self, plugins: Vec<ide_language::LanguageConfig>) {
++        self.languages.set_plugin_languages(plugins.clone());
++        for project in self.projects() {
++            if project.languages.set_plugin_languages(plugins.clone()) {
++                project.documents.redetect_languages();
++            }
++        }
++    }
++
+     /// The project of `window` (or of the window owning it).
+     pub fn project(&self, window: &str) -> IdeResult<Arc<Project>> {
+         self.projects
+diff --git a/crates/ide-language/src/registry.rs b/crates/ide-language/src/registry.rs
+index 31a9eda..dd41f60 100644
+--- a/crates/ide-language/src/registry.rs
++++ b/crates/ide-language/src/registry.rs
+@@ -4,7 +4,6 @@ use ide_core::{IdeError, IdeResult, LanguageId};
+ use parking_lot::RwLock;
+ use std::collections::{BTreeMap, HashMap};
+ use std::path::{Path, PathBuf};
+-use std::sync::Arc;
+ 
+ /// Built-in definitions, embedded at compile time. Add new languages here.
+ const BUILTIN: &[(&str, &str)] = &[
+@@ -83,10 +82,21 @@ const BUILTIN: &[(&str, &str)] = &[
+     ("zig", include_str!("../../../languages/zig.toml")),
+ ];
+ 
+-pub struct LanguageRegistry {
++/// Definitions plus the lookup tables built from them. One lock covers both so
++/// detection never indexes a table against a different language list.
++struct Catalog {
++    /// Built-in definitions and files from the user languages directory.
++    /// Their ids win over plugin languages.
++    base: Vec<LanguageConfig>,
++    /// Languages contributed by plugins, excluding ids already in `base`.
++    plugins: Vec<LanguageConfig>,
++    /// `base`, then the plugin languages that did not replace a base id.
+     languages: Vec<LanguageConfig>,
+-    /// Lookup tables of the definitions with the user's file types applied.
+-    tables: RwLock<Arc<Tables>>,
++    tables: Tables,
++}
++
++pub struct LanguageRegistry {
++    catalog: RwLock<Catalog>,
+     file_types: RwLock<FileTypes>,
+ }
+ 
+@@ -243,12 +253,33 @@ impl LanguageRegistry {
+             }
+         }
+         let tables = Tables::build(&languages, &FileTypes::default());
+-        Self { languages, tables: RwLock::new(Arc::new(tables)), file_types: RwLock::default() }
++        Self {
++            catalog: RwLock::new(Catalog { base: languages.clone(), plugins: Vec::new(), languages, tables }),
++            file_types: RwLock::default(),
++        }
+     }
+ 
+     /// A registry with the same definitions and no user file types (one per project).
+     pub fn fork(&self) -> Self {
+-        Self::from_configs(self.languages.clone())
++        let cat = self.catalog.read();
++        let mut copy = Self::from_configs(cat.base.clone());
++        copy.set_plugin_languages(cat.plugins.clone());
++        copy
++    }
++
++    /// Replaces plugin-contributed languages. A plugin language whose id is
++    /// already loaded (built-in or the user languages directory) is ignored,
++    /// matching the UI list. Returns whether detection or server lookup changed.
++    /// Open documents must be re-detected by the caller when this returns true.
++    pub fn set_plugin_languages(&self, plugins: Vec<LanguageConfig>) -> bool {
++        let file_types = self.file_types.read().clone();
++        let mut cat = self.catalog.write();
++        let languages = merge_languages(&cat.base, &plugins);
++        let changed = fingerprint(&cat.languages) != fingerprint(&languages);
++        cat.plugins = plugins;
++        cat.tables = Tables::build(&languages, &file_types);
++        cat.languages = languages;
++        changed
+     }
+ 
+     /// A copy with the same definitions and file types (to compare detection before / after a change).
+@@ -264,17 +295,18 @@ impl LanguageRegistry {
+         if *current == file_types {
+             return false;
+         }
+-        *self.tables.write() = Arc::new(Tables::build(&self.languages, &file_types));
++        let mut cat = self.catalog.write();
++        cat.tables = Tables::build(&cat.languages, &file_types);
+         *current = file_types;
+         true
+     }
+ 
+     pub fn all(&self) -> Vec<LanguageConfig> {
+-        self.languages.clone()
++        self.catalog.read().languages.clone()
+     }
+ 
+     pub fn get(&self, id: &LanguageId) -> Option<LanguageConfig> {
+-        self.languages.iter().find(|l| &l.id == id).cloned()
++        self.catalog.read().languages.iter().find(|l| &l.id == id).cloned()
+     }
+ 
+     /// The `framework-ui-modes` mode of a `language` file at `path`: the first
+@@ -282,7 +314,8 @@ impl LanguageRegistry {
+     /// directory without one: loose files). `None` keeps the language's own
+     /// `ui-mode`.
+     pub fn framework_ui_mode(&self, language: &LanguageId, path: &Path, project_root: Option<&Path>) -> Option<String> {
+-        let cfg = self.languages.iter().find(|l| &l.id == language)?;
++        let cat = self.catalog.read();
++        let cfg = cat.languages.iter().find(|l| &l.id == language)?;
+         cfg.framework_ui_modes
+             .iter()
+             .find(|f| crate::marked_root(project_root, path, &f.root_markers).is_some())
+@@ -292,7 +325,9 @@ impl LanguageRegistry {
+     /// Creating or removing `path` can change a file's `framework_ui_mode`:
+     /// it is a framework's root marker.
+     pub fn is_framework_marker(&self, path: &Path) -> bool {
+-        self.languages
++        self.catalog
++            .read()
++            .languages
+             .iter()
+             .flat_map(|l| &l.framework_ui_modes)
+             .any(|f| f.root_markers.iter().any(|m| crate::markers::is_marker_path(path, m)))
+@@ -303,37 +338,57 @@ impl LanguageRegistry {
+     /// then hashbang / first line; falls back to plaintext. The user's patterns
+     /// win over the definitions'.
+     pub fn detect(&self, path: &Path, first_line: Option<&str>) -> LanguageId {
+-        let t = self.tables.read().clone();
+-        if !t.overrides.is_empty()
+-            && let Some(&i) = t.overrides.get(path)
+-        {
+-            return self.languages[i].id.clone();
+-        }
+-        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+-        if let Some(&i) = t.by_name.get(file_name) {
+-            return self.languages[i].id.clone();
++        let cat = self.catalog.read();
++        detect_in(&cat.languages, &cat.tables, path, first_line)
++    }
++}
++
++fn detect_in(languages: &[LanguageConfig], t: &Tables, path: &Path, first_line: Option<&str>) -> LanguageId {
++    let id_at = |i: usize| languages[i].id.clone();
++    if !t.overrides.is_empty()
++        && let Some(&i) = t.overrides.get(path)
++    {
++        return id_at(i);
++    }
++    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
++    if let Some(&i) = t.by_name.get(file_name) {
++        return id_at(i);
++    }
++    if let Some((_, i)) = t.name_globs.iter().find(|(p, _)| wildcard_match(p, file_name)) {
++        return id_at(*i);
++    }
++    let lower = file_name.to_ascii_lowercase();
++    let mut rest = lower.as_str();
++    while let Some(dot) = rest.find('.') {
++        rest = &rest[dot + 1..];
++        if let Some(&i) = t.by_ext.get(rest) {
++            return id_at(i);
+         }
+-        if let Some((_, i)) = t.name_globs.iter().find(|(p, _)| wildcard_match(p, file_name)) {
+-            return self.languages[*i].id.clone();
++    }
++    if let Some(line) = first_line {
++        if let Some((_, i)) = t.hashbangs.iter().find(|(h, _)| hashbang_runs(line, h)) {
++            return id_at(*i);
+         }
+-        let lower = file_name.to_ascii_lowercase();
+-        let mut rest = lower.as_str();
+-        while let Some(dot) = rest.find('.') {
+-            rest = &rest[dot + 1..];
+-            if let Some(&i) = t.by_ext.get(rest) {
+-                return self.languages[i].id.clone();
+-            }
++        if let Some((_, i)) = t.first_line.iter().find(|(re, _)| re.is_match(line)) {
++            return id_at(*i);
+         }
+-        if let Some(line) = first_line {
+-            if let Some((_, i)) = t.hashbangs.iter().find(|(h, _)| hashbang_runs(line, h)) {
+-                return self.languages[*i].id.clone();
+-            }
+-            if let Some((_, i)) = t.first_line.iter().find(|(re, _)| re.is_match(line)) {
+-                return self.languages[*i].id.clone();
+-            }
++    }
++    LanguageId::plain_text()
++}
++
++fn merge_languages(base: &[LanguageConfig], plugins: &[LanguageConfig]) -> Vec<LanguageConfig> {
++    let mut languages = base.to_vec();
++    for cfg in plugins {
++        if languages.iter().any(|l| l.id == cfg.id) {
++            continue;
+         }
+-        LanguageId::plain_text()
++        languages.push(cfg.clone());
+     }
++    languages
++}
++
++fn fingerprint(languages: &[LanguageConfig]) -> String {
++    languages.iter().filter_map(|l| serde_json::to_string(l).ok()).collect::<Vec<_>>().join("\n")
+ }
+ 
+ /// `*` matches any (possibly empty) run of characters, `?` exactly one; everything else is literal.
+@@ -540,6 +595,38 @@ mod tests {
+         assert_eq!(rust.language_servers[0].name, "rust-analyzer");
+     }
+ 
++    #[test]
++    fn plugin_languages_join_detection_without_replacing_builtins() {
++        let reg = reg();
++        assert_eq!(detect(&reg, "notes.shipmb"), "plaintext");
++        let src = concat!(
++            "id = \"shipmblang\"\n",
++            "name = \"ShipMBLang\"\n",
++            "extensions = [\"shipmb\"]\n",
++            "ui-mode = \"Properties files\"\n",
++            "\n",
++            "[[language-servers]]\n",
++            "name = \"shipmblang\"\n",
++            "command = \"shipmblang\"\n",
++            "args = [\"lsp\"]\n",
++        );
++        assert!(reg.set_plugin_languages(vec![parse(src).unwrap()]));
++        assert_eq!(detect(&reg, "notes.shipmb"), "shipmblang");
++        let args = &reg.get(&LanguageId::new("shipmblang")).unwrap().language_servers[0].args;
++        assert_eq!(args, &["lsp".to_string()]);
++        // A second call with the same definition does not look like a change.
++        assert!(!reg.set_plugin_languages(vec![parse(src).unwrap()]));
++        // Built-in ids stay. A plugin cannot retarget `.rs`.
++        let hijack = parse("id = \"rust\"\nname = \"Nope\"\nextensions = [\"nope\"]\n").unwrap();
++        reg.set_plugin_languages(vec![hijack]);
++        assert_eq!(detect(&reg, "src/main.rs"), "rust");
++        assert_eq!(reg.get(&LanguageId::new("rust")).unwrap().name, "Rust");
++        assert_eq!(detect(&reg, "notes.shipmb"), "plaintext");
++        let forked = reg.fork();
++        assert_eq!(detect(&forked, "src/main.rs"), "rust");
++        assert!(forked.get(&LanguageId::new("shipmblang")).is_none());
++    }
++
+     #[test]
+     fn alternative_servers_are_fallbacks() {
+         let reg = reg();
+diff --git a/src-tauri/src/commands/app.rs b/src-tauri/src/commands/app.rs
+index e68485c..9172660 100644
+--- a/src-tauri/src/commands/app.rs
++++ b/src-tauri/src/commands/app.rs
+@@ -291,6 +291,7 @@ pub async fn project_trust_set(
+     if !trusted {
+         state.plugins.restrict_project(&dunce::canonicalize(&path).unwrap_or(path));
+     }
++    state.host.apply_plugin_languages(state.plugins.languages());
+     Ok(())
+ }
+ 
+@@ -302,5 +303,6 @@ pub async fn project_trust_remove_location(state: State<'_, AppState>, path: Pat
+     for project in state.host.projects().into_iter().filter(|p| !p.is_trusted()) {
+         state.plugins.restrict_project(&project.root);
+     }
++    state.host.apply_plugin_languages(state.plugins.languages());
+     Ok(())
+ }
+diff --git a/src-tauri/src/commands/plugin.rs b/src-tauri/src/commands/plugin.rs
+index 0f94dc2..5625465 100644
+--- a/src-tauri/src/commands/plugin.rs
++++ b/src-tauri/src/commands/plugin.rs
+@@ -47,7 +47,13 @@ pub fn create_host(
+         weak.upgrade().is_some_and(|host| host.trust.trusted(root).unwrap_or(false))
+     }));
+     let loader = host.clone();
+-    std::thread::Builder::new().name("plugin-load".into()).spawn(move || loader.load_all())?;
++    let backend = project_host.clone();
++    std::thread::Builder::new().name("plugin-load".into()).spawn(move || {
++        loader.load_all();
++        // Installed plugins load after the first project can open. Publishing
++        // here is what lets their language servers attach.
++        backend.apply_plugin_languages(loader.languages());
++    })?;
+     Ok(host)
+ }
+ 
+@@ -72,6 +78,7 @@ pub fn plugin_subscribe(window: Window, on_event: Channel<PluginEvent>) {
+ #[specta::specta]
+ pub async fn plugin_list(window: Window, state: State<'_, AppState>) -> IdeResult<PluginsSnapshot> {
+     let host = state.plugins.clone();
++    let backend = state.host.clone();
+     let root = state.project(window.label()).ok().map(|p| p.root.clone());
+     blocking(move || {
+         // A window opened at startup would otherwise see no plugins and drop the selected theme.
+@@ -79,16 +86,25 @@ pub async fn plugin_list(window: Window, state: State<'_, AppState>) -> IdeResul
+         if let Some(root) = &root {
+             host.sync_project(root);
+         }
++        // Dev plugins are loaded by `sync_project`. The language registry the
++        // editor and language servers use does not see them until this runs.
++        backend.apply_plugin_languages(host.languages());
+         Ok(host.list(root.as_deref()))
+     })
+     .await
+ }
+ 
++fn publish_languages(state: &AppState) {
++    state.host.apply_plugin_languages(state.plugins.languages());
++}
++
+ #[tauri::command]
+ #[specta::specta]
+ pub async fn plugin_set_enabled(state: State<'_, AppState>, id: String, enabled: bool) -> IdeResult<()> {
+     let host = state.plugins.clone();
+-    blocking(move || host.set_enabled(&id, enabled)).await
++    blocking(move || host.set_enabled(&id, enabled)).await?;
++    publish_languages(&state);
++    Ok(())
+ }
+ 
+ /// Installs the plugin package in `path` (a folder with `plugin.toml`).
+@@ -96,7 +112,9 @@ pub async fn plugin_set_enabled(state: State<'_, AppState>, id: String, enabled:
+ #[specta::specta]
+ pub async fn plugin_install_dir(state: State<'_, AppState>, path: PathBuf) -> IdeResult<PluginInfo> {
+     let host = state.plugins.clone();
+-    blocking(move || host.install_from_dir(&path)).await
++    let info = blocking(move || host.install_from_dir(&path)).await?;
++    publish_languages(&state);
++    Ok(info)
+ }
+ 
+ /// Plugin packages available locally for installation: `<resources>/plugins`
+@@ -116,7 +134,9 @@ pub async fn plugin_catalog(app: AppHandle) -> IdeResult<Vec<CatalogPlugin>> {
+ #[specta::specta]
+ pub async fn plugin_uninstall(state: State<'_, AppState>, id: String) -> IdeResult<()> {
+     let host = state.plugins.clone();
+-    blocking(move || host.uninstall(&id)).await
++    blocking(move || host.uninstall(&id)).await?;
++    publish_languages(&state);
++    Ok(())
+ }
+ 
+ /// Re-reads a plugin from disk (after rebuilding a dev plugin).
+@@ -124,7 +144,9 @@ pub async fn plugin_uninstall(state: State<'_, AppState>, id: String) -> IdeResu
+ #[specta::specta]
+ pub async fn plugin_reload(state: State<'_, AppState>, id: String) -> IdeResult<PluginInfo> {
+     let host = state.plugins.clone();
+-    blocking(move || host.reload(&id)).await
++    let info = blocking(move || host.reload(&id)).await?;
++    publish_languages(&state);
++    Ok(info)
+ }
+ 
+ /// Runs a plugin command in the context of this window's project.

@@ -6,7 +6,7 @@ version = "0.6.0"
 description = "Language support for .shipmb, .smb, and .shiplang: file detection, # comments, and the shipmblang language server."
 authors = ["ZMachinery LLC"]
 homepage = "https://github.com/qramarq/shipmblang"
-change-notes = "0.6.0 — .shipmb, .smb, and .shiplang detection, # line comments, and shipmblang lsp."
+change-notes = "0.6.0 — language file for .shipmb, .smb, and .shiplang. On OpenIDEA 0.1.33 copy it into the user languages directory; the plugin list alone does not start shipmblang lsp."
 openidea-api = "0.1"
 
 [[contributes.languages]]
