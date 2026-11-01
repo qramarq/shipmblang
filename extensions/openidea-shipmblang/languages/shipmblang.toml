@@ -1,3 +1,6 @@
+# OpenIDEA 0.1.33 loads this file from its user languages directory
+# (<config>/ai.l0ng.openidea/languages/shipmblang.toml), not from the plugin
+# list. See the plugin README. A tree-sitter key is not required.
 id = "shipmblang"
 name = "ShipMBLang"
 extensions = ["shipmb", "smb", "shiplang"]

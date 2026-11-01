@@ -10,8 +10,9 @@ Two interfaces work from a source install and from the standalone executable:
 also accepts `.shiplang`. Its TextMate grammar lives at
 `extensions/vscode-shipmblang/syntaxes/shipmblang.tmLanguage.json`
 (`scopeName` `source.shipmblang`) and can be reused by editors that load a
-TextMate grammar. OpenIDEA loads the language definition in
-`extensions/openidea-shipmblang`. See [OpenIDEA](#openidea).
+TextMate grammar. OpenIDEA 0.1.33 uses that same language file only after
+it is copied into the IDE's user languages directory. The plugin folder
+alone does not start the language server. See [OpenIDEA](#openidea).
 
 There is no document formatter in ShipMBLang. The language server does not
 advertise formatting.
@@ -290,31 +291,62 @@ mode named `ShipMBLang`. Kate can also run an external tool with
 
 ## OpenIDEA
 
-The contribution plugin in
+OpenIDEA 0.1.33 lists the plugin in
 [`extensions/openidea-shipmblang`](../extensions/openidea-shipmblang/README.md)
-registers `.shipmb`, `.smb`, and `.shiplang` and starts `shipmblang lsp`.
-Install it with **Settings › Plugins › Install Plugin from Disk…** and choose
-that folder. For one project, symlink or copy the folder to
-`<project>/.openidea/plugins/shipmblang/` and reopen the project.
+and does not start `shipmblang lsp` from that listing. Document detection
+and language-server startup read built-in languages plus
+`<config>/languages/*.toml`, loaded at startup. Plugin languages are not
+in that registry, so a `.shipmb` file stays Plain Text: no `shipmblang`
+process, no hover, and only the spell checker. A `tree-sitter` key is not
+required for a language server (OpenIDEA's Dockerfile language has a
+server and no `tree-sitter` entry). Full steps, the stale-`PATH`
+executable, and a draft upstream patch are in the plugin README.
 
-`shipmblang` must be on `PATH`. When that executable is missing and `python`
-is installed, the plugin starts `python -X utf8 -m shipmblang lsp` instead.
-Point **Settings › Languages & Frameworks › Language Servers** at a standalone
-executable when the binary is not on `PATH`: select **shipmblang** and set its
-path, with arguments `lsp`. If the interpreter is `python3`, add a server
-whose command is `python3 -X utf8 -m shipmblang lsp` for language ShipMBLang,
-and turn off **shipmblang** and **shipmblang-python**.
+1. `shipmblang lsp --check` prints `lsp ok` for the first `shipmblang` on
+   the `PATH` OpenIDEA will see. On Windows, `where.exe shipmblang` shows
+   every match. An older `shipmblang.exe` without `lsp` is still launched,
+   then exits, and the `python` fallback does not run. Restart OpenIDEA
+   after changing `PATH`.
+2. Copy `extensions/openidea-shipmblang/languages/shipmblang.toml` to the
+   user languages directory and restart. This is not the log folder.
+   - Windows: `%APPDATA%\ai.l0ng.openidea\languages\shipmblang.toml`
+   - Linux: `~/.config/ai.l0ng.openidea/languages/shipmblang.toml`
+     (`$XDG_CONFIG_HOME` when that is set)
+   - macOS: `~/Library/Application Support/ai.l0ng.openidea/languages/shipmblang.toml`
+3. Trust the project when OpenIDEA shows Restricted Mode. An untrusted
+   project detects the language and starts no server.
 
-Without the plugin, that same page can still add `shipmblang lsp` for
-**Plain Text**, and **Settings › Editor › File Types** can add `*.shipmb`,
-`*.smb`, and `*.shiplang` to Plain Text. The server then also attaches to
-other Plain Text files. The plugin is what creates the ShipMBLang file type.
+Open a `.shipmb` file. Hover and compiler diagnostics come from
+`shipmblang lsp`. `#` is the line comment. Indentation is 2 spaces.
+Highlighting borrows the CodeMirror mode `Properties files`. The file
+icon stays the unknown-file icon; the UI icon map has no plugin entry.
 
-Line comments are `#`. Indentation is 2 spaces. Highlighting borrows the
-CodeMirror mode `Properties files`, which colors those comments. The TextMate
-grammar stays with editors that load it; this plugin has no tree-sitter
-grammar. Diagnostics, hover, and `shipmblang.compile` / `shipmblang.run` come
-from the language server. `shipmblang lsp --check` prints `lsp ok`.
+To run the focused file, add an External Tool (**Settings › Tools ›
+External Tools**): program `shipmblang`, arguments
+`run --file $FilePath$ --pipeline direct --profile general --memory off`,
+working directory `$ProjectFileDir$`. Output is in the Run tool window.
+The Run button's Current File action has no `.shipmb` producer. A fixed
+file can be a shell configuration in `.openidea/run.toml`:
+
+```toml
+[[configurations]]
+id = "user:shipmblang-run"
+name = "Run ShipMBLang"
+kind = "shell"
+command = "shipmblang"
+args = ["run", "--file", "program.shipmb", "--pipeline", "direct", "--profile", "general", "--memory", "off"]
+```
+
+Choose that configuration in the run widget. It does not follow the
+active file. The plugin API cannot start a process, so the package does
+not add a Run command.
+
+If `shipmblang` is missing and `python` exists, the language file's
+fallback is `python -X utf8 -m shipmblang lsp`. For `python3`, add that
+command on the Language Servers page and turn the other ShipMBLang
+servers off. A custom server attached to Plain Text also runs on other
+Plain Text files; the user language file is what creates the ShipMBLang
+file type on 0.1.33.
 
 ## Terminal fallback
 
