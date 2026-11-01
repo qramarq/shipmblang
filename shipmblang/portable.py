@@ -12,6 +12,8 @@ build to MinSizeRel.
 The archive uses deflate level 9 and Zip64. UPX is not used.
 ``tools/bla_harden.py`` runs after this module assembles the folder. It does
 not change the zip writer, the VC runtime DLLs, or the pinned weight files.
+``write_portable_zip`` refuses to run while any ``*.bla-tmp*`` file is still
+in the folder.
 """
 
 from __future__ import annotations
@@ -478,8 +480,29 @@ def assemble_portable_tree(
     return destination
 
 
+def bla_temporary_files(root: Path) -> list[Path]:
+    """Every ``*.bla-tmp*`` file under ``root``, including nested directories."""
+    if not root.is_dir():
+        return []
+    return sorted(path for path in root.rglob("*.bla-tmp*") if path.is_file())
+
+
+def reject_bla_temporary_files(root: Path) -> None:
+    """Stop the zip when a BLA temporary sibling is still in the folder."""
+    leftovers = bla_temporary_files(root)
+    if not leftovers:
+        return
+    names = ", ".join(path.relative_to(root).as_posix() for path in leftovers)
+    raise PortableBuildError(
+        "BLA temporary files are still in the folder, so the zip was not written: " + names
+    )
+
+
 def write_portable_zip(source: Path, destination: Path, *, root_name: str | None = None) -> None:
     """Deflate level 9. Each member uses a Zip64 local header.
+
+    A ``*.bla-tmp*`` file still in ``source`` aborts this function before the
+    destination archive is created or replaced.
 
     ``allowZip64`` writes Zip64 central-directory records when the archive
     passes the classic limits. The largest packed weight is under 2 GiB;
@@ -489,6 +512,7 @@ def write_portable_zip(source: Path, destination: Path, *, root_name: str | None
     prefix = (root_name or source.name).strip("/\\")
     if not prefix or prefix in {".", ".."} or "/" in prefix or "\\" in prefix:
         raise PortableBuildError(f"Refusing zip root name {prefix!r}.")
+    reject_bla_temporary_files(source)
     destination.parent.mkdir(parents=True, exist_ok=True)
     if destination.exists():
         destination.unlink()

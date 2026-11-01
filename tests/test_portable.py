@@ -274,6 +274,26 @@ class ZipReportTests(unittest.TestCase):
                 opened.extractall(extracted)
             self.assertTrue((extracted / "shipmblang-0.6.0-windows-x64" / "shipmblang.exe").is_file())
 
+    def test_zip_refuses_bla_temporary_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "shipmblang-0.6.0-windows-x64"
+            source.mkdir()
+            (source / "shipmblang.exe").write_bytes(b"hello portable")
+            (source / "shipmblang.exe.bla-tmp.bunfs-snapshot").write_bytes(b"BLA-DECOY")
+            nested = source / "_internal" / "native"
+            nested.mkdir(parents=True)
+            (nested / "llama-quantize.exe.bla-tmp").write_bytes(b"tmp")
+            archive = root / "out.zip"
+            archive.write_bytes(b"previous-zip")
+            with self.assertRaises(PortableBuildError) as raised:
+                write_portable_zip(source, archive)
+            message = str(raised.exception)
+            self.assertIn("shipmblang.exe.bla-tmp.bunfs-snapshot", message)
+            self.assertIn("_internal/native/llama-quantize.exe.bla-tmp", message)
+            self.assertEqual(archive.read_bytes(), b"previous-zip")
+            self.assertFalse(archive.read_bytes().startswith(b"PK"))
+
     def test_other_platform_refuses_the_exe_zip(self):
         module = _load_builder()
         with patch.object(sys, "platform", "linux"):

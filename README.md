@@ -77,10 +77,13 @@ the static C runtime, is covered in [Windows](#windows) and
 
 After that folder is assembled, the build runs BLA (`npx --yes bla-agents@latest`)
 at the balanced preset on `shipmblang.exe`, `shipmb_vision.dll`, and
-`llama-quantize.exe`, then checks each file with `bla verify`. The Visual C++
-runtime DLLs, the pinned weight files, and the Zip64 writer are left unchanged.
-The build machine needs Node.js 22.13+ or 24.x and npm. The unzipped program
-does not. A trailer larger than 256 KiB fails the build.
+`llama-quantize.exe`, then checks each file with `bla verify`. BLA appends a
+trailer to `shipmb_vision.dll` and `llama-quantize.exe`. It does not append one
+to `shipmblang.exe`: that file is a PyInstaller executable, and its archive is
+read from the end of the file, so BLA leaves those bytes unchanged. The Visual
+C++ runtime DLLs, the pinned weight files, and the Zip64 writer are left
+unchanged. The build machine needs Node.js 22.13+ or 24.x and npm. The unzipped
+program does not. A trailer larger than 256 KiB fails the build.
 
 ### Download
 
