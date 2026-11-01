@@ -1,0 +1,24 @@
+Name: checksum
+Kind: binary
+Language: typescript
+Entry: src/checksum.ts
+Summary: Print a lowercase hex digest of a file.
+
+Behavior:
+- Read the first argument as a file path
+- Write the digest to stdout
+- Exit 2 when the path is missing
+
+Constraints:
+- no network
+- no telemetry
+
+Inputs:
+- path: string, required
+
+Outputs:
+- digest: string, required
+
+Tests:
+- missing path exits 2
+- known bytes match digest
