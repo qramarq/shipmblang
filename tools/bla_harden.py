@@ -13,7 +13,10 @@ files in place:
 The Visual C++ runtime DLLs, pinned weight files, and every other file stay
 byte-for-byte. The preset is ``balanced``. A trailer larger than 256 KiB is
 rejected so the lightweight zip cannot grow by a large step. On Windows PE
-files the original bytes must remain a prefix.
+files the original bytes must remain a prefix. BLA also writes siblings named
+``<target>.bla-tmp*`` (the temporary output, and files such as
+``<target>.bla-tmp.bunfs-snapshot``). This step deletes every one of those
+siblings. A file that does not grow prints a WARNING and is still accepted.
 
 The build machine needs Node.js 22.13+ or 24.x and npm. The unzipped folder
 does not.
@@ -101,11 +104,21 @@ def _run_bla_json(arguments: list[str]) -> dict:
         raise PortableBuildError(f"BLA returned invalid JSON for: {' '.join(arguments)}") from error
 
 
+def _bla_tmp_siblings(path: Path) -> list[Path]:
+    """``<target>.bla-tmp`` and every ``<target>.bla-tmp*`` file beside ``path``."""
+    pattern = f"{path.name}.bla-tmp*"
+    return [item for item in path.parent.glob(pattern) if item.is_file()]
+
+
+def _remove_bla_tmp_siblings(path: Path) -> None:
+    for item in _bla_tmp_siblings(path):
+        item.unlink()
+
+
 def _harden_one(path: Path, run_json: JsonRunner) -> dict:
     original = path.read_bytes()
     temporary = path.with_name(path.name + ".bla-tmp")
-    if temporary.exists():
-        temporary.unlink()
+    _remove_bla_tmp_siblings(path)
     try:
         run_json(
             [
@@ -138,13 +151,18 @@ def _harden_one(path: Path, run_json: JsonRunner) -> dict:
         os.replace(temporary, path)
         os.chmod(path, mode)
     finally:
-        if temporary.exists():
-            temporary.unlink()
+        _remove_bla_tmp_siblings(path)
     print(
         f"bla_harden {path.name} bytes={len(original)}->{len(protected)} "
         f"added={growth} intensity={INTENSITY} verify=passed",
         flush=True,
     )
+    if growth == 0:
+        print(
+            f"WARNING bla_harden {path.name} added=0 bytes={len(original)}; "
+            "no trailer was added.",
+            flush=True,
+        )
     return {
         "name": path.name,
         "original_bytes": len(original),
@@ -167,6 +185,8 @@ def harden_tree(root: Path, *, run_json: JsonRunner | None = None) -> list[dict]
     """Protect the three release binaries and leave every other file untouched."""
     runner = run_json or _run_bla_json
     selected = select_release_binaries(root)
+    for path in selected:
+        _remove_bla_tmp_siblings(path)
     selected_set = set(selected)
     before = {
         path: _fingerprint(path)

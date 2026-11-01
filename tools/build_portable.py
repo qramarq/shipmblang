@@ -17,7 +17,8 @@ After the folder is assembled, ``tools/bla_harden.py`` runs BLA at the
 balanced preset on ``shipmblang.exe``, ``shipmb_vision.dll``, and
 ``llama-quantize.exe``. The Visual C++ runtime DLLs, pinned weight files, and
 the Zip64 writer stay unchanged. The build machine needs Node.js 22.13+ or
-24.x and npm. The unzipped folder does not.
+24.x and npm. The unzipped folder does not. The zip is not written while any
+``*.bla-tmp*`` file remains in the folder.
 """
 
 from __future__ import annotations

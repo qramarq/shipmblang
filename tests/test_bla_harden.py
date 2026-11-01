@@ -1,7 +1,9 @@
 """BLA packaging step: which files are hardened, and which stay byte-for-byte."""
 
+import contextlib
 import importlib.util
 import inspect
+import io
 from pathlib import Path
 import tempfile
 import unittest
@@ -82,13 +84,17 @@ class HardenTreeTests(unittest.TestCase):
                 calls.append(list(arguments))
                 if arguments[0] == "protect":
                     source = Path(arguments[1]).read_bytes()
-                    Path(arguments[3]).write_bytes(source + b"TRAILER")
+                    output = Path(arguments[3])
+                    output.write_bytes(source + b"TRAILER")
+                    output.with_name(output.name + ".bunfs-snapshot").write_bytes(b"BLA-DECOY")
                     return {"intensity": arguments[arguments.index("--intensity") + 1]}
                 if arguments[0] == "verify":
                     return {"overallPassed": True, "functionalIntegrityVerified": True}
                 raise AssertionError(arguments)
 
-            results = bla.harden_tree(root, run_json=run_json)
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                results = bla.harden_tree(root, run_json=run_json)
             self.assertEqual(sum(item["added_bytes"] for item in results), len(b"TRAILER") * 3)
             for name, payload in payloads.items():
                 self.assertEqual((root / name).read_bytes(), payload + b"TRAILER")
@@ -102,7 +108,8 @@ class HardenTreeTests(unittest.TestCase):
                 self.assertNotIn("bankrupt", call)
                 self.assertEqual(call[call.index("--seed") + 1], "shipmblang-portable")
             self.assertEqual(len([call for call in calls if call[0] == "verify"]), 3)
-            self.assertFalse(list(root.glob("*.bla-tmp")))
+            self.assertFalse(list(root.rglob("*.bla-tmp*")))
+            self.assertNotIn("WARNING", stdout.getvalue())
 
     def test_oversized_trailer_is_rejected_and_the_original_stays(self):
         bla = _load()
@@ -114,14 +121,16 @@ class HardenTreeTests(unittest.TestCase):
 
             def run_json(arguments):
                 if arguments[0] == "protect":
-                    Path(arguments[3]).write_bytes(b"MZ" + (b"x" * (bla.MAX_GROWTH_BYTES + 8)))
+                    output = Path(arguments[3])
+                    output.write_bytes(b"MZ" + (b"x" * (bla.MAX_GROWTH_BYTES + 8)))
+                    output.with_name(output.name + ".bunfs-snapshot").write_bytes(b"BLA-DECOY")
                     return {}
                 raise AssertionError(arguments)
 
             with self.assertRaises(bla.PortableBuildError):
                 bla.harden_tree(root, run_json=run_json)
             self.assertEqual((root / "shipmblang.exe").read_bytes(), b"MZ-exe")
-            self.assertFalse(list(root.glob("*.bla-tmp")))
+            self.assertFalse(list(root.rglob("*.bla-tmp*")))
 
     def test_failed_verify_does_not_replace_the_binary(self):
         bla = _load()
@@ -134,13 +143,16 @@ class HardenTreeTests(unittest.TestCase):
             def run_json(arguments):
                 if arguments[0] == "protect":
                     source = Path(arguments[1]).read_bytes()
-                    Path(arguments[3]).write_bytes(source + b"TRAILER")
+                    output = Path(arguments[3])
+                    output.write_bytes(source + b"TRAILER")
+                    output.with_name(output.name + ".bunfs-snapshot").write_bytes(b"BLA-DECOY")
                     return {}
                 return {"overallPassed": False, "functionalIntegrityVerified": True}
 
             with self.assertRaises(bla.PortableBuildError):
                 bla.harden_tree(root, run_json=run_json)
             self.assertEqual((root / "shipmblang.exe").read_bytes(), b"MZ-exe")
+            self.assertFalse(list(root.rglob("*.bla-tmp*")))
 
     def test_rewritten_pe_is_rejected(self):
         bla = _load()
@@ -160,6 +172,79 @@ class HardenTreeTests(unittest.TestCase):
                 bla.harden_tree(root, run_json=run_json)
             self.assertIn("rewritten", str(raised.exception))
             self.assertEqual((root / "shipmblang.exe").read_bytes(), b"MZ-exe")
+            self.assertFalse(list(root.rglob("*.bla-tmp*")))
+
+    def test_removes_every_bla_tmp_sibling_and_leaves_other_names(self):
+        bla = _load()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            native = root / "_internal" / "native"
+            native.mkdir(parents=True)
+            (root / "shipmblang.exe").write_bytes(b"MZ-exe")
+            (native / "shipmb_vision.dll").write_bytes(b"MZ-dll")
+            (native / "llama-quantize.exe").write_bytes(b"MZ-quant")
+            (root / "shipmblang.exe.bla-tmp").write_bytes(b"stale-temp")
+            (root / "shipmblang.exe.bla-tmp.bunfs-snapshot").write_bytes(b"BLA-DECOY stale")
+            (native / "shipmb_vision.dll.bla-tmp.bunfs-snapshot").write_bytes(b"BLA-DECOY dll")
+            (root / "notes.bla-tmp").write_bytes(b"keep")
+
+            def run_json(arguments):
+                if arguments[0] == "protect":
+                    source = Path(arguments[1]).read_bytes()
+                    output = Path(arguments[3])
+                    output.write_bytes(source + b"TRAILER")
+                    output.with_name(output.name + ".bunfs-snapshot").write_bytes(b"BLA-DECOY")
+                    output.with_name(output.name + ".extra").write_bytes(b"extra")
+                    return {}
+                if arguments[0] == "verify":
+                    return {"overallPassed": True, "functionalIntegrityVerified": True}
+                raise AssertionError(arguments)
+
+            bla.harden_tree(root, run_json=run_json)
+            self.assertEqual((root / "shipmblang.exe").read_bytes(), b"MZ-exeTRAILER")
+            self.assertEqual((native / "shipmb_vision.dll").read_bytes(), b"MZ-dllTRAILER")
+            self.assertEqual((native / "llama-quantize.exe").read_bytes(), b"MZ-quantTRAILER")
+            self.assertEqual((root / "notes.bla-tmp").read_bytes(), b"keep")
+            for path in root.rglob("*"):
+                if not path.is_file():
+                    continue
+                for name in ("shipmblang.exe", "shipmb_vision.dll", "llama-quantize.exe"):
+                    self.assertFalse(path.name.startswith(name + ".bla-tmp"), path.name)
+
+    def test_zero_growth_warns_and_does_not_fail(self):
+        bla = _load()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            payloads = {
+                "shipmblang.exe": b"MZ-exe",
+                "shipmb_vision.dll": b"MZ-dll",
+                "llama-quantize.exe": b"MZ-quant",
+            }
+            for name, payload in payloads.items():
+                (root / name).write_bytes(payload)
+
+            def run_json(arguments):
+                if arguments[0] == "protect":
+                    source = Path(arguments[1]).read_bytes()
+                    output = Path(arguments[3])
+                    output.write_bytes(source)
+                    output.with_name(output.name + ".bunfs-snapshot").write_bytes(b"BLA-DECOY canary")
+                    return {}
+                if arguments[0] == "verify":
+                    return {"overallPassed": True, "functionalIntegrityVerified": True}
+                raise AssertionError(arguments)
+
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout):
+                results = bla.harden_tree(root, run_json=run_json)
+            self.assertEqual([item["added_bytes"] for item in results], [0, 0, 0])
+            for name, payload in payloads.items():
+                self.assertEqual((root / name).read_bytes(), payload)
+            self.assertFalse(list(root.rglob("*.bla-tmp*")))
+            text = stdout.getvalue()
+            for name in payloads:
+                self.assertIn(f"WARNING bla_harden {name} added=0 ", text)
+            self.assertEqual(text.count("WARNING bla_harden"), 3)
 
 
 class BuildOrderTests(unittest.TestCase):
