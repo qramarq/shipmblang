@@ -39,6 +39,8 @@ EXCLUDES = (
     "driplm.inference",
     "driplm.generate_data",
     "driplm.prepare_data",
+    # Dev-only Node tree at tools/rea. Not a runtime import.
+    "tools.rea",
 )
 
 
@@ -113,13 +115,16 @@ def build_executable(editor: Path | None, dist: Path) -> Path:
         *sum((["--exclude-module", name] for name in EXCLUDES), []),
         *_metadata_args(),
     ]
-    if editor is not None:
-        command.extend(["--add-data", f"{editor}{os.pathsep}shipmblang/native/ratatui-editor"])
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
+    from shipmblang.portable import reject_dev_only_data
     from shipmblang.vision_build import standalone_datas
 
+    if editor is not None:
+        reject_dev_only_data(editor, "shipmblang/native/ratatui-editor")
+        command.extend(["--add-data", f"{editor}{os.pathsep}shipmblang/native/ratatui-editor"])
     for origin, destination in standalone_datas():
+        reject_dev_only_data(origin, destination)
         command.extend(["--add-data", f"{origin}{os.pathsep}{destination}"])
         print(f"vision packed: {origin} -> {destination}", flush=True)
     command.append(str(ROOT / "tools" / "standalone_entry.py"))

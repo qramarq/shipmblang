@@ -352,7 +352,9 @@ class NotebookApp:
             try:
                 code, result = execute_program(source, mode)
                 if code:
-                    messages = [d.get("message", "") for d in result.get("diagnostics", [])]
+                    from .text_runtime import present_message
+
+                    messages = [present_message(d.get("message", "")) for d in result.get("diagnostics", [])]
                     text = "Needs attention\n\n" + ("\n".join(filter(None, messages)) or json.dumps(result, indent=2, ensure_ascii=False))
                 else:
                     text = "Check passed. Ready to Run; nothing executed." if mode == "compile" else result.get("runtime", {}).get("stdout", "") or "Finished. No printed output."

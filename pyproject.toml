@@ -59,6 +59,8 @@ shipmb-onboarding = "shipmblang.onboarding:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["driplm", "driplm.*", "shiplang", "shiplang.*", "shipmblang", "shipmblang.*", "shipmb", "shipmb.*", "driplang", "driplang.*"]
+# tools/rea is dev-only Node tooling. It is not a package. MANIFEST.in prunes it.
+exclude = ["tools", "tools.*"]
 
 [tool.setuptools.package-data]
 "shipmblang" = ["note_starters.json", "native/ratatui-editor/Cargo.toml", "native/ratatui-editor/Cargo.lock", "native/ratatui-editor/src/*.rs"]

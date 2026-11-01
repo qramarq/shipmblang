@@ -65,7 +65,9 @@ Without `--plain`, general run output is JSON with `runtime.stdout` and `runtime
 
 Configure an external tool with the interpreter as the executable and arguments `-m shipmblang run --file <current-file> --pipeline direct --profile general --memory off --plain`. Set the working directory to the project's root; pass the filename as one argument, using your IDE's current-file variable. Standard output is the program text. Failures are reported on standard error. The verbose form omits `--plain` and prints the JSON result. A compile-only tool keeps `-m shipmblang compile --file <current-file> --pipeline direct --profile general --format json --memory off`. Save the file before invoking file-based tools.
 
-Any IDE that can invoke a process can use this boundary. `shipmblang lsp` is the shared language server for diagnostics, hover, and compile/run commands. Ready-to-use settings for VS Code, Cursor, Neovim, Vim, Emacs, Helix, Zed, Sublime Text, JetBrains, OpenIDEA, Notepad++, and Kate are in [editors](editors.md). OpenIDEA installs the plugin in `extensions/openidea-shipmblang`.
+Any IDE that can invoke a process can use this boundary. `shipmblang lsp` is the shared language server for diagnostics, hover, and compile/run commands. Ready-to-use settings for VS Code, Cursor, Neovim, Vim, Emacs, Helix, Zed, Sublime Text, JetBrains, OpenIDEA, Notepad++, and Kate are in [editors](editors.md).
+
+On Windows, `where.exe shipmblang` can list an older `shipmblang.exe` ahead of the current one. That older executable has no `lsp` subcommand. `shipmblang lsp --check` has to print `lsp ok` for the first match, and OpenIDEA has to be restarted after `PATH` changes. OpenIDEA 0.1.33 does not start the language server from the plugin in `extensions/openidea-shipmblang` alone. Copy `languages/shipmblang.toml` into `%APPDATA%\ai.l0ng.openidea\languages` (Linux: `~/.config/ai.l0ng.openidea/languages`) and restart. Trust the project if it is in Restricted Mode. Run the focused file with an External Tool whose arguments are `run --file $FilePath$ --pipeline direct --profile general --memory off --plain`. The setup is in [editors](editors.md#openidea).
 
 ## VS Code
 

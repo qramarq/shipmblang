@@ -1,0 +1,29 @@
+Name: textseg
+Kind: library
+Language: plain text
+Summary: Example textseg frame and chunk spec for the dev-only build-from-text tool.
+
+Behavior:
+- Start each frame with a 10-byte header
+- Cap each chunk at 150 bytes
+- Apply the per-language rules for the language named in the input
+
+Constraints:
+- no network
+- no telemetry
+
+Inputs:
+- text: string, required
+- language: string, required
+
+Outputs:
+- frames: array, required
+
+Notes:
+- The frame format is still undecided versus voiceboi-chunk's 8-byte header.
+- Per-language rules choose how text is split into chunks. They do not change the 150-byte cap.
+- This file is an example input. It is not a shipmblang runtime format.
+
+Tests:
+- a chunk longer than 150 bytes is rejected
+- each frame header under discussion is 10 bytes

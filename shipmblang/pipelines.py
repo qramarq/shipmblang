@@ -20,6 +20,14 @@ class CompilerUnavailableError(RuntimeError):
 _CONFIGURED_MODEL = object()
 
 
+def _notice(stream, message: str, *, code: str | None = None) -> None:
+    """Stream a human-readable compiler notice. JSON results are not wrapped."""
+    from .text_runtime import write_notice
+
+    prefix = "shipmblang: " if not code else f"shipmblang: {code}: "
+    write_notice(stream, message, prefix=prefix)
+
+
 def _english_model(profile, ffmpeg_catalog=None, ffmpeg_path=None):
     """Load the configured model only if deterministic parsing needs help."""
     def propose(source, images=None):
@@ -459,22 +467,22 @@ def _main(*, run):
                 print("shipmblang: translated English:\n" + result["interpretation_source"], file=sys.stderr)
             for diagnostic in result.get("diagnostics", []):
                 if diagnostic.get("level") == "warning":
-                    print(f"shipmblang: {diagnostic.get('code', 'warning')}: {diagnostic.get('message', '')}", file=sys.stderr)
+                    _notice(sys.stderr, diagnostic.get("message", ""), code=diagnostic.get("code", "warning"))
         if selected.plain:
             _write_plain_output(result, source, _plain_source_name(args.file), ready=ready)
         elif run and args.format == "text" and ready and "stdout" in result.get("runtime", {}):
             sys.stdout.write(result["runtime"]["stdout"])
             for diagnostic in result.get("diagnostics", []):
-                print(f"shipmblang: {diagnostic.get('code', 'diagnostic')}: {diagnostic.get('message', '')}", file=sys.stderr)
+                _notice(sys.stderr, diagnostic.get("message", ""), code=diagnostic.get("code", "diagnostic"))
         else:
             print(json.dumps(output, indent=2))
         if not ready:
             raise SystemExit(1)
     except (CompilerUnavailableError, OSError, ValueError) as error:
-        print(f"shipmblang: {error}", file=sys.stderr)
+        _notice(sys.stderr, str(error))
         from .setup_tools import missing_tool_hint
 
         hint = missing_tool_hint(str(error))
         if hint:
-            print(f"shipmblang: {hint}", file=sys.stderr)
+            _notice(sys.stderr, hint)
         raise SystemExit(2) from error

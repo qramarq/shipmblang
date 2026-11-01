@@ -1,0 +1,9 @@
+Repository: https://github.com/qramarq/rea-forge (private)
+Pull request: https://github.com/qramarq/rea-forge/pull/11
+Branch: cursor/build-from-text-0dd8
+Head SHA: efefede93b934c5cd72bd2abe54a8ac827b50119
+Main SHA (PR base; main head, upstream import recorded in FORK.md): 7dd38664efa0db7bf075bfd58d08e580479ce245
+Upstream: https://github.com/morluto/rea @ 1d343a88e53af51101a408d437641c60b7bb34e4 (per FORK.md)
+PR files fetched at head SHA; LICENSE, SECURITY.md, DISCLAIMER.md fetched from main at 7dd38664.
+All files fetched via the GitHub contents API and checked against their git blob SHAs.
+Fetched: 2026-11-01
