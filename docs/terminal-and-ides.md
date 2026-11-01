@@ -63,7 +63,7 @@ General run output is JSON with `runtime.stdout` and `runtime.output`; it is not
 
 Configure an external tool with the interpreter as the executable and arguments `-m shipmblang compile --file <current-file> --pipeline direct --profile general --format json --memory off`. Set the working directory to the project's root; pass the filename as one argument, using your IDE's current-file variable. A second tool replaces `compile` with `run`. Save the file before invoking file-based tools.
 
-Any IDE that can invoke a process can use this boundary. `shipmblang lsp` is the shared language server for diagnostics, hover, and compile/run commands. Ready-to-use settings for VS Code, Cursor, Neovim, Vim, Emacs, Helix, Zed, Sublime Text, JetBrains, Notepad++, and Kate are in [editors](editors.md).
+Any IDE that can invoke a process can use this boundary. `shipmblang lsp` is the shared language server for diagnostics, hover, and compile/run commands. Ready-to-use settings for VS Code, Cursor, Neovim, Vim, Emacs, Helix, Zed, Sublime Text, JetBrains, OpenIDEA, Notepad++, and Kate are in [editors](editors.md). OpenIDEA installs the plugin in `extensions/openidea-shipmblang`.
 
 ## VS Code
 

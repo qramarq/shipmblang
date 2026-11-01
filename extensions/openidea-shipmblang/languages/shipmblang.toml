@@ -1,0 +1,28 @@
+id = "shipmblang"
+name = "ShipMBLang"
+extensions = ["shipmb", "smb", "shiplang"]
+# The bundled compiler accepts # as a line comment. A // prefix is reported
+# as an error, so this definition has no block comment.
+line-comment = "#"
+indent = { tab-size = 2, insert-spaces = true }
+# Borrowed CodeMirror mode so # comments pick up a comment color. OpenIDEA
+# plugin manifests contribute languages, themes, and commands; they do not
+# load the TextMate grammar, and this repository has no tree-sitter grammar.
+ui-mode = "Properties files"
+
+[[language-servers]]
+name = "shipmblang"
+command = "shipmblang"
+args = ["lsp"]
+root-markers = [".git"]
+install-hint = "Put the shipmblang executable on PATH (pip install shipmblang, or the standalone executable). If it lives elsewhere, set its path in Settings › Languages & Frameworks › Language Servers."
+
+# Used only while `shipmblang` itself is not installed. OpenIDEA treats this
+# as a fallback of the server above.
+[[language-servers]]
+name = "shipmblang-python"
+fallback = true
+command = "python"
+args = ["-X", "utf8", "-m", "shipmblang", "lsp"]
+root-markers = [".git"]
+install-hint = "Python 3.11+ with ShipMBLang installed: python -X utf8 -m shipmblang lsp. If the interpreter is python3, add that command under Settings › Languages & Frameworks › Language Servers and turn the shipmblang servers off."
