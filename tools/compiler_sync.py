@@ -387,6 +387,12 @@ def plan_inbound(snapshot, project, head, output):
                 if ours is not None:
                     took_upstream = True
                 continue
+            if action == 'take':
+                # stage_bundle stores Python as LF. Keep the compiler file's newline
+                # style so a CRLF upstream blob stays CRLF in the snapshot.
+                raw_path = project / 'shipmbcompiler' / name
+                raw = raw_path.read_bytes() if raw_path.is_file() else None
+                data = render_like(name, data, raw)
             if action == 'take' and (ours is None or not normalized_equal(name, ours, data)):
                 took_upstream = True
             kept[name] = data

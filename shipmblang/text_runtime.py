@@ -1,7 +1,7 @@
 """Host runtime for streaming compiler and model text.
 
-The bundled compiler is unchanged. CLI, LSP, and notebook code call this
-module when they show a diagnostic or a generated paragraph.
+Segmentation is the bundled compiler's implementation. CLI, LSP, and notebook
+code call this module when they show a diagnostic or a generated paragraph.
 """
 
 from __future__ import annotations

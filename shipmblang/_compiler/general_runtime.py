@@ -8,11 +8,21 @@ MAX_BITS = 4096
 SCALARS = {'integer', 'boolean', 'text'}
 TYPES = SCALARS | {f'list[{kind}]' for kind in SCALARS}
 BINARY = {'add', 'subtract', 'multiply', 'divide', 'modulo', 'equal', 'not_equal', 'greater', 'less', 'greater_equal', 'less_equal', 'and', 'or'}
+TEXT_SEGMENT = {
+    'graphemes': (['text'], 'list[text]'),
+    'words': (['text', 'text'], 'list[text]'),
+    'sentences': (['text', 'text'], 'list[text]'),
+    'chunks': (['text', 'integer', 'text'], 'list[text]'),
+    'chunks_words': (['text', 'integer', 'integer', 'text'], 'list[text]'),
+    'frames': (['text', 'integer'], 'list[text]'),
+    'unframe': (['list[text]'], 'text'),
+}
 FIELDS = {'const': {'value','type'}, 'load': {'slot'}, 'store': {'slot'}, 'clear': {'slot'},
           'binary': {'operator'}, 'unary': {'operator'}, 'make_list': {'count','element_type'},
           'length': set(), 'index': set(), 'append': set(), 'jump': {'target'}, 'jump_if_false': {'target'},
           'show': set(), 'halt': set(), 'return': set(),
           'call': {'function','argument_types','return_type'},
+          'text_segment': {'operation','argument_types','return_type'},
           'ffmpeg_execute': {'job', 'argument_types'},
           'ffmpeg_probe': {'argument_types'},
           'vlc_execute': {'operation','argument_types'},
@@ -113,6 +123,11 @@ def _validate_unit(code,slots,capabilities,effects,signatures,parameters=(),retu
             function=signatures.get(args['function']) if type(args['function']) is int else None
             if not function or args['argument_types']!=function['argument_types'] or args['return_type']!=function['return_type']:
                 raise VMError('Invalid function call signature.',pc)
+        if op=='text_segment':
+            signature=TEXT_SEGMENT.get(args['operation']) if isinstance(args['operation'], str) else None
+            if (signature is None or not isinstance(args['argument_types'], list)
+                    or args['argument_types']!=signature[0] or args['return_type']!=signature[1]):
+                raise VMError('Invalid text segment signature.',pc)
         if op=='show' and 'captured_output' not in effects: raise VMError('Captured output effect is undeclared.',pc)
         if op in ('vlc_execute','vlc_query'):
             from .vlc import OPERATIONS
@@ -207,6 +222,9 @@ def _validate_unit(code,slots,capabilities,effects,signatures,parameters=(),retu
         elif op=='call':
             for kind in reversed(args['argument_types']): pop(kind)
             stack.append(args['return_type'])
+        elif op=='text_segment':
+            for kind in reversed(args['argument_types']): pop(kind)
+            stack.append(args['return_type'])
         elif op=='return':
             pop(return_type)
             if stack: raise VMError('Nonempty stack after return value.',pc)
@@ -223,6 +241,38 @@ def _validate_unit(code,slots,capabilities,effects,signatures,parameters=(),retu
             if states.get(successor)!=new: states[successor]=new; pending.append(successor)
     if len(states)!=len(code): raise VMError('Unreachable bytecode is not permitted.')
     return code,slots
+
+
+def _hex_frame(item):
+    if type(item) is not str or len(item) % 2 or any(char not in '0123456789abcdef' for char in item):
+        raise ValueError('frame hex is invalid')
+    return bytes.fromhex(item)
+
+
+def _text_segment(operation, arguments):
+    from .textseg import chunk_text, frame_message, graphemes, sentences, unframe_message, words
+    if operation == 'graphemes':
+        return graphemes(arguments[0])
+    if operation == 'words':
+        return words(arguments[0], arguments[1])
+    if operation == 'sentences':
+        return sentences(arguments[0], arguments[1])
+    if operation in {'chunks', 'chunks_words'}:
+        max_words = None if operation == 'chunks' else arguments[2]
+        language = arguments[-1]
+        return chunk_text(arguments[0], max_bytes=arguments[1], max_words=max_words, lang=language)
+    if operation == 'frames':
+        message_id = arguments[1]
+        if type(message_id) is not int or not 0 <= message_id <= 0xFFFFFFFF:
+            raise ValueError('msg_id must fit in uint32')
+        return [frame.hex() for frame in frame_message(message_id, arguments[0])]
+    if operation == 'unframe':
+        try:
+            payload = unframe_message([_hex_frame(item) for item in arguments[0]])
+            return payload.decode('utf-8')
+        except UnicodeError as error:
+            raise ValueError('frame payload is not valid UTF-8') from error
+    raise ValueError('Unknown text segment operation.')
 
 
 def _display(value):
@@ -354,6 +404,20 @@ def run_general_artifact(artifact, *, max_steps=100000, host=None, ffmpeg_execut
                 if type(duration) is not str or not _value(duration, 'text'):
                     raise VMError('Probe duration is missing or not text.', pc)
                 stack.append(duration)
+            elif op=='text_segment':
+                count=len(args['argument_types'])
+                arguments=stack[-count:] if count else []
+                if count: del stack[-count:]
+                try:
+                    result=_text_segment(args['operation'], arguments)
+                except (ValueError, UnicodeError) as error:
+                    raise VMError(str(error), pc) from error
+                if type(result) is list:
+                    allocated_items += len(result)
+                    if allocated_items>1000000: raise VMError('Collection allocation limit exceeded.', pc)
+                if not _value(result, args['return_type']):
+                    raise VMError('Invalid text segment result.', pc)
+                stack.append(result)
             elif op=='call':
                 if len(frames)>=63: raise VMError('Call depth limit exceeded.',pc)
                 function=functions[args['function']]

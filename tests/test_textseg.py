@@ -8,6 +8,7 @@ import types
 import unittest
 from unittest.mock import Mock, patch
 
+from shipmblang._compiler import textseg as compiler_textseg
 from shipmblang.libraries.textseg import (
     crc16_ccitt,
     chunk_text,
@@ -20,6 +21,7 @@ from shipmblang.libraries.textseg import (
     words,
     wrap_text,
 )
+from shipmblang import run_direct_program
 from shipmblang.lsp import diagnostics_from_result
 from shipmblang.text_runtime import format_prefixed, present_hover, present_message, write_notice
 
@@ -293,6 +295,28 @@ class ProductTests(unittest.TestCase):
             self.assertLessEqual(sum(2 for _ in line), 16)
             self.assertEqual(line.encode("utf-8").decode("utf-8"), line)
         self.assertEqual(wrapped.replace("\n", ""), text)
+
+
+class CompilerTextsegTests(unittest.TestCase):
+    def test_library_reexports_the_bundled_compiler(self):
+        self.assertIs(graphemes, compiler_textseg.graphemes)
+        self.assertIs(words, compiler_textseg.words)
+        self.assertIs(sentences, compiler_textseg.sentences)
+        self.assertIs(chunk_text, compiler_textseg.chunk_text)
+        self.assertIs(frame_message, compiler_textseg.frame_message)
+        self.assertIs(wrap_text, compiler_textseg.wrap_text)
+
+    def test_programs_use_the_bundled_segmenter(self):
+        grapheme = run_direct_program('Show the graphemes of "cafe".\n', memory=False, model_provider=None)
+        self.assertEqual(grapheme["status"], "compiled", grapheme)
+        self.assertEqual(grapheme["runtime"]["stdout"], "[c, a, f, e]\n")
+        sentence = run_direct_program(
+            'Show the sentences of "Dr. Smith left. He stayed." in "english".\n',
+            memory=False,
+            model_provider=None,
+        )
+        self.assertEqual(sentence["status"], "compiled", sentence)
+        self.assertEqual(sentence["runtime"]["stdout"], "[Dr. Smith left. , He stayed.]\n")
 
 
 if __name__ == "__main__":

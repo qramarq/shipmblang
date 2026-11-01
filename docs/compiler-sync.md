@@ -123,8 +123,9 @@ Copy-back compares LF-normalized text (binaries such as `.woff2` are compared
 raw). An unchanged blob is not rewritten. A real edit is staged with Git
 filters disabled, using the upstream blob's newline style, so the pull request
 does not turn a line-ending difference into a full-file diff. Inbound keeps the
-snapshot's bytes whenever normalized text matches, so those six resource hashes
-do not change on every run.
+snapshot's bytes whenever normalized text matches, and uses that same newline
+style when it takes a changed file, so those six resource hashes do not change
+on every run.
 
 ## Loops
 

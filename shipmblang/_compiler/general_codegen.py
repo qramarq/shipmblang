@@ -69,6 +69,12 @@ def emit_general(tree, symbols, *, function=False):
         elif kind == "Length":
             expression(value["value"])
             emit("length", {}, value)
+        elif kind == "TextSeg":
+            argument_types = []
+            for argument in value["arguments"]:
+                expression(argument)
+                argument_types.append(argument["type"])
+            emit("text_segment", {"operation": value["operation"], "argument_types": argument_types, "return_type": value["type"]}, value)
         elif kind == "Index":
             expression(value["value"])
             expression(value["index"])
