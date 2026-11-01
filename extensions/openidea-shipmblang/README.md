@@ -154,7 +154,7 @@ Two ways do run `shipmblang` and show the output in the Run tool window.
 - Name: `Run ShipMBLang`
 - Program: `shipmblang` (or the full path of the executable that passes
   `lsp --check`)
-- Arguments: `run --file $FilePath$ --pipeline direct --profile general --memory off`
+- Arguments: `run --file $FilePath$ --pipeline direct --profile general --memory off --plain`
 - Working directory: `$ProjectFileDir$`
 
 Save the file first. Run the tool from Find Action (`Run ShipMBLang`).
@@ -171,7 +171,7 @@ id = "user:shipmblang-run"
 name = "Run ShipMBLang"
 kind = "shell"
 command = "shipmblang"
-args = ["run", "--file", "program.shipmb", "--pipeline", "direct", "--profile", "general", "--memory", "off"]
+args = ["run", "--file", "program.shipmb", "--pipeline", "direct", "--profile", "general", "--memory", "off", "--plain"]
 ```
 
 Replace `program.shipmb` with the path relative to the project. Restart

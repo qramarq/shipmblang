@@ -220,6 +220,104 @@ def _with_legacy_pipeline_hint(source, result):
     return {**result, "diagnostics": [*diagnostics, hint]}
 
 
+def _offset_line_column(source, span):
+    """Map a compiler code-point span to a 1-based line and column.
+
+    Spans are Unicode code points, matching the JSON diagnostic contract.
+    A missing or non-positive start is the first character.
+    """
+    start = 0
+    if isinstance(span, dict):
+        value = span.get("start")
+        if type(value) is int and value > 0:
+            start = value
+    text = source if isinstance(source, str) else ""
+    if start > len(text):
+        start = len(text)
+    line_break = text.rfind("\n", 0, start)
+    return text.count("\n", 0, start) + 1, start - line_break
+
+
+def _plain_source_name(file_argument):
+    if not file_argument or file_argument == "-":
+        return "<stdin>"
+    return file_argument
+
+
+def _one_line(text):
+    return " ".join(str(text).split())
+
+
+def _plain_line(path, source, span, message):
+    line, column = _offset_line_column(source, span)
+    return f"{path}:{line}:{column}: {_one_line(message)}".rstrip()
+
+
+def _diagnostic_text(diagnostic):
+    level = diagnostic.get("level")
+    if not isinstance(level, str) or not level.strip():
+        level = "error"
+    code = diagnostic.get("code")
+    message = diagnostic.get("message")
+    if not isinstance(message, str):
+        message = "" if message is None else str(message)
+    prefix = f"{level} {code}" if isinstance(code, str) and code.strip() else level
+    return f"{prefix}: {_one_line(message)}".rstrip()
+
+
+def _clarification_parts(item):
+    if isinstance(item, str):
+        text, span = item, None
+    elif isinstance(item, dict):
+        question = item.get("question")
+        if question is None:
+            question = item.get("message")
+        text, span = question, item.get("span")
+    else:
+        return None
+    if not isinstance(text, str):
+        text = "" if text is None else str(text)
+    text = _one_line(text)
+    if not text:
+        return None
+    return span, f"question: {text}"
+
+
+def _plain_failure_lines(result, source, path):
+    lines = []
+    diagnostics = result.get("diagnostics")
+    if isinstance(diagnostics, list):
+        for diagnostic in diagnostics:
+            if isinstance(diagnostic, dict):
+                lines.append(_plain_line(path, source, diagnostic.get("span"), _diagnostic_text(diagnostic)))
+    clarifications = result.get("clarifications")
+    if isinstance(clarifications, list):
+        for item in clarifications:
+            parts = _clarification_parts(item)
+            if parts is not None:
+                span, text = parts
+                lines.append(_plain_line(path, source, span, text))
+    if lines:
+        return lines
+    status = result.get("status")
+    if not isinstance(status, str) or not status.strip():
+        status = "failed"
+    return [_plain_line(path, source, None, status)]
+
+
+def _write_plain_output(result, source, path, *, ready):
+    """Print program stdout, and readable diagnostics when the run did not succeed."""
+    runtime = result.get("runtime") if isinstance(result.get("runtime"), dict) else {}
+    program_stdout = runtime.get("stdout")
+    if isinstance(program_stdout, str) and (ready or program_stdout):
+        sys.stdout.write(program_stdout)
+        sys.stdout.flush()
+    if ready:
+        return
+    print("\n".join(_plain_failure_lines(result, source, path)), file=sys.stderr)
+    sys.stderr.flush()
+
+
 def _positive_timeout(value):
     try:
         timeout = float(value)
@@ -254,6 +352,7 @@ def _main(*, run):
     selector.add_argument("--memory-path", "--memory-db", dest="memory_path")
     selector.add_argument("--image", action="append", default=[], help="Local image file for inline [[image:N]] anchors; repeat for additional images.")
     selector.add_argument("--no-english-model", action="store_true", help="Use only the deterministic English grammar.")
+    selector.add_argument("--plain", action="store_true", help="Print program stdout for run and compile --run. On failure, write file:line:col: message to stderr instead of JSON.")
     selector.add_argument("--review-model-interpretation", "--review-interpretation", action="store_true", help="Review validated model translations before compilation.")
     selected, remaining = selector.parse_known_args()
     media_options = any(value is not None for value in
@@ -273,6 +372,10 @@ def _main(*, run):
     if selected.run and selected.pipeline != "direct":
         selector.error("--run requires --pipeline direct; use the run command for legacy or ir.")
     run = run or selected.run
+    if selected.plain and not run:
+        selector.error("--plain requires run or compile --run.")
+    if selected.plain and selected.pipeline != "direct":
+        selector.error("--plain requires --pipeline direct.")
     if selected.profile is not None and selected.pipeline != "direct":
         selector.error("--profile requires --pipeline direct.")
     if selected.pipeline == "legacy":
@@ -365,7 +468,9 @@ def _main(*, run):
             for diagnostic in result.get("diagnostics", []):
                 if diagnostic.get("level") == "warning":
                     _notice(sys.stderr, diagnostic.get("message", ""), code=diagnostic.get("code", "warning"))
-        if run and args.format == "text" and ready and "stdout" in result.get("runtime", {}):
+        if selected.plain:
+            _write_plain_output(result, source, _plain_source_name(args.file), ready=ready)
+        elif run and args.format == "text" and ready and "stdout" in result.get("runtime", {}):
             sys.stdout.write(result["runtime"]["stdout"])
             for diagnostic in result.get("diagnostics", []):
                 _notice(sys.stderr, diagnostic.get("message", ""), code=diagnostic.get("code", "diagnostic"))

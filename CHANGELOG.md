@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `run --plain` and `compile --run --plain` print program stdout. Compile and runtime failures write `file:line:col: message` to stderr and exit nonzero. The default JSON result is unchanged.
 - OpenIDEA 0.1.33: the plugin in `extensions/openidea-shipmblang` is listed, and `.shipmb` stays Plain Text until `languages/shipmblang.toml` is copied into the user languages directory. Install, the stale `shipmblang.exe` on `PATH`, and run steps are in [editors](docs/editors.md).
 
 ## 0.6.0

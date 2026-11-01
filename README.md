@@ -449,8 +449,9 @@ Flags below are the ones the CLI accepts. `run` defaults to `--format json`.
 | Command | What it does |
 | --- | --- |
 | `shipmblang program.shipmb` | Run that file: direct pipeline, general profile, memory off. |
-| `shipmblang examples/quoted_paragraph.shipmb --format text` | Same shorthand. `--format text` prints runtime stdout only (`12`). |
-| `shipmblang run --file examples/quoted_paragraph.shipmb --pipeline direct --profile general --memory off` | Explicit run. JSON includes `runtime.stdout`. |
+| `shipmblang examples/quoted_paragraph.shipmb --format text` | Same shorthand. `--format text` prints runtime stdout on success (`12`). A failed compilation still prints JSON. |
+| `shipmblang run --file examples/quoted_paragraph.shipmb --pipeline direct --profile general --memory off` | Explicit run. JSON includes `runtime.stdout`. This is the verbose form. |
+| `shipmblang run --file examples/quoted_paragraph.shipmb --pipeline direct --profile general --memory off --plain` | Program stdout only (`12`). Failures go to stderr as `file:line:col: message` and exit nonzero. `compile --run --plain` prints the same way. |
 | `shipmblang compile --file examples/quoted_paragraph.shipmb --format json --memory off` | Compile to JSON. This example's `status` is `compiled`. |
 | `shipmblang run --file - --pipeline direct --profile general --memory off --format text` | Read the program from stdin. `compile --file -` compiles stdin. A bare `shipmblang --file -` is not a command. |
 | `shipmblang notebook` | Open the chat-room notebook. `shipmblang editor` is the same UI. |

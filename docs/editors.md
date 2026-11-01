@@ -248,7 +248,7 @@ user-defined language server:
 For a one-shot compile without LSP4IJ, add an External Tool:
 
 - Program: `shipmblang`
-- Arguments: `run --file $FilePath$ --pipeline direct --profile general --memory off`
+- Arguments: `run --file $FilePath$ --pipeline direct --profile general --memory off --plain`
 - Working directory: `$ProjectFileDir$`
 
 Use `compile` instead of `run` for a compile-only tool. Save the file first.
@@ -323,8 +323,10 @@ icon stays the unknown-file icon; the UI icon map has no plugin entry.
 
 To run the focused file, add an External Tool (**Settings › Tools ›
 External Tools**): program `shipmblang`, arguments
-`run --file $FilePath$ --pipeline direct --profile general --memory off`,
-working directory `$ProjectFileDir$`. Output is in the Run tool window.
+`run --file $FilePath$ --pipeline direct --profile general --memory off --plain`,
+working directory `$ProjectFileDir$`. Output is in the Run tool window: the
+program text on standard output, and failures as `file:line:col: message` on
+standard error. Without `--plain` the result is verbose JSON.
 The Run button's Current File action has no `.shipmb` producer. A fixed
 file can be a shell configuration in `.openidea/run.toml`:
 
@@ -334,7 +336,7 @@ id = "user:shipmblang-run"
 name = "Run ShipMBLang"
 kind = "shell"
 command = "shipmblang"
-args = ["run", "--file", "program.shipmb", "--pipeline", "direct", "--profile", "general", "--memory", "off"]
+args = ["run", "--file", "program.shipmb", "--pipeline", "direct", "--profile", "general", "--memory", "off", "--plain"]
 ```
 
 Choose that configuration in the run widget. It does not follow the

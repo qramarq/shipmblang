@@ -77,5 +77,8 @@ Use `--no-english-model` for deterministic-only parsing.
 
 Successful general-profile runs with `--format text` print the program's output.
 Unsuccessful compilations retain JSON diagnostics and a nonzero exit status;
-profiles without textual stdout retain their JSON results. `--memory off`
+profiles without textual stdout retain their JSON results. `--plain` is the
+form for an IDE run panel: program stdout on standard output, and
+`file:line:col: message` on standard error when compilation or execution
+fails. See [terminals and IDEs](terminal-and-ides.md). `--memory off`
 disables local compiler capture for these examples.
