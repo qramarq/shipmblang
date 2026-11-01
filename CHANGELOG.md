@@ -3,6 +3,7 @@
 ## Unreleased
 
 - OpenIDEA plugin in `extensions/openidea-shipmblang`. It associates `.shipmb`, `.smb`, and `.shiplang` and starts `shipmblang lsp`. Install steps are in [editors](docs/editors.md).
+- `run --plain` and `compile --run --plain` print program stdout. Compile and runtime failures write `file:line:col: message` to stderr and exit nonzero. The default JSON result is unchanged.
 
 ## 0.6.0
 

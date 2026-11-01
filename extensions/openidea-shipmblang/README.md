@@ -75,3 +75,43 @@ TextMate entry, so
 (`scopeName` `source.shipmblang`) is not loaded. This repository does not
 ship a tree-sitter grammar, and the language file does not set `tree-sitter`.
 Diagnostics and hover still come from `shipmblang lsp`.
+
+## Run a program
+
+`shipmblang lsp` publishes diagnostics and hover. It does not replace a run
+configuration. Use `--plain` so the Run tool window shows the program's
+stdout. On failure, diagnostics and clarification questions are written to
+standard error as `file:line:col: message`, and the process exits nonzero.
+
+**External tool.** Settings › Tools › External Tools. Add a tool:
+
+- Name: `Run ShipMBLang`
+- Program: `shipmblang` (or the full path of the executable)
+- Arguments: `run --file $FilePath$ --pipeline direct --profile general --memory off --plain`
+- Working directory: `$ProjectFileDir$`
+
+Save the file first. `$FilePath$` is the focused file. This tool is an IDE
+setting. It is not stored in the plugin. The verbose form is the same
+arguments without `--plain`. That command prints JSON, and the program text
+is `runtime.stdout`.
+
+**Run configuration.** In the project, `.openidea/run.toml`:
+
+```toml
+[[configurations]]
+id = "user:shipmblang-run"
+name = "Run ShipMBLang"
+kind = "shell"
+command = "shipmblang"
+args = ["run", "--file", "program.shipmb", "--pipeline", "direct", "--profile", "general", "--memory", "off", "--plain"]
+```
+
+Replace `program.shipmb` with the path relative to the project. Reopen the
+project, choose **Run ShipMBLang** in the run widget, and press Run. The
+configuration does not follow whichever file is focused.
+
+`shipmblang compile --file program.shipmb --pipeline direct --profile general --memory off --run --plain`
+is the compile command with execution and the same plain output.
+`run --file` is the same pipeline and profile without asking `compile` to
+execute. Both need the direct pipeline when the program should run. Omit
+`--plain` on either command for the verbose JSON result.

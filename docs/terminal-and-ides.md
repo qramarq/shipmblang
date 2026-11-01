@@ -9,10 +9,10 @@ will use:
 
 ```sh
 python -m pip install --editable .
-python -m shipmblang run --file examples/quoted_paragraph.shipmb --pipeline direct --profile general --memory off
+python -m shipmblang run --file examples/quoted_paragraph.shipmb --pipeline direct --profile general --memory off --plain
 ```
 
-The example prints `12`. A `.shipmb` file can also be run directly:
+The example prints `12`. The same command without `--plain` prints the JSON result, with that text in `runtime.stdout`. A `.shipmb` file can also be run directly:
 
 ```sh
 python -m shipmblang examples/quoted_paragraph.shipmb
@@ -48,20 +48,22 @@ From any project directory after installation:
 
 ```text
 python -m shipmblang compile --file "program with spaces.smb" --pipeline direct --profile general --format json --memory off
-python -m shipmblang run --file "program with spaces.smb" --pipeline direct --profile general --memory off
+python -m shipmblang run --file "program with spaces.smb" --pipeline direct --profile general --memory off --plain
 ```
+
+`--plain` prints the program's stdout. The same `run` command without `--plain` is the verbose form: a JSON result whose program text is `runtime.stdout`. `compile --run --plain` uses that same plain output.
 
 `shipmblang --version` prints the package version. `shipmblang lsp` serves diagnostics and hover on standard input; `shipmblang lsp --check` prints `lsp ok`. Editors that pipe an unsaved buffer use `--file -`. The console commands `shipmblang`, `shipmb`, `shipmblang-compile`, `shipmb-compile`, and `shiplang-compile` use the same package. The corresponding run aliases also remain available. Use `python -m shipmblang` if console scripts are not on PATH. For an interpreter path containing spaces, PowerShell needs its call operator:
 
 ```powershell
-& "C:/path to/venv/Scripts/python.exe" -X utf8 -m shipmblang run --file "program.shipmb" --pipeline direct --profile general --memory off
+& "C:/path to/venv/Scripts/python.exe" -X utf8 -m shipmblang run --file "program.shipmb" --pipeline direct --profile general --memory off --plain
 ```
 
-General run output is JSON with `runtime.stdout` and `runtime.output`; it is not a claim of native-machine-code generation. Exit 0 means success, exit 1 reports failed/unsupported/clarification or runtime diagnostics, and exit 2 reports invocation/setup errors on the direct path. JSON compiler diagnostics retain source spans in Unicode code-point offsets. Existing legacy output/defaults remain compatible. File-based input avoids shell quoting changes to prose. `-X utf8` is useful for non-ASCII terminal environments.
+Without `--plain`, general run output is JSON with `runtime.stdout` and `runtime.output`; it is not a claim of native-machine-code generation. `--plain` writes that stdout to standard output and, when compilation or execution fails, writes diagnostics and clarification questions to standard error as `file:line:col: message`. Positions are 1-based and counted in Unicode code points. Exit 0 means success, exit 1 reports failed/unsupported/clarification or runtime diagnostics, and exit 2 reports invocation/setup errors on the direct path. JSON compiler diagnostics retain source spans in Unicode code-point offsets. Existing legacy output/defaults remain compatible. File-based input avoids shell quoting changes to prose. `-X utf8` is useful for non-ASCII terminal environments.
 
 ## Other IDEs
 
-Configure an external tool with the interpreter as the executable and arguments `-m shipmblang compile --file <current-file> --pipeline direct --profile general --format json --memory off`. Set the working directory to the project's root; pass the filename as one argument, using your IDE's current-file variable. A second tool replaces `compile` with `run`. Save the file before invoking file-based tools.
+Configure an external tool with the interpreter as the executable and arguments `-m shipmblang run --file <current-file> --pipeline direct --profile general --memory off --plain`. Set the working directory to the project's root; pass the filename as one argument, using your IDE's current-file variable. Standard output is the program text. Failures are reported on standard error. The verbose form omits `--plain` and prints the JSON result. A compile-only tool keeps `-m shipmblang compile --file <current-file> --pipeline direct --profile general --format json --memory off`. Save the file before invoking file-based tools.
 
 Any IDE that can invoke a process can use this boundary. `shipmblang lsp` is the shared language server for diagnostics, hover, and compile/run commands. Ready-to-use settings for VS Code, Cursor, Neovim, Vim, Emacs, Helix, Zed, Sublime Text, JetBrains, OpenIDEA, Notepad++, and Kate are in [editors](editors.md). OpenIDEA installs the plugin in `extensions/openidea-shipmblang`.
 

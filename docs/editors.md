@@ -31,14 +31,19 @@ program from standard input:
 
 ```text
 shipmblang compile --file - --pipeline direct --profile general --format json --memory off
-shipmblang run --file - --pipeline direct --profile general --memory off
+shipmblang run --file - --pipeline direct --profile general --memory off --plain
 ```
+
+`--plain` prints the program's stdout for `run` and for `compile --run`.
+Diagnostics and clarification questions go to standard error as
+`file:line:col: message`. The verbose form is the same `run` command without
+`--plain`: JSON, including `runtime.stdout` and `runtime.output`.
 
 Exit 0 means success. Exit 1 reports a failed, unsupported, or clarification
 result, or a runtime diagnostic. Exit 2 reports invocation and setup errors on
 the direct path. JSON diagnostics keep source spans in Unicode code points.
-The language server converts those spans to UTF-16 positions. General run JSON
-includes `runtime.stdout` and `runtime.output`. See
+The language server converts those spans to UTF-16 positions. Plain-output
+positions are 1-based code points in the source that was compiled. See
 [terminals and IDEs](terminal-and-ides.md) for the rest of the command contract.
 
 Replace `shipmblang` below with the full path of the standalone executable when
@@ -247,10 +252,13 @@ user-defined language server:
 For a one-shot compile without LSP4IJ, add an External Tool:
 
 - Program: `shipmblang`
-- Arguments: `run --file $FilePath$ --pipeline direct --profile general --memory off`
+- Arguments: `run --file $FilePath$ --pipeline direct --profile general --memory off --plain`
 - Working directory: `$ProjectFileDir$`
 
-Use `compile` instead of `run` for a compile-only tool. Save the file first.
+Standard output is the program text. The verbose form is those arguments
+without `--plain`, which prints the JSON result. Use `compile` instead of
+`run`, and `--format json` instead of `--plain`, for a compile-only tool.
+Save the file first.
 
 ## Notepad++
 
@@ -258,14 +266,14 @@ Associate `.shipmb` and `.smb` with whatever highlighting you prefer. Under
 `Run > Run...`:
 
 ```text
-shipmblang run --file "$(FULL_CURRENT_PATH)" --pipeline direct --profile general --memory off
+shipmblang run --file "$(FULL_CURRENT_PATH)" --pipeline direct --profile general --memory off --plain
 ```
 
-Save the file before running. To send the unsaved buffer, a plugin that can
-pipe the current text can call:
+Save the file before running. Omit `--plain` for the verbose JSON result. To
+send the unsaved buffer, a plugin that can pipe the current text can call:
 
 ```text
-shipmblang run --file - --pipeline direct --profile general --memory off
+shipmblang run --file - --pipeline direct --profile general --memory off --plain
 ```
 
 ## Kate
@@ -286,6 +294,8 @@ In `Settings > Configure Kate > LSP Client > User Server Settings`:
 
 In the file-type configuration, map `*.shipmb`, `*.smb`, and `*.shiplang` to a
 mode named `ShipMBLang`. Kate can also run an external tool with
+`shipmblang run --file %{Document:FileName} --pipeline direct --profile general --memory off --plain`.
+The verbose JSON form omits `--plain`. A compile-only tool uses
 `shipmblang compile --file %{Document:FileName} --pipeline direct --profile general --format json --memory off`.
 
 ## OpenIDEA
@@ -309,6 +319,34 @@ Without the plugin, that same page can still add `shipmblang lsp` for
 **Plain Text**, and **Settings › Editor › File Types** can add `*.shipmb`,
 `*.smb`, and `*.shiplang` to Plain Text. The server then also attaches to
 other Plain Text files. The plugin is what creates the ShipMBLang file type.
+
+To run a file, add an external tool (**Settings › Tools › External Tools**):
+
+- Name: `Run ShipMBLang`
+- Program: `shipmblang`
+- Arguments: `run --file $FilePath$ --pipeline direct --profile general --memory off --plain`
+- Working directory: `$ProjectFileDir$`
+
+Save the file first. Standard output is the program text. Diagnostics and
+clarification questions are written to standard error as `file:line:col: message`,
+and the process exits nonzero when compilation or execution fails. The verbose
+form is the same arguments without `--plain`: JSON, with the program text in
+`runtime.stdout`.
+
+A fixed file can be a shell configuration in `.openidea/run.toml`:
+
+```toml
+[[configurations]]
+id = "user:shipmblang-run"
+name = "Run ShipMBLang"
+kind = "shell"
+command = "shipmblang"
+args = ["run", "--file", "program.shipmb", "--pipeline", "direct", "--profile", "general", "--memory", "off", "--plain"]
+```
+
+Replace `program.shipmb` with the path relative to the project, reopen the
+project, and choose **Run ShipMBLang**. `compile --file program.shipmb --pipeline direct --profile general --memory off --run --plain`
+is the same execution through `compile`.
 
 Line comments are `#`. Indentation is 2 spaces. Highlighting borrows the
 CodeMirror mode `Properties files`, which colors those comments. The TextMate
