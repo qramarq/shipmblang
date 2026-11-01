@@ -330,6 +330,9 @@ class Expressions:
             if value["type"] != "text" and not value["type"].startswith("list["):
                 self.fail("Length requires text or a list.")
             return node("Length", self.range(begin), value=value, type="integer")
+        segmented = self.text_segment(begin)
+        if segmented is not None:
+            return segmented
         if self.take("first", "item", "in") or self.take("last", "item", "in"):
             phrase = [token[0].lower() for token in self.tokens[begin:self.at]]
             last = "last" in phrase
@@ -431,6 +434,56 @@ class Expressions:
             if self.take(*name.split()):
                 return node("Name", self.range(begin), slot=symbol["id"], name=name, type=symbol["type"])
         return None
+
+    def text_segment(self, begin):
+        def text_value():
+            value = self.atom()
+            if value["type"] != "text":
+                self.fail("This splitter requires text.")
+            return value
+
+        def integer_value(label):
+            value = self.expression(4)
+            if value["type"] != "integer":
+                self.fail(f"The {label} must be an integer.")
+            return value
+
+        if self.take("graphemes", "of"):
+            return node("TextSeg", self.range(begin), operation="graphemes", arguments=[text_value()], type="list[text]")
+        operation = "words" if self.take("words", "of") else "sentences" if self.take("sentences", "of") else None
+        if operation:
+            return node("TextSeg", self.range(begin), operation=operation, arguments=[text_value(), self.language_suffix(begin)], type="list[text]")
+        if self.take("chunks", "of"):
+            subject = text_value()
+            if not self.take("with", "byte", "cap"):
+                self.fail("State the byte cap after 'with byte cap'.", question=True)
+            byte_cap = integer_value("byte cap")
+            if self.take("and", "word", "cap"):
+                word_cap = integer_value("word cap")
+                return node("TextSeg", self.range(begin), operation="chunks_words",
+                            arguments=[subject, byte_cap, word_cap, self.language_suffix(begin)], type="list[text]")
+            return node("TextSeg", self.range(begin), operation="chunks",
+                        arguments=[subject, byte_cap, self.language_suffix(begin)], type="list[text]")
+        if self.take("frames", "of"):
+            subject = text_value()
+            if not self.take("for", "message"):
+                self.fail("State the message id after 'for message'.", question=True)
+            return node("TextSeg", self.range(begin), operation="frames",
+                        arguments=[subject, integer_value("message id")], type="list[text]")
+        if self.take("verified", "text", "of"):
+            frames = self.atom()
+            if frames["type"] != "list[text]":
+                self.fail("Frame verification requires a list of text.")
+            return node("TextSeg", self.range(begin), operation="unframe", arguments=[frames], type="text")
+        return None
+
+    def language_suffix(self, begin):
+        if not self.take("in"):
+            return node("Literal", self.range(begin), value="", type="text")
+        language = self.atom()
+        if language["type"] != "text":
+            self.fail('Name the language with text, for example "en".')
+        return language
 
     def element_type(self):
         for word, kind in (("integers", "integer"), ("booleans", "boolean"), ("texts", "text"), ("text", "text")):

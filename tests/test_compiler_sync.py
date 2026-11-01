@@ -293,6 +293,21 @@ class CompilerSyncTests(unittest.TestCase):
         self.assertEqual((candidate / 'core.py').read_bytes(), b"print('local')\n")
         self.assertEqual((candidate / 'direct.py').read_bytes(), b"print('upstream')\n")
 
+    def test_inbound_keeps_upstream_crlf_when_taking_a_changed_python_file(self):
+        files = {'__init__.py': b'', 'direct.py': b'', 'runtime.py': b"print('old')\r\n"}
+        repo, _project = self.make_nested(files)
+        base = commit_all(repo, 'base')
+        snapshot = self.root / 'snap'
+        write_snapshot(snapshot, files, base)
+        write(repo / 'shipmbcompiler' / 'shipmbcompiler' / 'runtime.py', b"print('new')\r\n")
+        head = commit_all(repo, 'upstream runtime')
+        plan = plan_inbound(snapshot, repo, head, self.root / 'plan')
+        self.assertEqual(plan['action'], 'adopt')
+        self.assertEqual(plan['changed'], ['runtime.py'])
+        self.assertEqual(plan['patches'], [])
+        stored = (self.root / 'plan' / 'candidate' / 'runtime.py').read_bytes()
+        self.assertEqual(stored, b"print('new')\r\n")
+
     def test_inbound_refuses_a_file_both_sides_edited(self):
         files = {'__init__.py': b'', 'direct.py': b'', 'runtime.py': b'', 'core.py': b"print('old')\n"}
         repo, _project = self.make_nested(files)
