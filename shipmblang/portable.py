@@ -70,6 +70,8 @@ PYINSTALLER_EXCLUDES = (
     "driplm.inference",
     "driplm.generate_data",
     "driplm.prepare_data",
+    # Dev-only Node tree at tools/rea. Not a runtime import.
+    "tools.rea",
 )
 
 COLLECT_PACKAGES = ("shipmblang", "driplm", "shiplang", "shipmb", "driplang")
@@ -157,6 +159,31 @@ def pyinstaller_excludes() -> tuple[str, ...]:
     return PYINSTALLER_EXCLUDES
 
 
+def _is_dev_only_rea(path: Path) -> bool:
+    """True when ``path`` is the vendored ``tools/rea`` tree or a file inside it."""
+    parts = [part.lower() for part in Path(path).parts]
+    return any(
+        parts[index] == "tools" and parts[index + 1] == "rea"
+        for index in range(len(parts) - 1)
+    )
+
+
+def _destination_is_dev_only_rea(destination: str) -> bool:
+    parts = [part.lower() for part in destination.replace("\\", "/").split("/") if part and part != "."]
+    return any(
+        parts[index] == "tools" and parts[index + 1] == "rea"
+        for index in range(len(parts) - 1)
+    )
+
+
+def reject_dev_only_data(origin: Path, destination: str) -> None:
+    """Refuse to pack ``tools/rea`` into the executable or the Windows zip."""
+    if _is_dev_only_rea(origin) or _destination_is_dev_only_rea(destination):
+        raise PortableBuildError(
+            "tools/rea is dev-only tooling and is not packed into the executable or the Windows zip."
+        )
+
+
 def pyinstaller_argv(
     entry: Path,
     dist: Path,
@@ -183,6 +210,7 @@ def pyinstaller_argv(
         command.extend(["--exclude-module", name])
     command.extend(_metadata_args())
     for origin, destination in datas:
+        reject_dev_only_data(origin, destination)
         command.extend(["--add-data", f"{origin}{os.pathsep}{destination}"])
     command.append(str(entry))
     if "--onefile" in command or "--upx-dir" in command:
@@ -242,9 +270,12 @@ def discover_vc_dlls(roots: list[Path], onedir: Path | None = None) -> dict[str,
 
 
 def _skipped(path: Path, root: Path) -> bool:
+    relative = path.relative_to(root)
+    if _is_dev_only_rea(relative):
+        return True
     if path.suffix.lower() in SKIP_SUFFIXES:
         return True
-    parts = {part.lower() for part in path.relative_to(root).parts}
+    parts = {part.lower() for part in relative.parts}
     return bool(parts & SKIP_PARTS)
 
 
