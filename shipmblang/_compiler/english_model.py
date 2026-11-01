@@ -46,8 +46,8 @@ Text segmentation returns lists of text: the graphemes of "cafe",
 the words of "Don't stop." in "en", the sentences of "Dr. Smith left. He stayed." in "english",
 the chunks of "hello" with byte cap 20, and the chunks of "one two three" with byte cap 40 and word cap 2 in "en".
 Language tags are text, such as en, es, fr, de, pt, it, ru, zh, ja, ko, ar, hi, or their names.
-the frames of "payload" for message 7 returns hex frames with a 10-byte header and a 150-byte cap.
-the verified text of frames checks the CRC-16 and sequence and returns the text.
+the frames of "payload" for message 7 returns hex frames with an 8-byte little-endian header and a 150-byte cap.
+the verified text of frames checks the CRC-16, rejects a control flag, and returns the text.
 Use parentheses for mixed arithmetic. Boolean operators: and, or, not.
 Comparisons: equals, is not equal to, is greater than, is less than,
 is at least, is at most. Mutable variables require explicit types.
