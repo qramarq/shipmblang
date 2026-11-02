@@ -281,7 +281,7 @@ class FrameTests(unittest.TestCase):
 
     def test_cuts_stay_on_utf8_and_grapheme_boundaries(self):
         text = "é" * 5 + FAMILY
-        frames = frame_message(1, text, max_frame=HEADER_SIZE + 2 + 3)
+        frames = frame_message(1, text, max_frame=HEADER_SIZE + 2 + len(FAMILY.encode("utf-8")))
         self.assertGreater(len(frames), 1)
         body = _frame_body(frames)
         self.assertEqual(body, text.encode("utf-8"))
@@ -291,10 +291,15 @@ class FrameTests(unittest.TestCase):
                 piece = piece[2:]
             piece.decode("utf-8")
         self.assertEqual(unframe_message(frames).decode("utf-8"), text)
-        whole = frame_message(3, FAMILY, max_frame=HEADER_SIZE + 2 + 4)
-        self.assertEqual(len(whole), 1)
-        self.assertGreater(len(whole[0]), HEADER_SIZE + 2 + 4)
-        self.assertEqual(unframe_message(whole).decode("utf-8"), FAMILY)
+        acute = "é" * 7
+        small = frame_message(7, acute, max_frame=HEADER_SIZE + 2 + 4)
+        self.assertGreater(len(small), 1)
+        self.assertTrue(all(len(frame) <= HEADER_SIZE + 2 + 4 for frame in small))
+        self.assertEqual(unframe_message(small).decode("utf-8"), acute)
+        with self.assertRaises(ValueError):
+            frame_message(3, FAMILY, max_frame=HEADER_SIZE + 2 + 4)
+        with self.assertRaises(ValueError):
+            frame_message(3, "é", max_frame=HEADER_SIZE + 2 + 3)
 
     def test_sentences_have_their_own_chunk_totals(self):
         frames = frame_message(5, "Hi. Yo.")

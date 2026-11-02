@@ -23,12 +23,11 @@ import unicodedata
 HEADER_SIZE = 8
 DEFAULT_MAX_FRAME = 150
 MIN_BYTES = 4
+# High 16 bits of the uint32 message id. The header only has room for the low half.
+ID_PREFIX_LEN = 2
 FLAG_LAST_SENTENCE = 0x01
 FLAG_AUDIO = 0x02
 FLAG_CONTROL = 0x04
-# High 16 bits of the former uint32 message id. They no longer fit in the
-# 8-byte header, so they lead the first frame's payload.
-_MSG_ID_TAIL = 2
 
 _CR = "cr"
 _LF = "lf"
@@ -333,7 +332,7 @@ def wrap_text(text: str, *, width: int = 88, lang: str | None = None) -> str:
 
 
 def crc16_ccitt(data: bytes) -> int:
-    """CRC-16/CCITT-FALSE: poly 0x1021, init 0xFFFF, no reflection, xorout 0."""
+    """CRC-16/CCITT-FALSE: polynomial 0x1021, initial value 0xFFFF."""
     crc = 0xFFFF
     for byte in data:
         crc ^= byte << 8
@@ -348,68 +347,56 @@ def crc16_ccitt(data: bytes) -> int:
 def frame_message(msg_id: int, payload: str | bytes, *, max_frame: int = DEFAULT_MAX_FRAME) -> list[bytes]:
     """Pack ``payload`` into voiceboi-chunk frames of at most ``max_frame`` bytes.
 
-    Header, exactly 8 bytes, little-endian: message id (uint16), sentence
-    index (uint8), chunk index (uint8), chunks in the sentence (uint8),
-    flags (uint8), CRC-16/CCITT-FALSE of the payload (uint16). Flag 0x01
-    marks every chunk of the last sentence. Flag 0x02 is audio and is left
-    clear. Flag 0x04 is control; this encoder never sets it, and
-    :func:`parse_frame` rejects it.
-
-    Text is split into sentences, then each sentence is cut on a grapheme
-    boundary so a cut never lands inside a UTF-8 sequence. A single grapheme
-    longer than the payload budget stays intact, so that one frame can
-    exceed ``max_frame``. Bytes are one sentence and are split on raw bytes.
-
-    The previous header was 10 bytes (``>IHHH``: uint32 id, uint16 sequence,
-    uint16 total, uint16 crc). The two extra bytes were the high half of
-    that uint32. They are now the first two little-endian bytes of the
-    message's first payload. The flat sequence and the message-wide total
-    are derived from the sentence index, the chunk index, and the
-    per-sentence total.
+    Header, little-endian, 8 bytes: message id low uint16, sentence index,
+    chunk index, chunks in the sentence, flags, CRC-16/CCITT-FALSE of the
+    payload. The high 16 bits of the uint32 message id are the first two
+    payload bytes of the message's first frame (sentence 0, chunk 0),
+    little-endian. Flag 0x01 marks every chunk of the last sentence. Flag
+    0x04 is never set. Text is split into sentences, then on a grapheme
+    boundary. A grapheme that does not fit in the payload budget is an error.
     """
-    if isinstance(msg_id, bool) or not isinstance(msg_id, int) or not 0 <= msg_id <= 0xFFFFFFFF:
+    if not 0 <= msg_id <= 0xFFFFFFFF:
         raise ValueError("msg_id must fit in uint32")
-    if max_frame < HEADER_SIZE + MIN_BYTES:
-        raise ValueError(f"max_frame must be at least {HEADER_SIZE + MIN_BYTES}")
+    if max_frame > DEFAULT_MAX_FRAME:
+        raise ValueError("max_frame must be at most 150")
+    if max_frame < HEADER_SIZE + ID_PREFIX_LEN + MIN_BYTES:
+        raise ValueError(f"max_frame must be at least {HEADER_SIZE + ID_PREFIX_LEN + MIN_BYTES}")
     budget = max_frame - HEADER_SIZE
-    groups = _message_groups(payload, budget)
-    msg_lo = msg_id & 0xFFFF
-    tail = struct.pack("<H", msg_id >> 16)
-    last = len(groups) - 1
+    groups = _frame_groups(payload, budget)
+    if len(groups) > 256:
+        raise ValueError("more than 256 sentences")
+    prefix = struct.pack("<H", (msg_id >> 16) & 0xFFFF)
+    low = msg_id & 0xFFFF
     frames = []
+    last_sentence = len(groups) - 1
     for sentence_idx, blobs in enumerate(groups):
+        if len(blobs) > 255:
+            raise ValueError("more than 255 chunks in one sentence")
+        flags = FLAG_LAST_SENTENCE if sentence_idx == last_sentence else 0
         total = len(blobs)
-        flags = FLAG_LAST_SENTENCE if sentence_idx == last else 0
         for chunk_idx, blob in enumerate(blobs):
-            wire = tail + blob if sentence_idx == 0 and chunk_idx == 0 else blob
-            header = struct.pack(
-                "<HBBBBH",
-                msg_lo,
-                sentence_idx,
-                chunk_idx,
-                total,
-                flags,
-                crc16_ccitt(wire),
-            )
-            frames.append(header + wire)
+            body = prefix + blob if sentence_idx == 0 and chunk_idx == 0 else blob
+            if HEADER_SIZE + len(body) > max_frame:
+                raise ValueError("frame exceeds 150 bytes")
+            header = struct.pack("<HBBBBH", low, sentence_idx, chunk_idx, total, flags, crc16_ccitt(body))
+            frames.append(header + body)
     return frames
 
 
 def parse_frame(frame: bytes) -> dict:
-    """Return the 8-byte header fields and the raw payload.
-
-    ``payload`` is every byte after the header, including the two-byte
-    message-id tail on the first frame. Reject a short frame, flag 0x04,
-    or a CRC that does not match the payload.
-    """
+    """Return the 8-byte header fields and the raw payload. Reject a bad CRC or flag 0x04."""
     if len(frame) < HEADER_SIZE:
         raise ValueError("frame is shorter than the header")
+    if len(frame) > DEFAULT_MAX_FRAME:
+        raise ValueError("frame exceeds 150 bytes")
     msg_id, sentence_idx, chunk_idx, total, flags, crc = struct.unpack("<HBBBBH", frame[:HEADER_SIZE])
-    if flags & FLAG_CONTROL:
-        raise ValueError("control frames are not text chunks")
     payload = frame[HEADER_SIZE:]
+    if flags & FLAG_CONTROL:
+        raise ValueError("frame control flag is rejected")
     if crc16_ccitt(payload) != crc:
         raise ValueError("frame crc16 mismatch")
+    if total == 0 or chunk_idx >= total:
+        raise ValueError("frame sequence does not match")
     return {
         "msg_id": msg_id,
         "sentence_idx": sentence_idx,
@@ -421,93 +408,99 @@ def parse_frame(frame: bytes) -> dict:
 
 
 def unframe_message(frames: list[bytes]) -> bytes:
-    """Concatenate frame bodies after checking order, totals, flags, and CRC.
+    """Concatenate frame payloads after checking order, totals, flags, and CRC.
 
-    The two message-id bytes at the start of the first payload are not part
-    of the body. Later payloads are appended as they stand.
+    The first two payload bytes of sentence 0 chunk 0 are the high half of the
+    message id and are not part of the returned text.
     """
     if not frames:
         raise ValueError("no frames")
     parsed = [parse_frame(frame) for frame in frames]
-    first = parsed[0]
-    if first["sentence_idx"] != 0 or first["chunk_idx"] != 0:
-        raise ValueError("frame sequence does not match")
-    if len(first["payload"]) < _MSG_ID_TAIL:
-        raise ValueError("frame is missing the message id tail")
-    msg_id = first["msg_id"]
-    pieces = [first["payload"][_MSG_ID_TAIL:]]
-    sentence = 0
-    chunk = 0
-    total = first["total"]
-    if total == 0 or chunk >= total:
-        raise ValueError("frame total does not match the list")
-    for item in parsed[1:]:
+    msg_id = parsed[0]["msg_id"]
+    sentences: list[list[dict]] = []
+    current = None
+    for item in parsed:
         if item["msg_id"] != msg_id:
             raise ValueError("frame sequence does not match")
-        if chunk + 1 < total and item["sentence_idx"] == sentence and item["chunk_idx"] == chunk + 1 and item["total"] == total:
-            chunk += 1
-            pieces.append(item["payload"])
-            continue
-        if chunk + 1 == total and item["sentence_idx"] == sentence + 1 and item["chunk_idx"] == 0 and item["total"] > 0:
-            sentence += 1
-            chunk = 0
-            total = item["total"]
-            pieces.append(item["payload"])
-            continue
+        if current is None or item["sentence_idx"] != current:
+            if current is not None and item["sentence_idx"] != current + 1:
+                raise ValueError("frame sequence does not match")
+            if item["chunk_idx"] != 0:
+                raise ValueError("frame sequence does not match")
+            current = item["sentence_idx"]
+            sentences.append([])
+        elif item["chunk_idx"] != len(sentences[-1]):
+            raise ValueError("frame sequence does not match")
+        sentences[-1].append(item)
+    if not sentences or sentences[0][0]["sentence_idx"] != 0:
         raise ValueError("frame sequence does not match")
-    if chunk + 1 != total:
-        raise ValueError("frame total does not match the list")
-    for item in parsed:
-        is_last = item["sentence_idx"] == sentence
-        if bool(item["flags"] & FLAG_LAST_SENTENCE) != is_last:
-            raise ValueError("frame flags do not match the sentence")
+    pieces = []
+    last_sentence = len(sentences) - 1
+    for sentence_idx, chunks in enumerate(sentences):
+        total = chunks[0]["total"]
+        if total != len(chunks):
+            raise ValueError("frame total does not match the list")
+        for item in chunks:
+            if item["total"] != total:
+                raise ValueError("frame total does not match the list")
+            if bool(item["flags"] & FLAG_LAST_SENTENCE) != (sentence_idx == last_sentence):
+                raise ValueError("frame sequence does not match")
+            payload = item["payload"]
+            if sentence_idx == 0 and item["chunk_idx"] == 0:
+                if len(payload) < ID_PREFIX_LEN:
+                    raise ValueError("frame is missing the message id prefix")
+                payload = payload[ID_PREFIX_LEN:]
+            pieces.append(payload)
     return b"".join(pieces)
 
 
-def _message_groups(payload: str | bytes, budget: int) -> list[list[bytes]]:
-    first_limit = budget - _MSG_ID_TAIL
+def _frame_groups(payload: str | bytes, budget: int) -> list[list[bytes]]:
+    first_budget = budget - ID_PREFIX_LEN
     if isinstance(payload, str):
         if payload == "":
             return [[b""]]
         groups = []
-        for start, end in sentence_spans(payload):
-            limit = first_limit if not groups else budget
-            groups.append(_text_pieces(payload[start:end], budget, limit))
-        if len(groups) > 256:
-            raise ValueError("payload needs more than uint8 sentences")
-        return groups
-    if not isinstance(payload, (bytes, bytearray)):
-        raise TypeError("payload must be str or bytes")
-    return [_byte_pieces(bytes(payload), budget, first_limit)]
+        for index, (start, end) in enumerate(sentence_spans(payload)):
+            sentence = payload[start:end]
+            limit = first_budget if index == 0 else budget
+            groups.append(_text_pieces(sentence, limit, budget))
+        return groups or [[b""]]
+    if isinstance(payload, (bytes, bytearray)):
+        return [_byte_pieces(bytes(payload), first_budget, budget)]
+    raise TypeError("payload must be str or bytes")
 
 
-def _text_pieces(text: str, budget: int, first_limit: int) -> list[bytes]:
-    pieces: list[bytes] = []
-    rest = text
-    while rest:
-        cap = first_limit if not pieces else budget
-        prefix = _utf8_prefix(rest, cap)
-        if prefix == "":
-            prefix = graphemes(rest)[0]
-        pieces.append(prefix.encode("utf-8"))
-        rest = rest[len(prefix):]
-    if len(pieces) > 255:
-        raise ValueError("sentence needs more than uint8 chunks")
-    return pieces or [b""]
-
-
-def _byte_pieces(blob: bytes, budget: int, first_limit: int) -> list[bytes]:
-    if not blob:
+def _text_pieces(text: str, first_budget: int, budget: int) -> list[bytes]:
+    if text == "":
         return [b""]
     pieces = []
-    offset = 0
-    cap = first_limit
-    while offset < len(blob):
-        pieces.append(blob[offset:offset + cap])
-        offset += cap
-        cap = budget
-    if len(pieces) > 255:
-        raise ValueError("sentence needs more than uint8 chunks")
+    rest = text
+    limit = first_budget
+    while rest:
+        prefix = _utf8_prefix(rest, limit)
+        if prefix == "":
+            cluster = graphemes(rest)[0]
+            if len(cluster.encode("utf-8")) > limit:
+                raise ValueError("frame exceeds 150 bytes")
+            prefix = cluster
+        pieces.append(prefix.encode("utf-8"))
+        rest = rest[len(prefix):]
+        limit = budget
+        if len(pieces) > 255:
+            raise ValueError("more than 255 chunks in one sentence")
+    return pieces
+
+
+def _byte_pieces(blob: bytes, first_budget: int, budget: int) -> list[bytes]:
+    if not blob:
+        return [b""]
+    pieces = [blob[:first_budget]]
+    rest = blob[first_budget:]
+    while rest:
+        pieces.append(rest[:budget])
+        rest = rest[budget:]
+        if len(pieces) > 255:
+            raise ValueError("more than 255 chunks in one sentence")
     return pieces
 
 

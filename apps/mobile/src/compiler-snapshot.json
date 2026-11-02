@@ -1,9 +1,6 @@
 {
   "version": "0.6.0",
-  "commit": "8655435eb743d17d7a36ac187c5a140545463708",
-  "local_patches": [
-    "english_model.py",
-    "textseg.py"
-  ],
-  "manifest_sha256": "7c5310c7583b70d1f1f597cca705154fcdb83c4c244dbc500fb540a0d846d404"
+  "commit": "0dcef2e0e90d736a9d2a03a049c2853beace23d8",
+  "local_patches": [],
+  "manifest_sha256": "a636488b46dc553b58d365f0cfb58ea79436d0706057849d6be9653389f8b17b"
 }
