@@ -83,6 +83,19 @@ def emit_general(tree, symbols, *, function=False):
             for argument in value["arguments"]:
                 expression(argument)
             emit("call", {"function": value["function"], "argument_types": value["argument_types"], "return_type": value["type"]}, value)
+        elif kind == "New":
+            temps = [hidden(field_type) for field_type in value["field_types"]]
+            for offset in value["order"]:
+                expression(value["values"][offset])
+                emit("store", {"slot": temps[offset]}, value)
+            for temp in temps:
+                emit("load", {"slot": temp}, value)
+            emit("new_object", {"layout": value["layout"]}, value)
+            for temp in temps:
+                emit("clear", {"slot": temp}, value)
+        elif kind == "FieldGet":
+            expression(value["value"])
+            emit("get_field", {"layout": value["layout"], "offset": value["offset"], "type": value["type"]}, value)
         else:
             raise ValueError(f"Unknown resolved expression: {kind}")
 
@@ -128,6 +141,22 @@ def emit_general(tree, symbols, *, function=False):
                 effects.add("captured_output")
                 expression(statement["value"])
                 emit("show", {}, statement)
+            elif kind == "UpdateField":
+                temps = [hidden(field_type) for field_type in statement["field_types"]]
+                expression(statement["value"])
+                emit("store", {"slot": temps[statement["offset"]]}, statement)
+                for index, temp in enumerate(temps):
+                    if index == statement["offset"]:
+                        continue
+                    emit("load", {"slot": statement["slot"]}, statement)
+                    emit("get_field", {"layout": statement["layout"], "offset": index, "type": statement["field_types"][index]}, statement)
+                    emit("store", {"slot": temp}, statement)
+                for temp in temps:
+                    emit("load", {"slot": temp}, statement)
+                emit("new_object", {"layout": statement["layout"]}, statement)
+                emit("store", {"slot": statement["slot"]}, statement)
+                for temp in temps:
+                    emit("clear", {"slot": temp}, statement)
             elif kind == 'VLC':
                 vlc(statement)
             elif kind == "FFmpeg":
@@ -215,7 +244,29 @@ def emit_general(tree, symbols, *, function=False):
                           "return_type": definition["return_type"], "locals": compiled["locals"], "bytecode": compiled["bytecode"]})
     if len(locals_) > 10000 or len(functions) > 10000:
         raise GeneralLimitError("Program exceeds the supported number of locals or functions.")
-    return {"producer": "shipmbcompiler", "target": "shipmblang-bytecode", "version": "0.6" if 'vision' in capabilities else "0.5" if 'vlc' in capabilities else "0.4" if 'ffmpeg' in capabilities else "0.3",
+    raw_layouts = tree.get("layouts") or []
+    id_map = {}
+    layouts = []
+    if not function:
+        for layout in raw_layouts:
+            id_map[layout["id"]] = len(layouts)
+            published = {"id": len(layouts), "name": layout["name"], "fields": layout["fields"]}
+            layouts.append(published)
+
+        def remap(instructions):
+            for instruction in instructions:
+                if instruction["opcode"] in {"new_object", "get_field"}:
+                    instruction["operands"]["layout"] = id_map[instruction["operands"]["layout"]]
+
+        remap(code)
+        for compiled_function in functions:
+            remap(compiled_function["bytecode"])
+    contract = {"effects": sorted(effects), "required_capabilities": sorted(capabilities)}
+    artifact = {"producer": "shipmbcompiler", "target": "shipmblang-bytecode", "version": "0.6" if 'vision' in capabilities else "0.5" if 'vlc' in capabilities else "0.4" if 'ffmpeg' in capabilities else "0.3",
             "profile": "general", "native_machine_code": False, "bytecode": code, "locals": locals_, "functions": functions,
             "debug": {"producer": "shipmbcompiler", "pipeline": "direct", "grammar": GRAMMAR_VERSION},
-            "runtime_contract": {"effects": sorted(effects), "required_capabilities": sorted(capabilities)}}
+            "runtime_contract": contract}
+    if layouts:
+        artifact["layouts"] = layouts
+        contract["features"] = ["objects"]
+    return artifact

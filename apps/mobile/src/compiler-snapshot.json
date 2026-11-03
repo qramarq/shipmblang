@@ -1,6 +1,6 @@
 {
-  "version": "0.6.0",
-  "commit": "0dcef2e0e90d736a9d2a03a049c2853beace23d8",
+  "version": "0.7.0",
+  "commit": "c57d358bcb0659a9da5bbdb6b5e9f8388b3988c4",
   "local_patches": [],
-  "manifest_sha256": "a636488b46dc553b58d365f0cfb58ea79436d0706057849d6be9653389f8b17b"
+  "manifest_sha256": "f87005e0871c5ea1fa2db47c40c0e6688c777128da0e06f222e61a3eb4e164fe"
 }

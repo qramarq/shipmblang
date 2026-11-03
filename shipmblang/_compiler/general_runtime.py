@@ -27,7 +27,18 @@ FIELDS = {'const': {'value','type'}, 'load': {'slot'}, 'store': {'slot'}, 'clear
           'ffmpeg_probe': {'argument_types'},
           'vlc_execute': {'operation','argument_types'},
           'vlc_query': {'operation','argument_types','return_type'},
-          'vision_query': {'operation','argument_types','return_type','model_sha256'}}
+          'vision_query': {'operation','argument_types','return_type','model_sha256'},
+          'new_object': {'layout'},
+          'get_field': {'layout', 'offset', 'type'}}
+
+class ObjectValue:
+    """Immutable phase-1 object: layout id plus field values in offset order."""
+    __slots__ = ('layout', 'fields')
+
+    def __init__(self, layout, fields):
+        self.layout = layout
+        self.fields = tuple(fields)
+
 
 class VMError(ValueError):
     def __init__(self, message, pc=0):
@@ -35,12 +46,78 @@ class VMError(ValueError):
         self.pc = pc
 
 
-def _value(value, kind):
+def _object_name(kind):
+    if isinstance(kind, str) and kind.startswith('object[') and kind.endswith(']') and '[' not in kind[7:-1]:
+        return kind[7:-1]
+    return None
+
+
+def _value(value, kind, layouts=None):
     if kind == 'integer': return type(value) is int and value.bit_length() <= MAX_BITS
     if kind == 'boolean': return type(value) is bool
     if kind == 'text': return type(value) is str and len(value.encode('utf-8')) <= MAX_TEXT
+    name = _object_name(kind)
+    if name is not None:
+        if not isinstance(value, ObjectValue) or layouts is None:
+            return False
+        layout = next((item for item in layouts if item['name'] == name and item['id'] == value.layout), None)
+        return (layout is not None and len(value.fields) == len(layout['fields'])
+                and all(_value(item, field['type'], layouts) for item, field in zip(value.fields, layout['fields'])))
     return (isinstance(kind, str) and kind.startswith('list[') and type(value) is list
-            and len(value) <= MAX_ITEMS and all(_value(item, kind[5:-1]) for item in value))
+            and len(value) <= MAX_ITEMS and all(_value(item, kind[5:-1], layouts) for item in value))
+
+
+def _features(contract):
+    if 'features' not in contract:
+        return []
+    features = contract['features']
+    if not isinstance(features, list):
+        raise VMError('Invalid feature list.')
+    seen = set()
+    for item in features:
+        if type(item) is not str or item != 'objects':
+            raise VMError('Unknown feature requirement.')
+        if item in seen:
+            raise VMError('Duplicate feature requirement.')
+        seen.add(item)
+    return features
+
+
+def _layouts(artifact, objects):
+    layouts = artifact['layouts'] if 'layouts' in artifact else []
+    if not isinstance(layouts, list) or len(layouts) > MAX_ITEMS:
+        raise VMError('Invalid layout table.')
+    if objects != bool(layouts):
+        raise VMError('Objects feature and layouts must agree.')
+    names = set()
+    for index, layout in enumerate(layouts):
+        if not isinstance(layout, dict) or set(layout) != {'id', 'name', 'fields'}:
+            raise VMError('Invalid layout.')
+        if type(layout.get('id')) is not int or layout['id'] != index or type(layout.get('name')) is not str or not layout['name'] or layout['name'] in names:
+            raise VMError('Invalid layout.')
+        fields = layout.get('fields')
+        if not isinstance(fields, list) or not 1 <= len(fields) <= 256:
+            raise VMError('Invalid layout fields.')
+        seen = set()
+        for offset, field in enumerate(fields):
+            if (not isinstance(field, dict) or set(field) != {'name', 'type', 'offset'}
+                    or type(field.get('name')) is not str or not field['name'] or field['name'] in seen
+                    or type(field.get('offset')) is not int or field['offset'] != offset
+                    or type(field.get('type')) is not str or field['type'] not in TYPES):
+                raise VMError('Invalid layout field.')
+            seen.add(field['name'])
+        names.add(layout['name'])
+    return layouts
+
+
+def _find_layout(kind, layouts):
+    name = _object_name(kind)
+    if name is None:
+        return None
+    for layout in layouts:
+        if layout['name'] == name:
+            return layout
+    raise VMError('Unknown layout.')
 
 
 def _validate(artifact):
@@ -60,6 +137,9 @@ def _validate(artifact):
     if not isinstance(effects,list) or any(type(effect) is not str or effect not in allowed_effects for effect in effects): raise VMError('Invalid effect requirement.')
     if any(type(capability) is not str or capability not in allowed_capabilities for capability in capabilities): raise VMError('Unknown capability requirement.')
     if any(type(c) is not str for c in capabilities): raise VMError('Invalid capability requirement.')
+    features = _features(contract)
+    objects = 'objects' in features
+    layouts = _layouts(artifact, objects)
     functions=artifact.get('functions',[])
     if not isinstance(functions,list) or len(functions)>MAX_ITEMS: raise VMError('Invalid function table.')
     signatures={}; names=set(); instruction_count=len(artifact.get('bytecode',[])) if isinstance(artifact.get('bytecode'),list) else 0
@@ -67,42 +147,53 @@ def _validate(artifact):
         if (not isinstance(function,dict) or type(function.get('id')) is not int or function['id']<0
             or function['id'] in signatures or not isinstance(function.get('name'),str)
             or not function['name'] or function['name'] in names
-            or not isinstance(function.get('return_type'),str) or function['return_type'] not in TYPES):
+            or not isinstance(function.get('return_type'),str) or (_object_name(function['return_type']) is None and function['return_type'] not in TYPES)
+            or _object_name(function['return_type']) is not None):
+            if isinstance(function, dict) and _object_name(function.get('return_type')) is not None:
+                raise VMError('Phase 1 does not support objects as parameters or results.')
             raise VMError('Invalid function signature.')
-        slots=_local_slots(function.get('locals'))
+        slots=_local_slots(function.get('locals'), layouts, objects)
         parameters=function.get('parameter_slots')
         if (not isinstance(parameters,list) or any(type(slot) is not int or slot not in slots for slot in parameters)
             or len(set(parameters))!=len(parameters) or any(slots[slot]['mutable'] for slot in parameters)):
             raise VMError('Invalid function parameters.')
-        signatures[function['id']]={**function, 'slots':slots,
-            'argument_types':[slots[slot]['type'] for slot in parameters]}
+        argument_types = [slots[slot]['type'] for slot in parameters]
+        if any(_object_name(kind) is not None for kind in argument_types):
+            raise VMError('Phase 1 does not support objects as parameters or results.')
+        signatures[function['id']]={**function, 'slots':slots, 'argument_types':argument_types}
         names.add(function['name'])
         if isinstance(function.get('bytecode'),list): instruction_count+=len(function['bytecode'])
     if instruction_count>MAX_ITEMS: raise VMError('Total instruction limit exceeded.')
-    code,slots=_validate_unit(artifact.get('bytecode'),_local_slots(artifact.get('locals')),
-                             capabilities,effects,signatures)
+    code,slots=_validate_unit(artifact.get('bytecode'),_local_slots(artifact.get('locals'), layouts, objects),
+                             capabilities,effects,signatures,layouts,objects)
     for function in signatures.values():
         try:
             _validate_unit(function.get('bytecode'),function['slots'],capabilities,effects,signatures,
-                           function['parameter_slots'],function['return_type'])
+                           layouts,objects,function['parameter_slots'],function['return_type'])
         except VMError as exc:
             exc.code=function.get('bytecode')
             raise
-    return code,slots,signatures
+    return code,slots,signatures,layouts
 
 
-def _local_slots(descriptions):
+def _local_slots(descriptions, layouts=(), objects=False):
     if not isinstance(descriptions,list) or len(descriptions)>MAX_ITEMS: raise VMError('Invalid local descriptors.')
     slots={}
     for item in descriptions:
         if (not isinstance(item,dict) or type(item.get('id')) is not int or item['id']<0
             or not isinstance(item.get('name'),str) or not isinstance(item.get('type'),str)
-            or item['type'] not in TYPES or type(item.get('mutable')) is not bool or item['id'] in slots): raise VMError('Invalid local descriptor.')
+            or type(item.get('mutable')) is not bool or item['id'] in slots): raise VMError('Invalid local descriptor.')
+        if item['type'] not in TYPES:
+            if _object_name(item['type']) is None:
+                raise VMError('Invalid local descriptor.')
+            if not objects:
+                raise VMError('Object type requires the objects feature.')
+            _find_layout(item['type'], layouts)
         slots[item['id']]=item
     return slots
 
 
-def _validate_unit(code,slots,capabilities,effects,signatures,parameters=(),return_type=None):
+def _validate_unit(code,slots,capabilities,effects,signatures,layouts=(),objects=False,parameters=(),return_type=None):
     if not isinstance(code,list) or not 0<len(code)<=MAX_ITEMS: raise VMError('Invalid instruction count.')
     for pc, item in enumerate(code):
         if not isinstance(item,dict) or type(item.get('pc')) is not int or item['pc']!=pc: raise VMError('Invalid instruction address.',pc)
@@ -116,6 +207,13 @@ def _validate_unit(code,slots,capabilities,effects,signatures,parameters=(),retu
         if op=='binary' and (not isinstance(args['operator'],str) or args['operator'] not in BINARY): raise VMError('Invalid binary operator.',pc)
         if op=='unary' and args['operator'] not in ('not','negate'): raise VMError('Invalid unary operator.',pc)
         if op=='make_list' and (type(args['count']) is not int or not 0<=args['count']<=MAX_ITEMS or not isinstance(args['element_type'],str) or args['element_type'] not in SCALARS): raise VMError('Invalid list constructor.',pc)
+        if op in ('new_object', 'get_field'):
+            if not objects: raise VMError('Object opcode requires the objects feature.', pc)
+            if type(args.get('layout')) is not int or not 0 <= args['layout'] < len(layouts): raise VMError('Unknown layout.', pc)
+            layout = layouts[args['layout']]
+            if op == 'get_field':
+                if type(args.get('offset')) is not int or not 0 <= args['offset'] < len(layout['fields']): raise VMError('Field offset out of range.', pc)
+                if args.get('type') != layout['fields'][args['offset']]['type']: raise VMError('Field type mismatch.', pc)
         if op=='return' and return_type is None: raise VMError('Return outside a function.',pc)
         if op=='halt' and return_type is not None: raise VMError('Functions must return, not halt.',pc)
         if op=='clear' and args['slot'] in parameters: raise VMError('Function parameters cannot be cleared.',pc)
@@ -181,6 +279,8 @@ def _validate_unit(code,slots,capabilities,effects,signatures,parameters=(),retu
         elif op=='clear': definite.discard(args['slot']); possible.discard(args['slot'])
         elif op=='binary':
             right=pop(); left=pop(); operator=args['operator']
+            if (isinstance(left, str) and left.startswith('object[')) or (isinstance(right, str) and right.startswith('object[')):
+                raise VMError('Phase 1 does not support comparing objects.', pc)
             if left!=right: raise VMError('Binary operands have different types.',pc)
             if operator in ('and','or'):
                 if left!='boolean': raise VMError('Boolean operands required.',pc)
@@ -222,6 +322,13 @@ def _validate_unit(code,slots,capabilities,effects,signatures,parameters=(),retu
         elif op=='call':
             for kind in reversed(args['argument_types']): pop(kind)
             stack.append(args['return_type'])
+        elif op=='new_object':
+            layout = layouts[args['layout']]
+            for field in reversed(layout['fields']): pop(field['type'])
+            stack.append('object[' + layout['name'] + ']')
+        elif op=='get_field':
+            pop('object[' + layouts[args['layout']]['name'] + ']')
+            stack.append(args['type'])
         elif op=='text_segment':
             for kind in reversed(args['argument_types']): pop(kind)
             stack.append(args['return_type'])
@@ -275,10 +382,22 @@ def _text_segment(operation, arguments):
     raise ValueError('Unknown text segment operation.')
 
 
-def _display(value):
+def _display(value, layouts=None):
+    if isinstance(value, ObjectValue):
+        layout = layouts[value.layout]
+        body = ', '.join(f"{field['name']}: {_display(item, layouts)}" for field, item in zip(layout['fields'], value.fields))
+        return f"{layout['name']}{{{body}}}"
     if type(value) is bool: return 'true' if value else 'false'
-    if type(value) is list: return '['+', '.join(_display(item) for item in value)+']'
+    if type(value) is list: return '['+', '.join(_display(item, layouts) for item in value)+']'
     return str(value)
+
+
+def _export(value):
+    if isinstance(value, ObjectValue):
+        return {'layout': value.layout, 'fields': [_export(item) for item in value.fields]}
+    if type(value) is list:
+        return [_export(item) for item in value]
+    return value
 
 
 def run_general_artifact(artifact, *, max_steps=100000, host=None, ffmpeg_executor=None, vlc_executor=None, vision_executor=None):
@@ -286,7 +405,7 @@ def run_general_artifact(artifact, *, max_steps=100000, host=None, ffmpeg_execut
     pc=0
     try:
         if type(max_steps) is not int or not 1<=max_steps<=1000000: raise VMError('Invalid execution fuel limit.')
-        code,slots,functions=_validate(artifact)
+        code,slots,functions,layouts=_validate(artifact)
         if 'vlc' in artifact.get('runtime_contract',{}).get('required_capabilities',[]):
             if vlc_executor is None or not callable(getattr(vlc_executor,'invoke',None)):
                 raise VMError('VLC execution requires an explicit VLC executor.')
@@ -335,6 +454,18 @@ def run_general_artifact(artifact, *, max_steps=100000, host=None, ffmpeg_execut
                 index=stack.pop(); sequence=stack.pop()
                 if not 0<=index<len(sequence): raise VMError('List index out of bounds.',pc)
                 stack.append(sequence[index])
+            elif op=='new_object':
+                layout=layouts[args['layout']]; count=len(layout['fields']); allocated_items+=count
+                if allocated_items>1000000: raise VMError('Collection allocation limit exceeded.',pc)
+                fields=tuple(stack[-count:]) if count else ()
+                if count: del stack[-count:]
+                for field, item in zip(layout['fields'], fields):
+                    if not _value(item, field['type'], layouts): raise VMError('Invalid object field.', pc)
+                stack.append(ObjectValue(layout['id'], fields))
+            elif op=='get_field':
+                obj=stack.pop()
+                if not isinstance(obj, ObjectValue) or obj.layout!=args['layout']: raise VMError('Field access requires the declared object.', pc)
+                stack.append(obj.fields[args['offset']])
             elif op=='append':
                 item=stack.pop(); sequence=stack.pop()
                 if len(sequence)>=MAX_ITEMS: raise VMError('List exceeds the 10000-item limit.',pc)
@@ -345,7 +476,7 @@ def run_general_artifact(artifact, *, max_steps=100000, host=None, ffmpeg_execut
             elif op=='jump_if_false':
                 if not stack.pop(): next_pc=args['target']
             elif op=='show':
-                text=_display(stack.pop()); output_bytes+=len(text.encode('utf-8'))+1
+                text=_display(stack.pop(), layouts); output_bytes+=len(text.encode('utf-8'))+1
                 if output_bytes>MAX_TEXT: raise VMError('Output size limit exceeded.',pc)
                 state['output'].append(text); state['stdout']+=text+'\n'
             elif op=='vision_query':
@@ -431,7 +562,7 @@ def run_general_artifact(artifact, *, max_steps=100000, host=None, ffmpeg_execut
                 code,slots,stack,values,next_pc=frames.pop()
                 stack.append(result)
             pc=next_pc
-        state['variables']={item['name']:values[slot] for slot,item in slots.items() if slot in values and not item['name'].startswith('$')}
+        state['variables']={item['name']:_export(values[slot]) for slot,item in slots.items() if slot in values and not item['name'].startswith('$')}
         return state,[]
     except (VMError, UnicodeError) as exc:
         fault_pc=getattr(exc,'pc',pc)
