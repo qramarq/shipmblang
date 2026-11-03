@@ -29,7 +29,11 @@ FIELDS = {'const': {'value','type'}, 'load': {'slot'}, 'store': {'slot'}, 'clear
           'vlc_query': {'operation','argument_types','return_type'},
           'vision_query': {'operation','argument_types','return_type','model_sha256'},
           'new_object': {'layout'},
-          'get_field': {'layout', 'offset', 'type'}}
+          'get_field': {'layout', 'offset', 'type'},
+          'set_field': {'layout', 'offset', 'type'},
+          'call_virtual': {'slot', 'argument_types', 'return_type'},
+          'is_instance': {'layout'}}
+FEATURE_NAMES = ('objects', 'object_composition', 'methods', 'inheritance', 'interfaces')
 
 class ObjectValue:
     """Immutable phase-1 object: layout id plus field values in offset order."""
@@ -52,6 +56,127 @@ def _object_name(kind):
     return None
 
 
+def _interface_name(kind):
+    if isinstance(kind, str) and kind.startswith('interface[') and kind.endswith(']') and '[' not in kind[10:-1]:
+        return kind[10:-1]
+    return None
+
+
+def _composed(kind):
+    """Object or interface used as a parameter, result, field, or list element."""
+    if _object_name(kind) or _interface_name(kind):
+        return True
+    if isinstance(kind, str) and kind.startswith('list[') and kind.endswith(']'):
+        inner = kind[5:-1]
+        return _object_name(inner) is not None or _interface_name(inner) is not None
+    return False
+
+
+def _flat_fields(layout, layouts):
+    fields = layout['fields']
+    parent = layout.get('parent')
+    if parent is None:
+        return fields
+    return _flat_fields(layouts[parent], layouts) + fields
+
+
+def _field_layout_ok(obj, layout_id, layouts, features):
+    if not isinstance(obj, ObjectValue):
+        return False
+    if obj.layout == layout_id:
+        return True
+    return 'inheritance' in features and _extends(obj.layout, layout_id, layouts)
+
+
+def _resolve_method(layout, slot, layouts):
+    seen = set()
+    current = layout
+    while current is not None and current['id'] not in seen:
+        seen.add(current['id'])
+        for method in current.get('methods', ()):
+            if method['slot'] == slot:
+                return method
+        parent = current.get('parent')
+        current = layouts[parent] if parent is not None else None
+    return None
+
+
+def _virtual_signature(args, layouts, interfaces, features):
+    types = args['argument_types']
+    if not types or any(type(kind) is not str for kind in types):
+        return False
+    receiver = types[0]
+    kind, iface = _object_name(receiver), _interface_name(receiver)
+    if kind:
+        layout = _layout_named(kind, layouts)
+        method = _resolve_method(layout, args['slot'], layouts) if layout is not None else None
+        if method is None or not _subtype(receiver, method['parameter_types'][0], layouts, interfaces, features):
+            return False
+    elif iface:
+        interface = next((item for item in interfaces if item['name'] == iface), None)
+        method = next((item for item in interface['methods'] if item['slot'] == args['slot']), None) if interface else None
+        if method is None or method['parameter_types'][0] != receiver:
+            return False
+    else:
+        return False
+    return (method['parameter_types'][1:] == list(types[1:]) and method['return_type'] == args['return_type']
+            and all(_type_known(item, layouts, interfaces) for item in (*types, args['return_type'])))
+
+
+def _extends(layout_id, ancestor_id, layouts):
+    seen = set()
+    current = layout_id
+    while current not in seen:
+        if current == ancestor_id:
+            return True
+        seen.add(current)
+        parent = layouts[current].get('parent')
+        if parent is None:
+            return False
+        current = parent
+    return False
+
+
+def _implements(layout, interface_id, layouts):
+    seen = set()
+    current = layout
+    while current['id'] not in seen:
+        seen.add(current['id'])
+        if interface_id in current.get('implements', ()):
+            return True
+        parent = current.get('parent')
+        if parent is None:
+            return False
+        current = layouts[parent]
+    return False
+
+
+def _layout_named(name, layouts):
+    for layout in layouts:
+        if layout['name'] == name:
+            return layout
+    return None
+
+
+def _subtype(actual, expected, layouts, interfaces, features):
+    if actual == expected:
+        return True
+    if 'inheritance' in features:
+        child, parent = _object_name(actual), _object_name(expected)
+        if child and parent:
+            child_layout, parent_layout = _layout_named(child, layouts), _layout_named(parent, layouts)
+            if child_layout and parent_layout and _extends(child_layout['id'], parent_layout['id'], layouts):
+                return True
+    if 'interfaces' in features:
+        kind, iface = _object_name(actual), _interface_name(expected)
+        if kind and iface:
+            layout = _layout_named(kind, layouts)
+            interface = next((item for item in interfaces if item['name'] == iface), None)
+            if layout and interface and _implements(layout, interface['id'], layouts):
+                return True
+    return False
+
+
 def _value(value, kind, layouts=None):
     if kind == 'integer': return type(value) is int and value.bit_length() <= MAX_BITS
     if kind == 'boolean': return type(value) is bool
@@ -61,8 +186,9 @@ def _value(value, kind, layouts=None):
         if not isinstance(value, ObjectValue) or layouts is None:
             return False
         layout = next((item for item in layouts if item['name'] == name and item['id'] == value.layout), None)
-        return (layout is not None and len(value.fields) == len(layout['fields'])
-                and all(_value(item, field['type'], layouts) for item, field in zip(value.fields, layout['fields'])))
+        flat = _flat_fields(layout, layouts) if layout is not None else None
+        return (flat is not None and len(value.fields) == len(flat)
+                and all(_value(item, field['type'], layouts) for item, field in zip(value.fields, flat)))
     return (isinstance(kind, str) and kind.startswith('list[') and type(value) is list
             and len(value) <= MAX_ITEMS and all(_value(item, kind[5:-1], layouts) for item in value))
 
@@ -75,38 +201,176 @@ def _features(contract):
         raise VMError('Invalid feature list.')
     seen = set()
     for item in features:
-        if type(item) is not str or item != 'objects':
+        if type(item) is not str or item not in FEATURE_NAMES:
             raise VMError('Unknown feature requirement.')
         if item in seen:
             raise VMError('Duplicate feature requirement.')
         seen.add(item)
+    for name in ('object_composition', 'methods', 'inheritance', 'interfaces'):
+        if name in seen and 'objects' not in seen:
+            raise VMError(f'Feature {name} requires objects.')
+    if 'interfaces' in seen and 'methods' not in seen:
+        raise VMError('Feature interfaces requires methods.')
+    if [name for name in FEATURE_NAMES if name in seen] != features:
+        raise VMError('Invalid feature list.')
     return features
 
 
-def _layouts(artifact, objects):
+def _type_known(kind, layouts, interfaces):
+    if kind in TYPES:
+        return True
+    name = _object_name(kind)
+    if name is not None:
+        return _layout_named(name, layouts) is not None
+    iface = _interface_name(kind)
+    if iface is not None:
+        return any(item['name'] == iface for item in interfaces)
+    if isinstance(kind, str) and kind.startswith('list[') and kind.endswith(']') and kind.count('[') == 1:
+        return kind[5:-1] in SCALARS
+    if isinstance(kind, str) and kind.startswith('list[') and kind.endswith(']'):
+        return _type_known(kind[5:-1], layouts, interfaces)
+    return False
+
+
+def _interfaces(artifact, features):
+    present = 'interfaces' in artifact
+    wanted = 'interfaces' in features
+    if wanted != present:
+        raise VMError('Interfaces feature and interfaces must agree.')
+    if not wanted:
+        return []
+    items = artifact['interfaces']
+    if not isinstance(items, list) or not items or len(items) > MAX_ITEMS:
+        raise VMError('Invalid interface table.')
+    names = set()
+    for index, item in enumerate(items):
+        if not isinstance(item, dict) or set(item) != {'id', 'name', 'methods'}:
+            raise VMError('Invalid interface.')
+        if type(item.get('id')) is not int or item['id'] != index or type(item.get('name')) is not str or not item['name'] or item['name'] in names:
+            raise VMError('Invalid interface.')
+        methods = item.get('methods')
+        if not isinstance(methods, list) or not methods or len(methods) > 256:
+            raise VMError('Invalid interface methods.')
+        seen = set()
+        for method in methods:
+            if (not isinstance(method, dict) or set(method) != {'name', 'slot', 'parameter_types', 'return_type'}
+                    or type(method.get('name')) is not str or not method['name'] or method['name'] in seen
+                    or type(method.get('slot')) is not int or method['slot'] < 0
+                    or not isinstance(method.get('parameter_types'), list) or not method['parameter_types']
+                    or method['parameter_types'][0] != f"interface[{item['name']}]"
+                    or type(method.get('return_type')) is not str):
+                raise VMError('Invalid interface method.')
+            seen.add(method['name'])
+        names.add(item['name'])
+    return items
+
+
+def _layouts(artifact, features, interfaces):
+    objects = 'objects' in features
     layouts = artifact['layouts'] if 'layouts' in artifact else []
     if not isinstance(layouts, list) or len(layouts) > MAX_ITEMS:
         raise VMError('Invalid layout table.')
     if objects != bool(layouts):
         raise VMError('Objects feature and layouts must agree.')
-    names = set()
+    names, has_parent, has_methods = set(), False, False
+    allowed = {'id', 'name', 'fields'}
+    if 'inheritance' in features:
+        allowed.add('parent')
+    if 'methods' in features:
+        allowed.add('methods')
+    if 'interfaces' in features:
+        allowed.add('implements')
     for index, layout in enumerate(layouts):
-        if not isinstance(layout, dict) or set(layout) != {'id', 'name', 'fields'}:
+        if not isinstance(layout, dict) or not {'id', 'name', 'fields'} <= set(layout) <= allowed:
             raise VMError('Invalid layout.')
         if type(layout.get('id')) is not int or layout['id'] != index or type(layout.get('name')) is not str or not layout['name'] or layout['name'] in names:
             raise VMError('Invalid layout.')
+        if 'parent' in layout:
+            has_parent = True
+            parent = layout['parent']
+            if type(parent) is not int or not 0 <= parent < index:
+                raise VMError('Invalid layout.')
+        base = len(_flat_fields(layouts[layout['parent']], layouts)) if 'parent' in layout else 0
         fields = layout.get('fields')
-        if not isinstance(fields, list) or not 1 <= len(fields) <= 256:
+        if not isinstance(fields, list) or len(fields) > 256 or base + len(fields) > 256:
+            raise VMError('Invalid layout fields.')
+        if 'parent' not in layout and not 1 <= len(fields) <= 256:
+            raise VMError('Invalid layout fields.')
+        if base + len(fields) < 1:
             raise VMError('Invalid layout fields.')
         seen = set()
         for offset, field in enumerate(fields):
-            if (not isinstance(field, dict) or set(field) != {'name', 'type', 'offset'}
+            field_keys = {'name', 'type', 'offset'}
+            if 'methods' in features:
+                field_keys.add('private')
+            if (not isinstance(field, dict) or not {'name', 'type', 'offset'} <= set(field) <= field_keys
                     or type(field.get('name')) is not str or not field['name'] or field['name'] in seen
-                    or type(field.get('offset')) is not int or field['offset'] != offset
-                    or type(field.get('type')) is not str or field['type'] not in TYPES):
+                    or type(field.get('offset')) is not int or field['offset'] != base + offset
+                    or type(field.get('type')) is not str):
+                raise VMError('Invalid layout field.')
+            if 'private' in field and field['private'] is not True:
+                raise VMError('Invalid layout field.')
+            if field['type'] not in TYPES and not (
+                    'object_composition' in features and (
+                        _object_name(field['type']) or _interface_name(field['type'])
+                        or (field['type'].startswith('list[') and (_object_name(field['type'][5:-1]) or _interface_name(field['type'][5:-1]))))):
                 raise VMError('Invalid layout field.')
             seen.add(field['name'])
+        if 'methods' in layout:
+            has_methods = True
+            methods = layout['methods']
+            if not isinstance(methods, list) or not methods or len(methods) > 256:
+                raise VMError('Invalid layout.')
+            slots, method_names = set(), set()
+            for method in methods:
+                if (not isinstance(method, dict)
+                        or set(method) != {'name', 'slot', 'function', 'fixed', 'parameter_types', 'return_type'}
+                        or type(method.get('name')) is not str or not method['name'] or method['name'] in method_names
+                        or type(method.get('slot')) is not int or method['slot'] < 0 or method['slot'] in slots
+                        or type(method.get('function')) is not int or method['function'] < 0
+                        or type(method.get('fixed')) is not bool
+                        or not isinstance(method.get('parameter_types'), list) or not method['parameter_types']
+                        or method['parameter_types'][0] != f"object[{layout['name']}]"
+                        or type(method.get('return_type')) is not str):
+                    raise VMError('Invalid layout.')
+                slots.add(method['slot'])
+                method_names.add(method['name'])
+        if 'implements' in layout:
+            claimed = layout['implements']
+            if not isinstance(claimed, list) or not claimed or any(type(item) is not int or not 0 <= item < len(interfaces) for item in claimed) or len(set(claimed)) != len(claimed):
+                raise VMError('Invalid layout.')
         names.add(layout['name'])
+    if has_parent != ('inheritance' in features):
+        raise VMError('Inheritance feature and layouts must agree.')
+    if has_methods != ('methods' in features):
+        raise VMError('Methods feature and layouts must agree.')
+    for layout in layouts:
+        for field in layout['fields']:
+            if not _type_known(field['type'], layouts, interfaces):
+                raise VMError('Invalid layout field.')
+        for method in layout.get('methods', []):
+            if not all(_type_known(kind, layouts, interfaces) for kind in method['parameter_types']) or not _type_known(method['return_type'], layouts, interfaces):
+                raise VMError('Invalid layout.')
+            parent_id = layout.get('parent')
+            while parent_id is not None:
+                parent = layouts[parent_id]
+                ancestor = next((item for item in parent.get('methods', []) if item['name'] == method['name']), None)
+                if ancestor:
+                    if ancestor['fixed']:
+                        raise VMError('Invalid layout.')
+                    if (ancestor['slot'] != method['slot'] or ancestor['parameter_types'][1:] != method['parameter_types'][1:]
+                            or ancestor['return_type'] != method['return_type']):
+                        raise VMError('Invalid layout.')
+                    break
+                else:
+                    taken = {item['slot'] for item in parent.get('methods', [])}
+                    if method['slot'] in taken:
+                        raise VMError('Invalid layout.')
+                parent_id = parent.get('parent')
+    for interface in interfaces:
+        for method in interface['methods']:
+            if not all(_type_known(kind, layouts, interfaces) for kind in method['parameter_types']) or not _type_known(method['return_type'], layouts, interfaces):
+                raise VMError('Invalid interface method.')
     return layouts
 
 
@@ -139,7 +403,8 @@ def _validate(artifact):
     if any(type(c) is not str for c in capabilities): raise VMError('Invalid capability requirement.')
     features = _features(contract)
     objects = 'objects' in features
-    layouts = _layouts(artifact, objects)
+    interfaces = _interfaces(artifact, features)
+    layouts = _layouts(artifact, features, interfaces)
     functions=artifact.get('functions',[])
     if not isinstance(functions,list) or len(functions)>MAX_ITEMS: raise VMError('Invalid function table.')
     signatures={}; names=set(); instruction_count=len(artifact.get('bytecode',[])) if isinstance(artifact.get('bytecode'),list) else 0
@@ -147,53 +412,95 @@ def _validate(artifact):
         if (not isinstance(function,dict) or type(function.get('id')) is not int or function['id']<0
             or function['id'] in signatures or not isinstance(function.get('name'),str)
             or not function['name'] or function['name'] in names
-            or not isinstance(function.get('return_type'),str) or (_object_name(function['return_type']) is None and function['return_type'] not in TYPES)
-            or _object_name(function['return_type']) is not None):
-            if isinstance(function, dict) and _object_name(function.get('return_type')) is not None:
-                raise VMError('Phase 1 does not support objects as parameters or results.')
+            or not isinstance(function.get('return_type'),str)):
             raise VMError('Invalid function signature.')
-        slots=_local_slots(function.get('locals'), layouts, objects)
+        if _composed(function['return_type']) and 'object_composition' not in features:
+            raise VMError('Phase 1 does not support objects as parameters or results.')
+        if not _type_known(function['return_type'], layouts, interfaces):
+            raise VMError('Invalid function signature.')
+        slots=_local_slots(function.get('locals'), layouts, features, interfaces)
         parameters=function.get('parameter_slots')
         if (not isinstance(parameters,list) or any(type(slot) is not int or slot not in slots for slot in parameters)
             or len(set(parameters))!=len(parameters) or any(slots[slot]['mutable'] for slot in parameters)):
             raise VMError('Invalid function parameters.')
         argument_types = [slots[slot]['type'] for slot in parameters]
-        if any(_object_name(kind) is not None for kind in argument_types):
+        if any(_composed(kind) and 'object_composition' not in features for kind in argument_types):
             raise VMError('Phase 1 does not support objects as parameters or results.')
+        if not all(_type_known(kind, layouts, interfaces) for kind in argument_types):
+            raise VMError('Invalid function signature.')
         signatures[function['id']]={**function, 'slots':slots, 'argument_types':argument_types}
         names.add(function['name'])
         if isinstance(function.get('bytecode'),list): instruction_count+=len(function['bytecode'])
+    for layout in layouts:
+        for method in layout.get('methods', []):
+            function = signatures.get(method['function'])
+            if not function or function['argument_types'] != method['parameter_types'] or function['return_type'] != method['return_type']:
+                raise VMError('Invalid layout.')
+    if ('object_composition' in features) != _composition_used(artifact, layouts, signatures):
+        raise VMError('Feature object_composition requires a composed object type.')
     if instruction_count>MAX_ITEMS: raise VMError('Total instruction limit exceeded.')
-    code,slots=_validate_unit(artifact.get('bytecode'),_local_slots(artifact.get('locals'), layouts, objects),
-                             capabilities,effects,signatures,layouts,objects)
+    code,slots=_validate_unit(artifact.get('bytecode'),_local_slots(artifact.get('locals'), layouts, features, interfaces),
+                             capabilities,effects,signatures,layouts,objects,features,interfaces)
     for function in signatures.values():
         try:
             _validate_unit(function.get('bytecode'),function['slots'],capabilities,effects,signatures,
-                           layouts,objects,function['parameter_slots'],function['return_type'])
+                           layouts,objects,features,interfaces,function['parameter_slots'],function['return_type'])
         except VMError as exc:
             exc.code=function.get('bytecode')
             raise
     return code,slots,signatures,layouts
 
 
-def _local_slots(descriptions, layouts=(), objects=False):
+def _composition_used(artifact, layouts, signatures):
+    def interesting(kind):
+        # A bare object local is phase 1. Composition is a field, parameter, result, or list element.
+        return _composed(kind)
+    if any(interesting(field['type']) for layout in layouts for field in layout['fields']):
+        return True
+    for function in signatures.values():
+        if interesting(function['return_type']) or any(interesting(kind) for kind in function['argument_types']):
+            return True
+    for unit in (artifact, *signatures.values()):
+        code = unit.get('bytecode')
+        if not isinstance(code, list):
+            continue
+        for item in code:
+            args = item.get('operands') if isinstance(item, dict) else None
+            if not isinstance(args, dict):
+                continue
+            if item.get('opcode') == 'make_list' and interesting(args.get('element_type', '')):
+                return True
+    return False
+
+
+def _local_slots(descriptions, layouts=(), features=(), interfaces=()):
+    if isinstance(features, bool):
+        features = ['objects'] if features else []
+    objects = 'objects' in features
     if not isinstance(descriptions,list) or len(descriptions)>MAX_ITEMS: raise VMError('Invalid local descriptors.')
     slots={}
     for item in descriptions:
         if (not isinstance(item,dict) or type(item.get('id')) is not int or item['id']<0
             or not isinstance(item.get('name'),str) or not isinstance(item.get('type'),str)
             or type(item.get('mutable')) is not bool or item['id'] in slots): raise VMError('Invalid local descriptor.')
-        if item['type'] not in TYPES:
-            if _object_name(item['type']) is None:
+        kind = item['type']
+        if kind not in TYPES:
+            if _object_name(kind) is not None:
+                if not objects:
+                    raise VMError('Object type requires the objects feature.')
+                _find_layout(kind, layouts)
+            elif _interface_name(kind) is not None:
+                if 'interfaces' not in features or not any(item_name['name'] == _interface_name(kind) for item_name in interfaces):
+                    raise VMError('Invalid local descriptor.')
+            elif _composed(kind) and 'object_composition' in features and _type_known(kind, layouts, interfaces):
+                pass
+            else:
                 raise VMError('Invalid local descriptor.')
-            if not objects:
-                raise VMError('Object type requires the objects feature.')
-            _find_layout(item['type'], layouts)
         slots[item['id']]=item
     return slots
 
 
-def _validate_unit(code,slots,capabilities,effects,signatures,layouts=(),objects=False,parameters=(),return_type=None):
+def _validate_unit(code,slots,capabilities,effects,signatures,layouts=(),objects=False,features=(),interfaces=(),parameters=(),return_type=None):
     if not isinstance(code,list) or not 0<len(code)<=MAX_ITEMS: raise VMError('Invalid instruction count.')
     for pc, item in enumerate(code):
         if not isinstance(item,dict) or type(item.get('pc')) is not int or item['pc']!=pc: raise VMError('Invalid instruction address.',pc)
@@ -206,14 +513,23 @@ def _validate_unit(code,slots,capabilities,effects,signatures,layouts=(),objects
         if op in ('jump','jump_if_false') and (type(args['target']) is not int or not 0<=args['target']<len(code)): raise VMError('Invalid jump target.',pc)
         if op=='binary' and (not isinstance(args['operator'],str) or args['operator'] not in BINARY): raise VMError('Invalid binary operator.',pc)
         if op=='unary' and args['operator'] not in ('not','negate'): raise VMError('Invalid unary operator.',pc)
-        if op=='make_list' and (type(args['count']) is not int or not 0<=args['count']<=MAX_ITEMS or not isinstance(args['element_type'],str) or args['element_type'] not in SCALARS): raise VMError('Invalid list constructor.',pc)
-        if op in ('new_object', 'get_field'):
+        if op=='make_list' and (type(args['count']) is not int or not 0<=args['count']<=MAX_ITEMS or not isinstance(args['element_type'],str)
+                or not (args['element_type'] in SCALARS or ('object_composition' in features and _composed(args['element_type']) and _type_known(args['element_type'], layouts, interfaces)))):
+            raise VMError('Invalid list constructor.',pc)
+        if op in ('new_object', 'get_field', 'set_field', 'is_instance'):
             if not objects: raise VMError('Object opcode requires the objects feature.', pc)
             if type(args.get('layout')) is not int or not 0 <= args['layout'] < len(layouts): raise VMError('Unknown layout.', pc)
             layout = layouts[args['layout']]
-            if op == 'get_field':
-                if type(args.get('offset')) is not int or not 0 <= args['offset'] < len(layout['fields']): raise VMError('Field offset out of range.', pc)
-                if args.get('type') != layout['fields'][args['offset']]['type']: raise VMError('Field type mismatch.', pc)
+            flat = _flat_fields(layout, layouts)
+            if op in ('get_field', 'set_field'):
+                if type(args.get('offset')) is not int or not 0 <= args['offset'] < len(flat): raise VMError('Field offset out of range.', pc)
+                if args.get('type') != flat[args['offset']]['type']: raise VMError('Field type mismatch.', pc)
+        if op=='call_virtual':
+            if 'methods' not in features: raise VMError('Method opcode requires the methods feature.', pc)
+            if type(args.get('slot')) is not int or args['slot'] < 0 or not isinstance(args.get('argument_types'), list) or not args['argument_types'] or type(args.get('return_type')) is not str:
+                raise VMError('Invalid virtual call.', pc)
+            if not _virtual_signature(args, layouts, interfaces, features):
+                raise VMError('Invalid virtual call.', pc)
         if op=='return' and return_type is None: raise VMError('Return outside a function.',pc)
         if op=='halt' and return_type is not None: raise VMError('Functions must return, not halt.',pc)
         if op=='clear' and args['slot'] in parameters: raise VMError('Function parameters cannot be cleared.',pc)
@@ -266,7 +582,8 @@ def _validate_unit(code,slots,capabilities,effects,signatures,layouts=(),objects
         def pop(expected=None):
             if not stack: raise VMError('Stack underflow.',pc)
             kind=stack.pop()
-            if expected is not None and kind!=expected: raise VMError('Operand type mismatch.',pc)
+            if expected is not None and kind!=expected and not _subtype(kind, expected, layouts, interfaces, features):
+                raise VMError('Operand type mismatch.',pc)
             return kind
         if op=='const': stack.append(args['type'])
         elif op=='load':
@@ -307,7 +624,8 @@ def _validate_unit(code,slots,capabilities,effects,signatures,layouts=(),objects
             stack.append(kind[5:-1])
         elif op=='append':
             item=pop(); kind=pop()
-            if not kind.startswith('list[') or item!=kind[5:-1]: raise VMError('Append requires a list and a matching element.',pc)
+            if not kind.startswith('list[') or not (item==kind[5:-1] or _subtype(item, kind[5:-1], layouts, interfaces, features)):
+                raise VMError('Append requires a list and a matching element.',pc)
             stack.append(kind)
         elif op=='jump_if_false': pop('boolean')
         elif op=='show': pop()
@@ -319,16 +637,25 @@ def _validate_unit(code,slots,capabilities,effects,signatures,layouts=(),objects
         elif op=='ffmpeg_probe':
             for kind in reversed(args['argument_types']): pop(kind)
             stack.append('text')
-        elif op=='call':
+        elif op=='call' or op=='call_virtual':
             for kind in reversed(args['argument_types']): pop(kind)
             stack.append(args['return_type'])
         elif op=='new_object':
             layout = layouts[args['layout']]
-            for field in reversed(layout['fields']): pop(field['type'])
+            for field in reversed(_flat_fields(layout, layouts)): pop(field['type'])
             stack.append('object[' + layout['name'] + ']')
         elif op=='get_field':
             pop('object[' + layouts[args['layout']]['name'] + ']')
             stack.append(args['type'])
+        elif op=='set_field':
+            pop(args['type'])
+            kind = pop('object[' + layouts[args['layout']]['name'] + ']')
+            stack.append(kind)
+        elif op=='is_instance':
+            kind = pop()
+            if _object_name(kind) is None:
+                raise VMError('Instance test requires an object.', pc)
+            stack.append('boolean')
         elif op=='text_segment':
             for kind in reversed(args['argument_types']): pop(kind)
             stack.append(args['return_type'])
@@ -385,7 +712,8 @@ def _text_segment(operation, arguments):
 def _display(value, layouts=None):
     if isinstance(value, ObjectValue):
         layout = layouts[value.layout]
-        body = ', '.join(f"{field['name']}: {_display(item, layouts)}" for field, item in zip(layout['fields'], value.fields))
+        flat = _flat_fields(layout, layouts)
+        body = ', '.join(f"{field['name']}: {_display(item, layouts)}" for field, item in zip(flat, value.fields))
         return f"{layout['name']}{{{body}}}"
     if type(value) is bool: return 'true' if value else 'false'
     if type(value) is list: return '['+', '.join(_display(item, layouts) for item in value)+']'
@@ -406,6 +734,7 @@ def run_general_artifact(artifact, *, max_steps=100000, host=None, ffmpeg_execut
     try:
         if type(max_steps) is not int or not 1<=max_steps<=1000000: raise VMError('Invalid execution fuel limit.')
         code,slots,functions,layouts=_validate(artifact)
+        features=_features(artifact.get('runtime_contract',{}))
         if 'vlc' in artifact.get('runtime_contract',{}).get('required_capabilities',[]):
             if vlc_executor is None or not callable(getattr(vlc_executor,'invoke',None)):
                 raise VMError('VLC execution requires an explicit VLC executor.')
@@ -455,17 +784,29 @@ def run_general_artifact(artifact, *, max_steps=100000, host=None, ffmpeg_execut
                 if not 0<=index<len(sequence): raise VMError('List index out of bounds.',pc)
                 stack.append(sequence[index])
             elif op=='new_object':
-                layout=layouts[args['layout']]; count=len(layout['fields']); allocated_items+=count
+                layout=layouts[args['layout']]; flat=_flat_fields(layout, layouts); count=len(flat); allocated_items+=count
                 if allocated_items>1000000: raise VMError('Collection allocation limit exceeded.',pc)
                 fields=tuple(stack[-count:]) if count else ()
                 if count: del stack[-count:]
-                for field, item in zip(layout['fields'], fields):
+                for field, item in zip(flat, fields):
                     if not _value(item, field['type'], layouts): raise VMError('Invalid object field.', pc)
                 stack.append(ObjectValue(layout['id'], fields))
             elif op=='get_field':
                 obj=stack.pop()
-                if not isinstance(obj, ObjectValue) or obj.layout!=args['layout']: raise VMError('Field access requires the declared object.', pc)
+                if not _field_layout_ok(obj, args['layout'], layouts, features): raise VMError('Field access requires the declared object.', pc)
                 stack.append(obj.fields[args['offset']])
+            elif op=='set_field':
+                value=stack.pop(); obj=stack.pop()
+                if not _field_layout_ok(obj, args['layout'], layouts, features): raise VMError('Field access requires the declared object.', pc)
+                flat=_flat_fields(layouts[obj.layout], layouts)
+                if not _value(value, flat[args['offset']]['type'], layouts): raise VMError('Invalid object field.', pc)
+                updated=list(obj.fields); updated[args['offset']]=value
+                allocated_items+=len(updated)
+                if allocated_items>1000000: raise VMError('Collection allocation limit exceeded.',pc)
+                stack.append(ObjectValue(obj.layout, updated))
+            elif op=='is_instance':
+                obj=stack.pop()
+                stack.append(isinstance(obj, ObjectValue) and _extends(obj.layout, args['layout'], layouts))
             elif op=='append':
                 item=stack.pop(); sequence=stack.pop()
                 if len(sequence)>=MAX_ITEMS: raise VMError('List exceeds the 10000-item limit.',pc)
@@ -549,6 +890,17 @@ def run_general_artifact(artifact, *, max_steps=100000, host=None, ffmpeg_execut
                 if not _value(result, args['return_type']):
                     raise VMError('Invalid text segment result.', pc)
                 stack.append(result)
+            elif op=='call_virtual':
+                if len(frames)>=63: raise VMError('Call depth limit exceeded.',pc)
+                count=len(args['argument_types']); arguments=stack[-count:] if count else []
+                if count: del stack[-count:]
+                receiver=arguments[0]
+                method=_resolve_method(layouts[receiver.layout], args['slot'], layouts) if isinstance(receiver, ObjectValue) else None
+                if method is None: raise VMError('Virtual call requires an object.', pc)
+                function=functions[method['function']]
+                frames.append((code,slots,stack,values,next_pc))
+                code=function['bytecode']; slots=function['slots']; stack=[]
+                values=dict(zip(function['parameter_slots'],arguments)); next_pc=0
             elif op=='call':
                 if len(frames)>=63: raise VMError('Call depth limit exceeded.',pc)
                 function=functions[args['function']]
