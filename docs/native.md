@@ -314,7 +314,7 @@ the ignored `native/bin` folder. The launcher uses that executable when
 
 The native C++ compiler is a separate distribution and is not pinned by the
 bundled Python compiler snapshot. The current Python snapshot is 0.6.0 from
-compiler commit `941355092ba75f5200b832f8ab33923afb49a102`. Vision programs use
+compiler commit `4b0dd272a717835091eea11778a0f2dfd2622066`. Vision programs use
 the library documented above. The native launcher remains available for
 deterministic compilation and execution of its supported instructions.
 

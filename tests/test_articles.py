@@ -32,18 +32,14 @@ class ArticleAndPronounTests(unittest.TestCase):
                 self.assertEqual(result["status"], "compiled", result)
                 self.assertEqual(result["runtime"]["stdout"], expected)
 
-    def test_ambiguous_it_asks_for_a_name(self):
+    def test_it_means_the_previous_thing(self):
         result = self.compile(
             "Let total be a mutable integer with value 1. "
-            "Let extra be a mutable integer with value 2. Add 8 to it."
+            "Let extra be a mutable integer with value 2. Add 8 to it. "
+            "Show extra. Show total."
         )
-        self.assertEqual(result["status"], "needs_clarification", result)
-        self.assertIsNone(result["target_code"])
-        self.assertNotIn("runtime", result)
-        self.assertTrue(any(
-            item["question"] == "Which declared value does this reference mean? Use its name."
-            for item in result["clarifications"]
-        ), result)
+        self.assertEqual(result["status"], "compiled", result)
+        self.assertEqual(result["runtime"]["stdout"], "10\n1\n")
 
     def test_them_shows_the_single_list_and_is_not_an_integer_target(self):
         shown = self.compile("Let values be the list of integers 2, 5. Show them.")
