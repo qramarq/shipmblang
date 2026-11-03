@@ -1,8 +1,8 @@
 {
   "distribution": "shipmbcompiler",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "sha256": {
-    "__init__.py": "53b6ed0b703692f0f21c50957e6f3afeaaeeaa3fd2c2f24eed86e3196b87caac",
+    "__init__.py": "6ce391640278045a6d5eea45482857153c32749819f26dd997a3cfc905aa704c",
     "clarification.py": "eaeccc0b42ce5e1a13b4d2ec05f89d075593b057c2cae1b418171519dc8fc061",
     "compiler.py": "bba94ffa3356b02c7430280cc50eecab9674ff0a960601c20a07ab7d42b311ab",
     "core.py": "542bc91581bcd12d9c5cee2ca661f163ae9e915e92dd7a4f0490e3b8fe89b340",
@@ -12,9 +12,9 @@
     "english_model.py": "e8b7a951e960279074410a8cf11245d63d9d9d2fca3d9d01769be0f52d7d42e6",
     "ffmpeg.py": "1ce359e798e54035a978b6ad4d5b9d8044526a5a272ca0c842b400bdcb4ac018",
     "ffmpeg_catalog.py": "2b18d08f6b3ca2a3c8b0b4021ed8c7e4c8f7b5ce8621ca297d946ab0523ebbd5",
-    "general_codegen.py": "976e026eace4a60007a1a92aed159d5afc5498df0746c811d1c30ebd2ed6b012",
-    "general_english.py": "d652de320c5bb838551b3ff84e90081e4c74dbbfed5abb470f8fef875df24c6b",
-    "general_runtime.py": "2534cae13f28f7fd7b4f49a765989b1db9440c3321d5da84c1ea46c676fea715",
+    "general_codegen.py": "bb85dcb0aa112b98789ed80f0ceefb1e8965dfd165f26dd33c50d6b81b567020",
+    "general_english.py": "f6de802395c45841a1720f94749c4844676f178338d9c39d0a3e4e7b2868589c",
+    "general_runtime.py": "669ef6c863fd4e6bdc7933727e530f9eaee485065d037b6aeb3a8e20492f91c5",
     "general_vocabulary.py": "36540d3b4f01ecf616a605143238d1f8f7527bf734ce14f530005297a5daf9cd",
     "hyperframes/__init__.py": "c5a1860f74de124426deb10b315dd7f8e7bde731fe997f7ac937a5c193c32208",
     "hyperframes/cli.py": "a46a027852fc10136242e7c42d63b710f81d932b0d1e7a70ba11518da1f7ea77",
@@ -51,7 +51,7 @@
     "vlc.py": "74dfb23c92f1cf6ec8479a1e41c63a442c73d8a10142e325f5aa2bed32136efa",
     "vlc_english.py": "5fa174893148e1862a0d437fac85f0f0cf9d4e79b1b18678aad45e4358f6ac90"
   },
-  "source_commit": "0dcef2e0e90d736a9d2a03a049c2853beace23d8",
+  "source_commit": "c57d358bcb0659a9da5bbdb6b5e9f8388b3988c4",
   "local_patches": [],
   "components": {
     "hyperframes": {
