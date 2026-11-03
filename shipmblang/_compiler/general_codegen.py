@@ -83,6 +83,17 @@ def emit_general(tree, symbols, *, function=False):
             for argument in value["arguments"]:
                 expression(argument)
             emit("call", {"function": value["function"], "argument_types": value["argument_types"], "return_type": value["type"]}, value)
+        elif kind == "MethodCall":
+            for argument in value["arguments"]:
+                expression(argument)
+            choice = _method_choice(value, tree.get("layouts") or [], tree.get("interfaces") or [])
+            if choice[0] == "call":
+                emit("call", {"function": choice[1], "argument_types": choice[2], "return_type": value["type"]}, value)
+            else:
+                emit("call_virtual", {"slot": value["slot"], "argument_types": value["static_types"], "return_type": value["type"]}, value)
+        elif kind == "IsInstance":
+            expression(value["value"])
+            emit("is_instance", {"layout": value["layout"]}, value)
         elif kind == "New":
             temps = [hidden(field_type) for field_type in value["field_types"]]
             for offset in value["order"]:
@@ -142,21 +153,10 @@ def emit_general(tree, symbols, *, function=False):
                 expression(statement["value"])
                 emit("show", {}, statement)
             elif kind == "UpdateField":
-                temps = [hidden(field_type) for field_type in statement["field_types"]]
+                emit("load", {"slot": statement["slot"]}, statement)
                 expression(statement["value"])
-                emit("store", {"slot": temps[statement["offset"]]}, statement)
-                for index, temp in enumerate(temps):
-                    if index == statement["offset"]:
-                        continue
-                    emit("load", {"slot": statement["slot"]}, statement)
-                    emit("get_field", {"layout": statement["layout"], "offset": index, "type": statement["field_types"][index]}, statement)
-                    emit("store", {"slot": temp}, statement)
-                for temp in temps:
-                    emit("load", {"slot": temp}, statement)
-                emit("new_object", {"layout": statement["layout"]}, statement)
+                emit("set_field", {"layout": statement["layout"], "offset": statement["offset"], "type": statement["field_types"][statement["offset"]]}, statement)
                 emit("store", {"slot": statement["slot"]}, statement)
-                for temp in temps:
-                    emit("clear", {"slot": temp}, statement)
             elif kind == 'VLC':
                 vlc(statement)
             elif kind == "FFmpeg":
@@ -237,6 +237,8 @@ def emit_general(tree, symbols, *, function=False):
         raise ValueError("A function has an unresolved return path.")
     functions = []
     for definition in tree.get("functions", []):
+        definition["layouts"] = tree.get("layouts") or []
+        definition["interfaces"] = tree.get("interfaces") or []
         compiled = emit_general(definition, {"locals": definition["locals"]}, function=True)
         effects.update(compiled["runtime_contract"]["effects"])
         capabilities.update(compiled["runtime_contract"]["required_capabilities"])
@@ -248,14 +250,23 @@ def emit_general(tree, symbols, *, function=False):
     id_map = {}
     layouts = []
     if not function:
+        staged = []
         for layout in raw_layouts:
-            id_map[layout["id"]] = len(layouts)
-            published = {"id": len(layouts), "name": layout["name"], "fields": layout["fields"]}
-            layouts.append(published)
+            id_map[layout["id"]] = len(staged)
+            published = {"id": len(staged), "name": layout["name"], "fields": layout["fields"]}
+            if layout.get("methods"):
+                published["methods"] = layout["methods"]
+            if layout.get("implements"):
+                published["implements"] = layout["implements"]
+            staged.append(published)
+        for layout, published in zip(raw_layouts, staged):
+            if "parent" in layout:
+                published["parent"] = id_map[layout["parent"]]
+        layouts.extend(staged)
 
         def remap(instructions):
             for instruction in instructions:
-                if instruction["opcode"] in {"new_object", "get_field"}:
+                if instruction["opcode"] in {"new_object", "get_field", "set_field", "is_instance"}:
                     instruction["operands"]["layout"] = id_map[instruction["operands"]["layout"]]
 
         remap(code)
@@ -268,5 +279,112 @@ def emit_general(tree, symbols, *, function=False):
             "runtime_contract": contract}
     if layouts:
         artifact["layouts"] = layouts
-        contract["features"] = ["objects"]
+        if tree.get("interfaces"):
+            artifact["interfaces"] = tree["interfaces"]
+        contract["features"] = _object_features(artifact)
     return artifact
+
+
+def _composed_type(kind):
+    if not isinstance(kind, str):
+        return False
+    if kind.startswith("object[") or kind.startswith("interface["):
+        return True
+    if kind.startswith("list[") and kind.endswith("]"):
+        inner = kind[5:-1]
+        return inner.startswith("object[") or inner.startswith("interface[")
+    return False
+
+
+def _object_features(artifact):
+    features = ["objects"]
+    composed = any(_composed_type(field["type"]) for layout in artifact["layouts"] for field in layout["fields"])
+    for function in artifact["functions"]:
+        types = [function["return_type"], *(slot["type"] for slot in function["locals"] if slot["id"] in function["parameter_slots"])]
+        composed = composed or any(_composed_type(kind) for kind in types)
+        for instruction in function["bytecode"]:
+            if instruction["opcode"] == "make_list" and _composed_type(instruction["operands"].get("element_type", "")):
+                composed = True
+    for instruction in artifact["bytecode"]:
+        if instruction["opcode"] == "make_list" and _composed_type(instruction["operands"].get("element_type", "")):
+            composed = True
+    if composed:
+        features.append("object_composition")
+    if any(layout.get("methods") for layout in artifact["layouts"]):
+        features.append("methods")
+    if any("parent" in layout for layout in artifact["layouts"]):
+        features.append("inheritance")
+    if artifact.get("interfaces"):
+        features.append("interfaces")
+    return features
+
+
+def _extends(layout_id, ancestor_id, layouts):
+    seen = set()
+    current = layout_id
+    while current not in seen:
+        if current == ancestor_id:
+            return True
+        seen.add(current)
+        parent = layouts[current].get("parent")
+        if parent is None:
+            return False
+        current = parent
+    return False
+
+
+def _method_choice(node, layouts, interfaces):
+    """Return ('call', function id, argument types) or ('virtual',)."""
+    by_id = {layout["id"]: layout for layout in layouts}
+
+    def resolve(layout_id):
+        seen = set()
+        current = layout_id
+        while current not in seen:
+            seen.add(current)
+            for method in by_id[current].get("methods", []):
+                if method["slot"] == node["slot"]:
+                    return method
+            parent = by_id[current].get("parent")
+            if parent is None:
+                return None
+            current = parent
+        return None
+
+    def possible():
+        static = node["static_type"]
+        if static.startswith("interface["):
+            name = static[len("interface["):-1]
+            interface = next(item for item in interfaces if item["name"] == name)
+            roots = []
+            for layout in layouts:
+                current = layout["id"]
+                seen = set()
+                while current not in seen:
+                    seen.add(current)
+                    if interface["id"] in by_id[current].get("implements", []):
+                        roots.append(layout["id"])
+                        break
+                    parent = by_id[current].get("parent")
+                    if parent is None:
+                        break
+                    current = parent
+            return [layout["id"] for layout in layouts if any(_extends(layout["id"], root, by_id) for root in roots)]
+        name = static[len("object["):-1]
+        root = next(layout["id"] for layout in layouts if layout["name"] == name)
+        return [layout["id"] for layout in layouts if _extends(layout["id"], root, by_id)]
+
+    if node["static_type"].startswith("interface["):
+        return ("virtual",)
+    if node.get("fixed"):
+        method = resolve(next(layout["id"] for layout in layouts if layout["name"] == node["static_type"][len("object["):-1]))
+        return ("call", method["function"], method["parameter_types"])
+    ids = {}
+    for layout_id in possible():
+        method = resolve(layout_id)
+        if method is not None:
+            ids[method["function"]] = method
+    if len(ids) == 1:
+        method = next(iter(ids.values()))
+        return ("call", method["function"], method["parameter_types"])
+    return ("virtual",)
