@@ -31,12 +31,12 @@ class LegacyPipelineHintTests(unittest.TestCase):
         self.assertEqual(payload["status"], "unsupported")
         self.assertIsNone(payload["target_code"])
         codes = [item.get("code") for item in payload["diagnostics"]]
-        self.assertIn("SMBG100", codes)
+        self.assertIn("SMBG120", codes)
         self.assertIn("SMBL002", codes)
         hint = next(item for item in payload["diagnostics"] if item.get("code") == "SMBL002")
         self.assertIn("--pipeline legacy", hint["message"])
         self.assertIn("--pipeline legacy", result.stdout)
-        original = next(item for item in payload["diagnostics"] if item.get("code") == "SMBG100")
+        original = next(item for item in payload["diagnostics"] if item.get("code") == "SMBG120")
         self.assertIn("not implemented by the general computation grammar", original["message"])
 
     def test_intent_only_legacy_core_does_not_hint(self):
