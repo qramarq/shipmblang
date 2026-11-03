@@ -8,6 +8,7 @@ import json
 import re
 
 from .general_vocabulary import OUTPUT_PATTERN, SUM_NOUNS
+from .responsive import clause_diagnostic, value_diagnostic
 
 GRAMMAR_VERSION = "general-english-0.13"
 CATALOG_VERSION = "general-media-0.2"
@@ -386,7 +387,11 @@ class Expressions:
         vision = parse_vision_expression(self, begin)
         if vision is not None:
             return vision
-        self.take("the")
+        if self.take("the") and self.take("same", "one"):
+            symbol = self.owner.current_previous()
+            if symbol is None:
+                self.fail("Which declared value does this reference mean? Use its name.", question=True)
+            return node("Name", self.range(begin), slot=symbol["id"], name=symbol["name"], type=symbol["type"])
         if self.at < len(self.tokens) and self.tokens[self.at][0].lower() in {"duration", "position", "width", "height"}:
             from .vlc_english import parse_player_property
             player_property = parse_player_property(self, begin)
@@ -539,15 +544,23 @@ class Expressions:
         named = self.match_declared_name(begin)
         if named is not None:
             return named
-        if text.lower() in {"it", "them"}:
-            candidates = list(self.owner.visible().values())
-            if text.lower() == "them":
-                candidates = [s for s in candidates if s["type"].startswith("list[")]
+        if text.lower() == "it":
+            symbol = self.owner.current_previous()
+            if symbol is None:
+                self.fail("Which declared value does this reference mean? Use its name.", question=True)
+            self.at += 1
+            return node("Name", self.range(begin), slot=symbol["id"], name=symbol["name"], type=symbol["type"])
+        if text.lower() == "them":
+            candidates = [s for s in self.owner.visible().values() if s["type"].startswith("list[")]
             if len(candidates) == 1:
                 self.at += 1
                 symbol = candidates[0]
                 return node("Name", self.range(begin), slot=symbol["id"], name=symbol["name"], type=symbol["type"])
             self.fail("Which declared value does this reference mean? Use its name.", question=True)
+        following = [token[0] for token in self.tokens[self.at + 1:self.at + 5]]
+        adapted = value_diagnostic(text, following, self.owner.visible().values())
+        if adapted:
+            self.fail(adapted, code="SMBG121")
         self.fail(f"'{text}' is not a declared value. Declare it or clarify the intended value.", question=True)
 
     def field_get(self, begin):
@@ -735,6 +748,7 @@ class Parser:
         self.source, self.clauses, self.at = source, clauses(source), 0
         self.scopes, self.symbols = [{}], []
         self.functions, self.function_nodes, self.return_type = {}, [], None
+        self.referents, self.referent_limit = [], 0
         self.classes, self.class_order, self.ready = {}, [], set()
         self.interfaces, self.interface_order, self.method_kind = {}, [], None
         self._slot_keys = {}
@@ -1099,18 +1113,47 @@ class Parser:
     def visible(self):
         return {key: value for scope in self.scopes for key, value in scope.items()}
 
+    def remember(self, symbol):
+        if symbol is not None and not str(symbol["name"]).startswith("$"):
+            self.referents.append(symbol)
+
+    def current_previous(self):
+        """The latest still-visible value from earlier clauses."""
+        visible = self.visible()
+        for symbol in reversed(self.referents[:self.referent_limit]):
+            found = visible.get(symbol["name"])
+            if found is not None and found["id"] == symbol["id"]:
+                return found
+        return None
+
+    def address(self, value):
+        if isinstance(value, dict) and value.get("kind") == "Name":
+            for symbol in self.symbols:
+                if symbol["id"] == value["slot"]:
+                    self.remember(symbol)
+                    return
+
     def resolve_reference(self, name, span):
         name = strip_leading_article(name.lower())
+        # A method receiver is a visible object named "it". That wins over the previous value.
         if name == "it" and "it" in self.visible() and object_type_name(self.visible()["it"]["type"]):
             return self.visible()["it"]
-        if name in {"it", "them"}:
-            candidates = list(self.visible().values())
-            if name == "them":
-                candidates = [item for item in candidates if item["type"].startswith("list[")]
+        if name in {"it", "same one"}:
+            symbol = self.current_previous()
+            if symbol is None:
+                raise EnglishError("Which declared value does this reference mean? Use its name.", span, question=True)
+            self.remember(symbol)
+            return symbol
+        if name == "them":
+            candidates = [item for item in self.visible().values() if item["type"].startswith("list[")]
             if len(candidates) != 1:
                 raise EnglishError("Which declared value does this reference mean? Use its name.", span, question=True)
+            self.remember(candidates[0])
             return candidates[0]
-        return self.visible().get(name)
+        symbol = self.visible().get(name)
+        if symbol is not None:
+            self.remember(symbol)
+        return symbol
 
     def declare(self, name, kind, mutable, span):
         name = strip_leading_article(name.lower())
@@ -1124,6 +1167,7 @@ class Parser:
         symbol = {"id": len(self.symbols), "name": name, "type": kind, "mutable": mutable}
         self.symbols.append(symbol)
         self.scopes[-1][name] = symbol
+        self.remember(symbol)
         return symbol
 
     def expr(self, text, offset):
@@ -1172,6 +1216,7 @@ class Parser:
             if returns(body):
                 raise EnglishError("This statement cannot run because the preceding paths return.", span)
             self.at += 1
+            self.referent_limit = len(self.referents)
             polite = re.match(r"(?:(?:could|would|can) you\s+(?:(?:please|pls)\s+)?|I want you to\s+(?:(?:please|pls)\s+)?|(?:please|pls)\s+)", text, re.I)
             if polite:
                 text = text[polite.end():]
@@ -1186,6 +1231,7 @@ class Parser:
             vision = parse_vision_clause(self, text, span)
             if vision is not None:
                 body.append(node("Show", span, value=vision))
+                self.address(vision)
                 continue
             from .vlc_english import parse_vlc
             vlc = parse_vlc(self,text,span)
@@ -1202,6 +1248,7 @@ class Parser:
                     raise EnglishError('Arithmetic addition requires two integers.', span)
                 value = node('Binary', span, operator='add', left=left, right=right, type='integer', explicit_group=True)
                 body.append(node('Show', span, value=value))
+                self.address(value)
                 continue
             match = re.fullmatch(r"start with (?:(.+?) at )?(.+)", text, re.I)
             if match:
@@ -1276,6 +1323,7 @@ class Parser:
                 method._preview_named, method._slot_keys = self._preview_named, self._slot_keys
                 method.return_type = signature["return_type"]
                 method.method_kind = kind_name
+                method.referents, method.referent_limit = [], 0
                 receiver = {"id": 0, "name": "it", "type": f"object[{method.method_kind}]", "mutable": False}
                 method.symbols.append(receiver)
                 method.scopes[-1]["it"] = receiver
@@ -1303,6 +1351,7 @@ class Parser:
                 function.interfaces, function.interface_order = self.interfaces, self.interface_order
                 function._preview_named, function._slot_keys, function.method_kind = self._preview_named, self._slot_keys, None
                 function.return_type = signature["return_type"]
+                function.referents, function.referent_limit = [], 0
                 parameter_slots = [function.declare(p["name"], p["type"], False, span)["id"] for p in signature["parameters"]]
                 function_body = function.block("function", depth+1)
                 function.finish({"end the function", "end function"}, span)
@@ -1320,6 +1369,7 @@ class Parser:
                 if not self.is_subtype(value["type"], self.return_type):
                     raise EnglishError(f"The returned value must be {self.return_type}.", span)
                 body.append(node("Return", span, value=value))
+                self.address(value)
                 continue
             match = re.fullmatch(r"(?:let|define) (.+?) be (.+)", text, re.I)
             if match:
@@ -1406,12 +1456,29 @@ class Parser:
                 continue
             match = re.fullmatch(r"what is (.+)", text, re.I)
             if match:
-                body.append(node("Show", span, value=self.expr(match[1], span["start"] + match.start(1))))
+                value = self.expr(match[1], span["start"] + match.start(1))
+                body.append(node("Show", span, value=value))
+                self.address(value)
+                continue
+            # PROPOSED: one opcode that prints kind and value on a single line.
+            # These sentences use const and show only, so the bytecode version
+            # ladder is unchanged. Kind-only does not evaluate the value.
+            kind_and_value = re.fullmatch(r"(?:show|print|display|present) (?:me )?the kind and the value for (.+)", text, re.I)
+            kind_only = None if kind_and_value else re.fullmatch(r"(?:show|print|display|present) (?:me )?the kind for (.+)", text, re.I)
+            if kind_and_value or kind_only:
+                group = kind_and_value or kind_only
+                value = self.expr(group[1], span["start"] + group.start(1))
+                body.append(node("Show", span, value=node("Literal", span, value=value["type"], type="text")))
+                if kind_and_value:
+                    body.append(node("Show", span, value=value))
+                self.address(value)
                 continue
             match = re.fullmatch(rf"{OUTPUT_PATTERN} (?:me )?(.+)|(?:compute|calculate) ((?:the )?(?:sum|total|aggregate|difference|product|quotient|remainder) of .+)", text, re.I)
             if match:
                 group = 1 if match[1] is not None else 2
-                body.append(node("Show", span, value=self.expr(match[group], span["start"] + match.start(group))))
+                value = self.expr(match[group], span["start"] + match.start(group))
+                body.append(node("Show", span, value=value))
+                self.address(value)
                 continue
             match = re.fullmatch(r"if (.+?) then", text, re.I)
             if match:
@@ -1524,7 +1591,7 @@ class Parser:
                              field_types=[field["type"] for field in flat])
                 body.append(node("Declare", span, slot=symbol["id"], value=value))
                 continue
-            raise EnglishError("This clause is not implemented by the general computation grammar.", span)
+            raise EnglishError(clause_diagnostic(text, self.visible().values()), span, code="SMBG120")
         if end is not None:
             raise EnglishError(f"Close the {end} explicitly before continuing.", {"start": len(self.source), "end": len(self.source)}, question=True)
         return body
