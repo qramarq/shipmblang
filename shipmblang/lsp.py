@@ -22,7 +22,7 @@ def shipmblang_version() -> str:
     try:
         return package_version("shipmblang")
     except PackageNotFoundError:
-        return "0.6.0"
+        return "0.7.0"
 
 
 def codepoint_to_utf16_position(source: str, offset: int) -> dict:
