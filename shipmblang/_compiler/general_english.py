@@ -61,6 +61,19 @@ def object_type_name(kind):
     return None
 
 
+def object_kinds_in(kind):
+    """Kind names named by an object type or a list of one."""
+    found = set()
+    if not isinstance(kind, str):
+        return found
+    name = object_type_name(kind)
+    if name:
+        found.add(name)
+    if kind.startswith("list[") and kind.endswith("]") and len(kind) >= 6:
+        found |= object_kinds_in(kind[5:-1])
+    return found
+
+
 def interface_type_name(kind):
     if isinstance(kind, str) and kind.startswith("interface[") and kind.endswith("]") and "[" not in kind[10:-1]:
         return kind[10:-1]
@@ -1072,6 +1085,9 @@ class Parser:
         return kind
 
     def published_layouts(self):
+        # SMBG122: a kind that is named where a layout has to exist (parameter,
+        # result, field, list element, parent, or method) still has a field
+        # with no type. Types come from the declaration or from Make a new.
         for kind in self.classes.values():
             if kind.get("methods") or kind.get("implements"):
                 kind["used"] = True
@@ -1083,13 +1099,34 @@ class Parser:
                 if kind["used"] and parent_name and not self.classes[parent_name]["used"]:
                     self.classes[parent_name]["used"] = True
                     changed = True
+        required = {name for name, kind in self.classes.items() if kind["used"]}
+        for function in self.functions.values():
+            required |= object_kinds_in(function["return_type"])
+            for parameter in function["parameters"]:
+                required |= object_kinds_in(parameter["type"])
+        publishable = [kind for kind in self.classes.values() if all(field["type"] for field in kind["fields"])]
+        if publishable:
+            for kind in publishable:
+                if kind.get("parent_name"):
+                    required.add(kind["parent_name"])
+                for field in kind["fields"]:
+                    required |= object_kinds_in(field["type"])
+                for method in kind.get("methods", []):
+                    required |= object_kinds_in(method["return_type"])
+                    for parameter_type in method["parameter_types"]:
+                        required |= object_kinds_in(parameter_type)
+            for interface in self.interfaces.values():
+                for method in interface["methods"]:
+                    required |= object_kinds_in(method["return_type"])
+                    for parameter_type in method["parameter_types"]:
+                        required |= object_kinds_in(parameter_type)
         published = []
         for name in self.class_order:
             kind = self.classes[name]
             missing = [field["name"] for field in kind["fields"] if not field["type"]]
             if missing:
-                if kind["used"]:
-                    raise EnglishError(f"Give every field of {name} a type, or make a {name} that sets {', '.join(missing)}.", kind["span"], question=True)
+                if name in required:
+                    raise EnglishError(f"Give every field of {name} a type, or make a {name} that sets {', '.join(missing)}.", kind["span"], code="SMBG122")
                 continue
             entry = {"id": kind["id"], "name": kind["name"], "fields": [
                 {"name": field["name"], "type": field["type"], "offset": field["offset"], **({"private": True} if field.get("private") else {})}
