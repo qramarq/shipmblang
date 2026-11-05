@@ -13,8 +13,13 @@ def emit_general(tree, symbols, *, function=False):
     code, locals_ = [], deepcopy(symbols["locals"])
     capabilities = set()
     effects = set()
+    uses_references = False
+    uses_equality = False
 
     def emit(opcode, operands, source):
+        nonlocal uses_references
+        if opcode in {"alloc", "deref_get", "deref_set", "release", "same_object"}:
+            uses_references = True
         if len(code) >= 10000:
             raise GeneralLimitError("Program exceeds the 10000-instruction limit per execution frame.")
         pc = len(code)
@@ -31,6 +36,7 @@ def emit_general(tree, symbols, *, function=False):
         return slot
 
     def expression(value):
+        nonlocal uses_equality
         kind = value["kind"]
         if kind == 'VLCQuery':
             vlc(value,query=True)
@@ -66,6 +72,8 @@ def emit_general(tree, symbols, *, function=False):
             else:
                 expression(value["right"])
                 emit("binary", {"operator": operator}, value)
+                if operator in {"equal", "not_equal"} and _contains_object(value["left"]["type"]):
+                    uses_equality = True
         elif kind == "Length":
             expression(value["value"])
             emit("length", {}, value)
@@ -94,6 +102,13 @@ def emit_general(tree, symbols, *, function=False):
         elif kind == "IsInstance":
             expression(value["value"])
             emit("is_instance", {"layout": value["layout"]}, value)
+        elif kind == "SameObject":
+            expression(value["left"])
+            expression(value["right"])
+            emit("same_object", {}, value)
+        elif kind == "Alloc":
+            expression(value["value"])
+            emit("alloc", {"type": value["value"]["type"]}, value)
         elif kind == "New":
             temps = [hidden(field_type) for field_type in value["field_types"]]
             for offset in value["order"]:
@@ -106,12 +121,16 @@ def emit_general(tree, symbols, *, function=False):
                 emit("clear", {"slot": temp}, value)
         elif kind == "FieldGet":
             expression(value["value"])
+            if value.get("reference"):
+                emit("deref_get", {"type": value["object_type"]}, value)
             emit("get_field", {"layout": value["layout"], "offset": value["offset"], "type": value["type"]}, value)
         else:
             raise ValueError(f"Unknown resolved expression: {kind}")
 
     def clear(slots, source):
         for slot in slots:
+            if str(locals_[slot]["type"]).startswith("ref["):
+                emit("release", {"slot": slot}, source)
             emit("clear", {"slot": slot}, source)
 
     def vlc(value,query=False):
@@ -153,10 +172,21 @@ def emit_general(tree, symbols, *, function=False):
                 expression(statement["value"])
                 emit("show", {}, statement)
             elif kind == "UpdateField":
-                emit("load", {"slot": statement["slot"]}, statement)
-                expression(statement["value"])
-                emit("set_field", {"layout": statement["layout"], "offset": statement["offset"], "type": statement["field_types"][statement["offset"]]}, statement)
-                emit("store", {"slot": statement["slot"]}, statement)
+                field_type = statement["field_types"][statement["offset"]]
+                if statement.get("reference"):
+                    emit("load", {"slot": statement["slot"]}, statement)
+                    emit("deref_get", {"type": statement["object_type"]}, statement)
+                    expression(statement["value"])
+                    emit("set_field", {"layout": statement["layout"], "offset": statement["offset"], "type": field_type}, statement)
+                    emit("load", {"slot": statement["slot"]}, statement)
+                    emit("deref_set", {"type": statement["object_type"]}, statement)
+                else:
+                    emit("load", {"slot": statement["slot"]}, statement)
+                    expression(statement["value"])
+                    emit("set_field", {"layout": statement["layout"], "offset": statement["offset"], "type": field_type}, statement)
+                    emit("store", {"slot": statement["slot"]}, statement)
+            elif kind == "Release":
+                emit("release", {"slot": statement["slot"]}, statement)
             elif kind == 'VLC':
                 vlc(statement)
             elif kind == "FFmpeg":
@@ -240,6 +270,8 @@ def emit_general(tree, symbols, *, function=False):
         definition["layouts"] = tree.get("layouts") or []
         definition["interfaces"] = tree.get("interfaces") or []
         compiled = emit_general(definition, {"locals": definition["locals"]}, function=True)
+        uses_references = uses_references or compiled.pop("_uses_references", False)
+        uses_equality = uses_equality or compiled.pop("_uses_equality", False)
         effects.update(compiled["runtime_contract"]["effects"])
         capabilities.update(compiled["runtime_contract"]["required_capabilities"])
         functions.append({"id": definition["id"], "name": definition["name"], "parameter_slots": definition["parameter_slots"],
@@ -281,7 +313,10 @@ def emit_general(tree, symbols, *, function=False):
         artifact["layouts"] = layouts
         if tree.get("interfaces"):
             artifact["interfaces"] = tree["interfaces"]
-        contract["features"] = _object_features(artifact)
+        contract["features"] = _object_features(artifact, uses_references, uses_equality)
+    if function:
+        artifact["_uses_references"] = uses_references
+        artifact["_uses_equality"] = uses_equality
     return artifact
 
 
@@ -296,7 +331,17 @@ def _composed_type(kind):
     return False
 
 
-def _object_features(artifact):
+def _contains_object(kind):
+    if not isinstance(kind, str):
+        return False
+    if kind.startswith("object[") and kind.endswith("]") and "[" not in kind[7:-1]:
+        return True
+    if kind.startswith("list[") and kind.endswith("]"):
+        return _contains_object(kind[5:-1])
+    return False
+
+
+def _object_features(artifact, uses_references=False, uses_equality=False):
     features = ["objects"]
     composed = any(_composed_type(field["type"]) for layout in artifact["layouts"] for field in layout["fields"])
     for function in artifact["functions"]:
@@ -316,6 +361,10 @@ def _object_features(artifact):
         features.append("inheritance")
     if artifact.get("interfaces"):
         features.append("interfaces")
+    if uses_references:
+        features.append("references")
+    if uses_equality:
+        features.append("equality")
     return features
 
 
@@ -388,3 +437,5 @@ def _method_choice(node, layouts, interfaces):
         method = next(iter(ids.values()))
         return ("call", method["function"], method["parameter_types"])
     return ("virtual",)
+
+
