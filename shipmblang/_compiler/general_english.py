@@ -10,7 +10,7 @@ import re
 from .general_vocabulary import OUTPUT_PATTERN, SUM_NOUNS
 from .responsive import clause_diagnostic, value_diagnostic
 
-GRAMMAR_VERSION = "general-english-0.13"
+GRAMMAR_VERSION = "general-english-0.14"
 CATALOG_VERSION = "general-media-0.2"
 TOKEN = re.compile(r'"(?:\\.|[^"\\])*"|\d+\.\d+|\d+|[A-Za-z_][A-Za-z_0-9]*|[^\s]')
 TYPES = {"integer", "boolean", "text"}
@@ -59,6 +59,23 @@ def object_type_name(kind):
     if isinstance(kind, str) and kind.startswith("object[") and kind.endswith("]") and kind.find("[") == kind.rfind("["):
         return kind[7:-1]
     return None
+
+
+def ref_target(kind):
+    """Object type stored in a ref[object[...]] handle, or None."""
+    if isinstance(kind, str) and kind.startswith("ref[") and kind.endswith("]"):
+        inner = kind[4:-1]
+        if object_type_name(inner):
+            return inner
+    return None
+
+
+def contains_object(kind):
+    if object_type_name(kind):
+        return True
+    if isinstance(kind, str) and kind.startswith("list[") and kind.endswith("]"):
+        return contains_object(kind[5:-1])
+    return False
 
 
 def object_kinds_in(kind):
@@ -340,6 +357,14 @@ class Expressions:
                     left = self.binary(operator, left, right)
                     found = True
                     break
+            if minimum <= 3 and self.take("is", "the", "same", "object", "as"):
+                right = self.expression(4)
+                if ref_target(left["type"]) is None or left["type"] != right["type"]:
+                    self.fail("Same object requires two references of the same type.")
+                left = node("SameObject", {"start": left["span"]["start"], "end": self.tokens[self.at - 1][2]},
+                            left=left, right=right, type="boolean")
+                found = True
+                continue
             if minimum <= 3 and (self.take("is", "a") or self.take("is", "an")):
                 kind_name = None
                 for name in sorted(self.owner.classes, key=len, reverse=True):
@@ -361,8 +386,12 @@ class Expressions:
 
     def binary(self, operator, left, right):
         ltype, rtype = left["type"], right["type"]
-        if object_type_name(ltype) or object_type_name(rtype):
-            self.fail("Phase 1 does not support comparing objects.", code="SMBG113")
+        if ref_target(ltype) or ref_target(rtype):
+            self.fail("Compare references with 'is the same object as'.")
+        if contains_object(ltype) or contains_object(rtype):
+            if operator not in {"equal", "not_equal"} or ltype != rtype:
+                self.fail("Phase 1 does not support comparing objects.", code="SMBG113")
+            return node("Binary", {"start": left["span"]["start"], "end": right["span"]["end"]}, operator=operator, left=left, right=right, type="boolean")
         if operator in {"and", "or"}:
             valid, output = ltype == rtype == "boolean", "boolean"
         elif operator in {"equal", "not_equal"}:
@@ -562,6 +591,7 @@ class Expressions:
             if symbol is None:
                 self.fail("Which declared value does this reference mean? Use its name.", question=True)
             self.at += 1
+            self.owner.ensure_live(symbol, self.range(begin))
             return node("Name", self.range(begin), slot=symbol["id"], name=symbol["name"], type=symbol["type"])
         if text.lower() == "them":
             candidates = [s for s in self.owner.visible().values() if s["type"].startswith("list[")]
@@ -584,7 +614,8 @@ class Expressions:
             if not self.take(*name.split()) or not self.take("of"):
                 continue
             value = self.atom()
-            kind_name = object_type_name(value["type"])
+            through_ref = ref_target(value["type"])
+            kind_name = object_type_name(through_ref or value["type"])
             if kind_name is None:
                 self.fail("Field access requires an object.")
             kind = self.owner.classes.get(kind_name)
@@ -599,7 +630,8 @@ class Expressions:
                 self.fail(f"Make a {kind_name} before reading field '{name}'.")
             self.owner._check_private(field, self.range(begin))
             kind["used"] = True
-            return node("FieldGet", self.range(begin), value=value, layout=kind["id"], offset=field["offset"], type=field["type"])
+            return node("FieldGet", self.range(begin), value=value, layout=kind["id"], offset=field["offset"], type=field["type"],
+                        reference=bool(through_ref), object_type=through_ref or value["type"])
         self.at = saved
         return None
 
@@ -685,6 +717,7 @@ class Expressions:
     def match_declared_name(self, begin):
         for name, symbol in sorted(self.owner.visible().items(), key=lambda pair: -len(pair[0])):
             if self.take(*name.split()):
+                self.owner.ensure_live(symbol, self.range(begin))
                 return node("Name", self.range(begin), slot=symbol["id"], name=name, type=symbol["type"])
         return None
 
@@ -764,6 +797,7 @@ class Parser:
         self.referents, self.referent_limit = [], 0
         self.classes, self.class_order, self.ready = {}, [], set()
         self.interfaces, self.interface_order, self.method_kind = {}, [], None
+        self.released = set()
         self._slot_keys = {}
         self._collect_classes()
         self._collect_signatures()
@@ -1192,6 +1226,10 @@ class Parser:
             self.remember(symbol)
         return symbol
 
+    def ensure_live(self, symbol, span):
+        if symbol is not None and symbol["id"] in self.released:
+            raise EnglishError(f"Reference '{symbol['name']}' was used after release.", span, code="SMBG118")
+
     def declare(self, name, kind, mutable, span):
         name = strip_leading_article(name.lower())
         reserved = reserved_word(name)
@@ -1217,24 +1255,34 @@ class Parser:
         return symbol
 
     def conditional(self, condition, span, depth, *, close):
+        before = set(self.released)
         self.scopes.append({})
         yes = self.block("condition", depth + 1)
         yes_slots = [symbol["id"] for symbol in self.scopes.pop().values()]
+        yes_released = set(self.released)
+        self.released = set(before)
         no, no_slots = [], []
+        has_else = False
         if self.at < len(self.clauses):
             text, branch_span = self.clauses[self.at]
             nested = re.fullmatch(r"otherwise if (.+?) then", text, re.I)
             if nested:
+                has_else = True
                 self.at += 1
                 branch = self.expr(nested[1], branch_span["start"] + nested.start(1))
                 if branch["type"] != "boolean":
                     raise EnglishError("If requires a boolean condition.", branch_span)
                 no = [self.conditional(branch, branch_span, depth + 1, close=False)]
             elif text.lower() in {"otherwise", "else"}:
+                has_else = True
                 self.at += 1
                 self.scopes.append({})
                 no = self.block("condition", depth + 1)
                 no_slots = [symbol["id"] for symbol in self.scopes.pop().values()]
+        if has_else:
+            self.released |= yes_released
+        else:
+            self.released = yes_released
         if close:
             self.finish({"end the condition", "end if"}, span)
         return node("If", span, condition=condition, yes=yes, no=no, yes_slots=yes_slots, no_slots=no_slots)
@@ -1361,6 +1409,7 @@ class Parser:
                 method.return_type = signature["return_type"]
                 method.method_kind = kind_name
                 method.referents, method.referent_limit = [], 0
+                method.released = set()
                 receiver = {"id": 0, "name": "it", "type": f"object[{method.method_kind}]", "mutable": False}
                 method.symbols.append(receiver)
                 method.scopes[-1]["it"] = receiver
@@ -1389,6 +1438,7 @@ class Parser:
                 function._preview_named, function._slot_keys, function.method_kind = self._preview_named, self._slot_keys, None
                 function.return_type = signature["return_type"]
                 function.referents, function.referent_limit = [], 0
+                function.released = set()
                 parameter_slots = [function.declare(p["name"], p["type"], False, span)["id"] for p in signature["parameters"]]
                 function_body = function.block("function", depth+1)
                 function.finish({"end the function", "end function"}, span)
@@ -1407,6 +1457,16 @@ class Parser:
                     raise EnglishError(f"The returned value must be {self.return_type}.", span)
                 body.append(node("Return", span, value=value))
                 self.address(value)
+                continue
+            match = re.fullmatch(r"(?:let|define) (.+?) be (?:a |an )?reference to (.+)", text, re.I)
+            if match:
+                name, rhs = match.groups()
+                value = self.expr(rhs, span["end"] - len(rhs))
+                if object_type_name(value["type"]) is None:
+                    raise EnglishError("A reference requires an object.", span)
+                symbol = self.declare(name, f"ref[{value['type']}]", False, span)
+                body.append(node("Declare", span, slot=symbol["id"], value=node(
+                    "Alloc", span, value=value, type=symbol["type"])))
                 continue
             match = re.fullmatch(r"(?:let|define) (.+?) be (.+)", text, re.I)
             if match:
@@ -1444,14 +1504,16 @@ class Parser:
                 symbol = self.resolve_reference(target_name, span)
                 if not symbol:
                     raise EnglishError("Declare the assignment target first.", span, question=True)
-                kind_name = object_type_name(symbol["type"])
+                self.ensure_live(symbol, span)
+                referent = ref_target(symbol["type"])
+                kind_name = object_type_name(referent or symbol["type"])
                 if kind_name is None:
                     raise EnglishError("Field update requires an object.", span)
                 kind = self.require_kind(kind_name, span)
                 field = next((item for item in self.flat_fields(kind) if item["name"] == field_name), None)
                 if field is None:
                     raise EnglishError(f"Class '{kind_name}' has no field named '{field_name}'.", span, code="SMBG111")
-                if not symbol["mutable"]:
+                if referent is None and not symbol["mutable"]:
                     raise EnglishError(f"'{symbol['name']}' is immutable; declare it mutable to change it.", span)
                 if not field["type"]:
                     raise EnglishError(f"Make a {kind_name} before reading field '{field_name}'.", span)
@@ -1461,7 +1523,8 @@ class Parser:
                     raise EnglishError(f"Field '{field_name}' of class '{kind_name}' is {field['type']}, not {value['type']}.", span)
                 kind["used"] = True
                 body.append(node("UpdateField", span, slot=symbol["id"], layout=kind["id"], offset=field["offset"],
-                                  field_types=[item["type"] for item in kind["fields"]], value=value))
+                                  field_types=[item["type"] for item in self.flat_fields(kind)], value=value,
+                                  reference=referent is not None, object_type=referent or symbol["type"]))
                 continue
             match = re.fullmatch(r"(?:set|change) (.+?) to (.+)", text, re.I)
             if match:
@@ -1473,7 +1536,21 @@ class Parser:
                 value = self.expr(match[2], span["end"] - len(match[2]))
                 if not self.is_subtype(value["type"], symbol["type"]):
                     raise EnglishError("Assignment cannot change a variable's type.", span)
+                if ref_target(symbol["type"]):
+                    self.released.discard(symbol["id"])
                 body.append(node("Assign", span, slot=symbol["id"], value=value))
+                continue
+            match = re.fullmatch(r"release (?:the )?(.+)", text, re.I)
+            if match:
+                symbol = self.resolve_reference(match[1], span)
+                if not symbol:
+                    raise EnglishError("Declare the reference first.", span, question=True)
+                if ref_target(symbol["type"]) is None:
+                    raise EnglishError("Release requires a reference.", span)
+                if symbol["id"] in self.released:
+                    raise EnglishError(f"Reference '{symbol['name']}' was used after release.", span, code="SMBG118")
+                self.released.add(symbol["id"])
+                body.append(node("Release", span, slot=symbol["id"]))
                 continue
             match = re.fullmatch(r"append (.+?) to (.+)", text, re.I)
             if match:

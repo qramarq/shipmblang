@@ -9,7 +9,7 @@ offline; execution needs the service connection.
 ## Current compiler
 
 Compiler **0.6.0**, upstream commit
-`bf1800364a1e594c1c9e1982f77860de4682c41a`, is the current compiler provenance.
+`29266df3e94d4db7d9204b843d4f7fea99913046`, is the current compiler provenance.
 `src/compiler-snapshot.json` pins its version, commit, and
 canonical manifest hash. The service verifies bundled source hashes on startup,
 and both endpoints/client reject a mismatched snapshot. No approximate mobile

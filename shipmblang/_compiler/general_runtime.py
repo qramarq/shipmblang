@@ -32,16 +32,31 @@ FIELDS = {'const': {'value','type'}, 'load': {'slot'}, 'store': {'slot'}, 'clear
           'get_field': {'layout', 'offset', 'type'},
           'set_field': {'layout', 'offset', 'type'},
           'call_virtual': {'slot', 'argument_types', 'return_type'},
-          'is_instance': {'layout'}}
-FEATURE_NAMES = ('objects', 'object_composition', 'methods', 'inheritance', 'interfaces')
+          'is_instance': {'layout'},
+          'alloc': {'type'},
+          'deref_get': {'type'},
+          'deref_set': {'type'},
+          'release': {'slot'},
+          'same_object': set()}
+FEATURE_NAMES = ('objects', 'object_composition', 'methods', 'inheritance', 'interfaces', 'references', 'equality')
 
 class ObjectValue:
-    """Immutable phase-1 object: layout id plus field values in offset order."""
+    """Immutable object value: layout id plus field values in offset order."""
     __slots__ = ('layout', 'fields')
 
     def __init__(self, layout, fields):
         self.layout = layout
         self.fields = tuple(fields)
+
+
+class RefValue:
+    """Handle to a shared object cell. owning counts toward the cell; stale was released."""
+    __slots__ = ('cell', 'owning', 'stale')
+
+    def __init__(self, cell, owning=True, stale=False):
+        self.cell = cell
+        self.owning = owning
+        self.stale = stale
 
 
 class VMError(ValueError):
@@ -54,6 +69,22 @@ def _object_name(kind):
     if isinstance(kind, str) and kind.startswith('object[') and kind.endswith(']') and '[' not in kind[7:-1]:
         return kind[7:-1]
     return None
+
+
+def _ref_target(kind):
+    if isinstance(kind, str) and kind.startswith('ref[') and kind.endswith(']'):
+        inner = kind[4:-1]
+        if _object_name(inner):
+            return inner
+    return None
+
+
+def _contains_object(kind):
+    if _object_name(kind):
+        return True
+    if isinstance(kind, str) and kind.startswith('list[') and kind.endswith(']'):
+        return _contains_object(kind[5:-1])
+    return False
 
 
 def _interface_name(kind):
@@ -206,7 +237,7 @@ def _features(contract):
         if item in seen:
             raise VMError('Duplicate feature requirement.')
         seen.add(item)
-    for name in ('object_composition', 'methods', 'inheritance', 'interfaces'):
+    for name in ('object_composition', 'methods', 'inheritance', 'interfaces', 'references', 'equality'):
         if name in seen and 'objects' not in seen:
             raise VMError(f'Feature {name} requires objects.')
     if 'interfaces' in seen and 'methods' not in seen:
@@ -439,15 +470,20 @@ def _validate(artifact):
     if ('object_composition' in features) != _composition_used(artifact, layouts, signatures):
         raise VMError('Feature object_composition requires a composed object type.')
     if instruction_count>MAX_ITEMS: raise VMError('Total instruction limit exceeded.')
+    observed = {'references': False, 'equality': False}
     code,slots=_validate_unit(artifact.get('bytecode'),_local_slots(artifact.get('locals'), layouts, features, interfaces),
-                             capabilities,effects,signatures,layouts,objects,features,interfaces)
+                             capabilities,effects,signatures,layouts,objects,features,interfaces,observed=observed)
     for function in signatures.values():
         try:
             _validate_unit(function.get('bytecode'),function['slots'],capabilities,effects,signatures,
-                           layouts,objects,features,interfaces,function['parameter_slots'],function['return_type'])
+                           layouts,objects,features,interfaces,function['parameter_slots'],function['return_type'],observed)
         except VMError as exc:
             exc.code=function.get('bytecode')
             raise
+    if ('references' in features) != observed['references']:
+        raise VMError('References feature and reference operations must agree.')
+    if ('equality' in features) != observed['equality']:
+        raise VMError('Equality feature and object comparisons must agree.')
     return code,slots,signatures,layouts
 
 
@@ -492,6 +528,10 @@ def _local_slots(descriptions, layouts=(), features=(), interfaces=()):
             elif _interface_name(kind) is not None:
                 if 'interfaces' not in features or not any(item_name['name'] == _interface_name(kind) for item_name in interfaces):
                     raise VMError('Invalid local descriptor.')
+            elif _ref_target(kind) is not None:
+                if 'references' not in features:
+                    raise VMError('Reference type requires the references feature.')
+                _find_layout(_ref_target(kind), layouts)
             elif _composed(kind) and 'object_composition' in features and _type_known(kind, layouts, interfaces):
                 pass
             else:
@@ -500,8 +540,12 @@ def _local_slots(descriptions, layouts=(), features=(), interfaces=()):
     return slots
 
 
-def _validate_unit(code,slots,capabilities,effects,signatures,layouts=(),objects=False,features=(),interfaces=(),parameters=(),return_type=None):
+def _validate_unit(code,slots,capabilities,effects,signatures,layouts=(),objects=False,features=(),interfaces=(),parameters=(),return_type=None,observed=None):
+    if observed is None:
+        observed = {'references': False, 'equality': False}
     if not isinstance(code,list) or not 0<len(code)<=MAX_ITEMS: raise VMError('Invalid instruction count.')
+    if any(_ref_target(slot['type']) for slot in slots.values()):
+        observed['references'] = True
     for pc, item in enumerate(code):
         if not isinstance(item,dict) or type(item.get('pc')) is not int or item['pc']!=pc: raise VMError('Invalid instruction address.',pc)
         op=item.get('opcode'); args=item.get('operands'); span=item.get('source_span',{})
@@ -530,6 +574,16 @@ def _validate_unit(code,slots,capabilities,effects,signatures,layouts=(),objects
                 raise VMError('Invalid virtual call.', pc)
             if not _virtual_signature(args, layouts, interfaces, features):
                 raise VMError('Invalid virtual call.', pc)
+        if op in ('alloc', 'deref_get', 'deref_set', 'release', 'same_object'):
+            if 'references' not in features:
+                raise VMError('Reference opcode requires the references feature.', pc)
+            observed['references'] = True
+            if op in ('alloc', 'deref_get', 'deref_set'):
+                if not isinstance(args.get('type'), str) or _object_name(args['type']) is None:
+                    raise VMError('Invalid reference type.', pc)
+                _find_layout(args['type'], layouts)
+            if op == 'release' and (type(args.get('slot')) is not int or args['slot'] not in slots or _ref_target(slots[args['slot']]['type']) is None):
+                raise VMError('Release requires a reference.', pc)
         if op=='return' and return_type is None: raise VMError('Return outside a function.',pc)
         if op=='halt' and return_type is not None: raise VMError('Functions must return, not halt.',pc)
         if op=='clear' and args['slot'] in parameters: raise VMError('Function parameters cannot be cleared.',pc)
@@ -596,19 +650,23 @@ def _validate_unit(code,slots,capabilities,effects,signatures,layouts=(),objects
         elif op=='clear': definite.discard(args['slot']); possible.discard(args['slot'])
         elif op=='binary':
             right=pop(); left=pop(); operator=args['operator']
-            if (isinstance(left, str) and left.startswith('object[')) or (isinstance(right, str) and right.startswith('object[')):
-                raise VMError('Phase 1 does not support comparing objects.', pc)
-            if left!=right: raise VMError('Binary operands have different types.',pc)
-            if operator in ('and','or'):
-                if left!='boolean': raise VMError('Boolean operands required.',pc)
-                result='boolean'
-            elif operator in ('equal','not_equal'): result='boolean'
-            elif operator in ('greater','less','greater_equal','less_equal'):
-                if left not in ('integer','text'): raise VMError('Ordered scalar operands required.',pc)
+            if _ref_target(left) or _ref_target(right) or _contains_object(left) or _contains_object(right):
+                if not (_contains_object(left) and left == right and operator in ('equal', 'not_equal') and 'equality' in features):
+                    raise VMError('Phase 1 does not support comparing objects.', pc)
+                observed['equality'] = True
                 result='boolean'
             else:
-                if left!='integer' and not (operator=='add' and left=='text'): raise VMError('Arithmetic operand type mismatch.',pc)
-                result=left
+                if left!=right: raise VMError('Binary operands have different types.',pc)
+                if operator in ('and','or'):
+                    if left!='boolean': raise VMError('Boolean operands required.',pc)
+                    result='boolean'
+                elif operator in ('equal','not_equal'): result='boolean'
+                elif operator in ('greater','less','greater_equal','less_equal'):
+                    if left not in ('integer','text'): raise VMError('Ordered scalar operands required.',pc)
+                    result='boolean'
+                else:
+                    if left!='integer' and not (operator=='add' and left=='text'): raise VMError('Arithmetic operand type mismatch.',pc)
+                    result=left
             stack.append(result)
         elif op=='unary': pop('boolean' if args['operator']=='not' else 'integer'); stack.append('boolean' if args['operator']=='not' else 'integer')
         elif op=='make_list':
@@ -655,6 +713,23 @@ def _validate_unit(code,slots,capabilities,effects,signatures,layouts=(),objects
             kind = pop()
             if _object_name(kind) is None:
                 raise VMError('Instance test requires an object.', pc)
+            stack.append('boolean')
+        elif op=='alloc':
+            pop(args['type'])
+            stack.append('ref[' + args['type'] + ']')
+        elif op=='deref_get':
+            pop('ref[' + args['type'] + ']')
+            stack.append(args['type'])
+        elif op=='deref_set':
+            pop('ref[' + args['type'] + ']')
+            pop(args['type'])
+        elif op=='release':
+            pass
+        elif op=='same_object':
+            right = pop()
+            left = pop()
+            if _ref_target(left) is None or left != right:
+                raise VMError('Same object requires two references.', pc)
             stack.append('boolean')
         elif op=='text_segment':
             for kind in reversed(args['argument_types']): pop(kind)
@@ -721,11 +796,59 @@ def _display(value, layouts=None):
 
 
 def _export(value):
+    if isinstance(value, RefValue):
+        return {'ref': value.cell}
     if isinstance(value, ObjectValue):
         return {'layout': value.layout, 'fields': [_export(item) for item in value.fields]}
     if type(value) is list:
         return [_export(item) for item in value]
     return value
+
+
+def _structurally_equal(left, right):
+    if isinstance(left, ObjectValue) or isinstance(right, ObjectValue):
+        if not isinstance(left, ObjectValue) or not isinstance(right, ObjectValue):
+            return False
+        if left.layout != right.layout or len(left.fields) != len(right.fields):
+            return False
+        return all(_structurally_equal(a, b) for a, b in zip(left.fields, right.fields))
+    if type(left) is list or type(right) is list:
+        if type(left) is not list or type(right) is not list or len(left) != len(right):
+            return False
+        return all(_structurally_equal(a, b) for a, b in zip(left, right))
+    return left == right
+
+
+class _Cell:
+    __slots__ = ('obj', 'count', 'alive')
+
+    def __init__(self, obj):
+        self.obj = obj
+        self.count = 1
+        self.alive = True
+
+
+def _cell(ref, heap, pc):
+    if not isinstance(ref, RefValue) or type(ref.cell) is not int or not 0 <= ref.cell < len(heap):
+        raise VMError('Invalid reference.', pc)
+    return heap[ref.cell]
+
+
+def _drop_owner(ref, heap, pc):
+    cell = _cell(ref, heap, pc)
+    if cell.count <= 0:
+        raise VMError('Invalid reference.', pc)
+    cell.count -= 1
+    if cell.count == 0:
+        cell.alive = False
+        cell.obj = None
+
+
+def _live_ref(ref, heap, pc):
+    cell = _cell(ref, heap, pc)
+    if ref.stale or not cell.alive:
+        raise VMError('Use after release.', pc)
+    return cell
 
 
 def run_general_artifact(artifact, *, max_steps=100000, host=None, ffmpeg_executor=None, vlc_executor=None, vision_executor=None):
@@ -747,17 +870,48 @@ def run_general_artifact(artifact, *, max_steps=100000, host=None, ffmpeg_execut
                 vision_executor = VisionExecutor()
             elif not callable(getattr(vision_executor, 'invoke', None)):
                 raise VMError('Vision execution requires an explicit vision executor.')
-        stack=[]; values={}; frames=[]; steps=0; output_bytes=0; allocated_items=0
+        stack=[]; values={}; frames=[]; steps=0; output_bytes=0; allocated_items=0; heap=[]
         while True:
             if steps>=max_steps: raise VMError('Execution fuel exhausted.',pc)
             steps+=1; item=code[pc]; op=item['opcode']; args=item['operands']; next_pc=pc+1
             if op=='halt': break
             if op=='const': stack.append(args['value'])
-            elif op=='load': stack.append(values[args['slot']])
-            elif op=='store': values[args['slot']]=stack.pop()
-            elif op=='clear': values.pop(args['slot'],None)
+            elif op=='load':
+                loaded = values[args['slot']]
+                if isinstance(loaded, RefValue):
+                    if loaded.stale or not _cell(loaded, heap, pc).alive:
+                        stack.append(RefValue(loaded.cell, False, True))
+                    else:
+                        _cell(loaded, heap, pc).count += 1
+                        stack.append(RefValue(loaded.cell, True, False))
+                else:
+                    stack.append(loaded)
+            elif op=='store':
+                stored = stack.pop()
+                slot = args['slot']
+                if isinstance(stored, RefValue):
+                    previous = values.get(slot)
+                    if isinstance(previous, RefValue) and not previous.stale:
+                        _drop_owner(previous, heap, pc)
+                    _live_ref(stored, heap, pc)
+                    if not stored.owning:
+                        _cell(stored, heap, pc).count += 1
+                    values[slot] = RefValue(stored.cell, True, False)
+                else:
+                    values[slot] = stored
+            elif op=='clear':
+                slot = args['slot']
+                previous = values.get(slot)
+                if isinstance(previous, RefValue) and not previous.stale:
+                    _drop_owner(previous, heap, pc)
+                values.pop(slot, None)
             elif op=='binary':
                 b=stack.pop(); a=stack.pop(); operator=args['operator']
+                if operator in ('equal', 'not_equal'):
+                    same = _structurally_equal(a, b)
+                    stack.append(same if operator == 'equal' else not same)
+                    pc = next_pc
+                    continue
                 if operator in ('divide','modulo'):
                     if b==0: raise VMError('Division by zero.',pc)
                     quotient=(abs(a)//abs(b))*(-1 if (a<0)!=(b<0) else 1)
@@ -807,6 +961,51 @@ def run_general_artifact(artifact, *, max_steps=100000, host=None, ffmpeg_execut
             elif op=='is_instance':
                 obj=stack.pop()
                 stack.append(isinstance(obj, ObjectValue) and _extends(obj.layout, args['layout'], layouts))
+            elif op=='alloc':
+                obj=stack.pop()
+                if not isinstance(obj, ObjectValue):
+                    raise VMError('A reference requires an object.', pc)
+                dynamic='object[' + layouts[obj.layout]['name'] + ']'
+                if not _subtype(dynamic, args['type'], layouts, (), features):
+                    raise VMError('Invalid reference type.', pc)
+                allocated_items+=1
+                if allocated_items>1000000: raise VMError('Collection allocation limit exceeded.', pc)
+                heap.append(_Cell(obj))
+                stack.append(RefValue(len(heap)-1, True, False))
+            elif op=='deref_get':
+                ref=stack.pop()
+                cell=_live_ref(ref, heap, pc)
+                obj=cell.obj
+                if ref.owning:
+                    _drop_owner(ref, heap, pc)
+                stack.append(obj)
+            elif op=='deref_set':
+                ref=stack.pop(); obj=stack.pop()
+                cell=_live_ref(ref, heap, pc)
+                if not isinstance(obj, ObjectValue):
+                    raise VMError('Invalid reference update.', pc)
+                dynamic='object[' + layouts[obj.layout]['name'] + ']'
+                if not _subtype(dynamic, args['type'], layouts, (), features):
+                    raise VMError('Invalid reference update.', pc)
+                cell.obj=obj
+                if ref.owning:
+                    _drop_owner(ref, heap, pc)
+            elif op=='release':
+                slot=args['slot']
+                previous=values.get(slot)
+                if isinstance(previous, RefValue) and not previous.stale:
+                    _drop_owner(previous, heap, pc)
+                    values[slot]=RefValue(previous.cell, False, True)
+            elif op=='same_object':
+                right=stack.pop(); left=stack.pop()
+                _live_ref(left, heap, pc)
+                _live_ref(right, heap, pc)
+                same=left.cell==right.cell
+                if left.owning:
+                    _drop_owner(left, heap, pc)
+                if right.owning:
+                    _drop_owner(right, heap, pc)
+                stack.append(same)
             elif op=='append':
                 item=stack.pop(); sequence=stack.pop()
                 if len(sequence)>=MAX_ITEMS: raise VMError('List exceeds the 10000-item limit.',pc)
@@ -817,7 +1016,14 @@ def run_general_artifact(artifact, *, max_steps=100000, host=None, ffmpeg_execut
             elif op=='jump_if_false':
                 if not stack.pop(): next_pc=args['target']
             elif op=='show':
-                text=_display(stack.pop(), layouts); output_bytes+=len(text.encode('utf-8'))+1
+                shown=stack.pop()
+                if isinstance(shown, RefValue):
+                    cell=_live_ref(shown, heap, pc)
+                    obj=cell.obj
+                    if shown.owning:
+                        _drop_owner(shown, heap, pc)
+                    shown=obj
+                text=_display(shown, layouts); output_bytes+=len(text.encode('utf-8'))+1
                 if output_bytes>MAX_TEXT: raise VMError('Output size limit exceeded.',pc)
                 state['output'].append(text); state['stdout']+=text+'\n'
             elif op=='vision_query':
